@@ -2,7 +2,7 @@
 
 **AI-Powered E-Discovery Email Dataset Generator**
 
-*A free tool from [QuikData](https://quikdata.com) — Scalable On-Prem, SaaS, and Hybrid E-Discovery solutions for law firms, service providers, and corporate/government. AI Powered.*
+*A free tool from [QuikData](https://www.quikdata.com) — Scalable On-Prem, SaaS, and Hybrid E-Discovery solutions for law firms, service providers, and corporate/government. AI Powered.*
 
 ---
 
@@ -170,7 +170,7 @@ Do not use generated content to mislead or deceive.
 
 ## About QuikData
 
-ReelDiscovery is brought to you by **[QuikData](https://quikdata.com)** — a leading provider of AI-powered e-discovery solutions.
+ReelDiscovery is brought to you by **[QuikData](https://www.quikdata.com)** — a leading provider of AI-powered e-discovery solutions.
 
 **QuikData offers:**
 - **On-Premises** - Full control with deployment in your own data center
