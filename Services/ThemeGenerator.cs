@@ -1,0 +1,217 @@
+using System.Text.Json.Serialization;
+using ReelDiscovery.Models;
+
+namespace ReelDiscovery.Services;
+
+public class ThemeGenerator
+{
+    private readonly OpenAIService _openAI;
+
+    public ThemeGenerator(OpenAIService openAI)
+    {
+        _openAI = openAI;
+    }
+
+    /// <summary>
+    /// Generates presentation themes for all unique domains found in the character list.
+    /// </summary>
+    public async Task<Dictionary<string, PresentationTheme>> GenerateThemesForDomainsAsync(
+        string topic,
+        List<Character> characters,
+        IProgress<string>? progress = null,
+        CancellationToken ct = default)
+    {
+        var themes = new Dictionary<string, PresentationTheme>(StringComparer.OrdinalIgnoreCase);
+
+        // Get unique domains and their organization names
+        var domainOrgs = characters
+            .GroupBy(c => c.Domain, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                g => g.Key,
+                g => g.First().Organization,
+                StringComparer.OrdinalIgnoreCase);
+
+        if (domainOrgs.Count == 0)
+            return themes;
+
+        progress?.Report($"Generating presentation themes for {domainOrgs.Count} organizations...");
+
+        var systemPrompt = @"You are a brand designer creating professional color schemes and typography for corporate documents.
+Given organizations from a specific topic/universe, create appropriate themes that match each organization's character and industry.
+
+Guidelines:
+- Colors should be professional and readable (good contrast)
+- The primary color is used for title backgrounds and header bars
+- The accent color is used for emphasis lines and highlights
+- Consider the organization's industry, personality, and any brand associations
+- For fictional organizations from TV shows/movies, try to match their canonical branding if known
+
+Font Guidelines - choose fonts that match the organization's personality:
+- Law firms, banks, traditional companies: Serif fonts like 'Georgia', 'Times New Roman', 'Garamond'
+- Tech companies, startups, modern firms: Clean sans-serif like 'Segoe UI', 'Arial', 'Calibri'
+- Creative agencies, media companies: Modern fonts like 'Century Gothic', 'Trebuchet MS'
+- Government, formal institutions: Traditional like 'Times New Roman', 'Book Antiqua'
+- Healthcare, scientific: Clean professional like 'Calibri', 'Arial'
+- The heading font should be bolder/more distinctive than the body font
+
+Respond with valid JSON only.";
+
+        var orgList = string.Join("\n", domainOrgs.Select(kv => $"- {kv.Value} ({kv.Key})"));
+
+        var userPrompt = $@"Topic/Universe: {topic}
+
+Generate unique color themes for the following organizations:
+{orgList}
+
+Each theme should reflect the organization's character within the context of ""{topic}"".
+
+For example:
+- A law firm might use navy blue and gold with Georgia/Times New Roman fonts
+- A tech startup might use vibrant blue and orange with Segoe UI/Calibri fonts
+- A government agency might use formal blue and red with Times New Roman
+- Dunder Mifflin (The Office) might use their classic blue and gray with standard corporate fonts
+
+Available fonts (use ONLY these - they are commonly installed):
+Serif: Georgia, Times New Roman, Garamond, Book Antiqua, Palatino Linotype
+Sans-serif: Segoe UI, Arial, Calibri, Trebuchet MS, Century Gothic, Verdana, Tahoma
+
+Respond with JSON:
+{{
+  ""themes"": [
+    {{
+      ""domain"": ""string (the email domain)"",
+      ""organizationName"": ""string"",
+      ""themeName"": ""string (descriptive name like 'Corporate Navy' or 'Tech Vibrant')"",
+      ""primaryColor"": ""RRGGBB (hex without #, main brand color)"",
+      ""secondaryColor"": ""RRGGBB (complementary color)"",
+      ""accentColor"": ""RRGGBB (highlight/emphasis color)"",
+      ""headingFont"": ""string (font for titles/headings)"",
+      ""bodyFont"": ""string (font for body text)""
+    }}
+  ]
+}}";
+
+        var response = await _openAI.GetJsonCompletionAsync<ThemeApiResponse>(systemPrompt, userPrompt, "Theme Generation", ct);
+
+        if (response?.Themes != null)
+        {
+            foreach (var t in response.Themes)
+            {
+                if (string.IsNullOrEmpty(t.Domain))
+                    continue;
+
+                themes[t.Domain] = new PresentationTheme
+                {
+                    Domain = t.Domain,
+                    OrganizationName = t.OrganizationName ?? domainOrgs.GetValueOrDefault(t.Domain, "Organization"),
+                    ThemeName = t.ThemeName ?? "Corporate",
+                    PrimaryColor = SanitizeHexColor(t.PrimaryColor) ?? "2B579A",
+                    SecondaryColor = SanitizeHexColor(t.SecondaryColor) ?? "5B9BD5",
+                    AccentColor = SanitizeHexColor(t.AccentColor) ?? "ED7D31",
+                    HeadingFont = SanitizeFont(t.HeadingFont) ?? "Segoe UI Semibold",
+                    BodyFont = SanitizeFont(t.BodyFont) ?? "Segoe UI"
+                };
+            }
+        }
+
+        // Ensure all domains have a theme (use defaults for any missing)
+        foreach (var domain in domainOrgs.Keys)
+        {
+            if (!themes.ContainsKey(domain))
+            {
+                themes[domain] = new PresentationTheme
+                {
+                    Domain = domain,
+                    OrganizationName = domainOrgs[domain],
+                    ThemeName = "Default Corporate"
+                };
+            }
+        }
+
+        progress?.Report($"Generated {themes.Count} presentation themes.");
+        return themes;
+    }
+
+    /// <summary>
+    /// Validates and sanitizes a hex color string (removes # if present, validates length).
+    /// </summary>
+    private static string? SanitizeHexColor(string? color)
+    {
+        if (string.IsNullOrEmpty(color))
+            return null;
+
+        color = color.Trim().TrimStart('#');
+
+        // Must be exactly 6 hex characters
+        if (color.Length != 6)
+            return null;
+
+        // Validate hex characters
+        if (!color.All(c => "0123456789ABCDEFabcdef".Contains(c)))
+            return null;
+
+        return color.ToUpperInvariant();
+    }
+
+    private class ThemeApiResponse
+    {
+        [JsonPropertyName("themes")]
+        public List<ThemeDto> Themes { get; set; } = new();
+    }
+
+    private class ThemeDto
+    {
+        [JsonPropertyName("domain")]
+        public string Domain { get; set; } = string.Empty;
+
+        [JsonPropertyName("organizationName")]
+        public string OrganizationName { get; set; } = string.Empty;
+
+        [JsonPropertyName("themeName")]
+        public string ThemeName { get; set; } = string.Empty;
+
+        [JsonPropertyName("primaryColor")]
+        public string PrimaryColor { get; set; } = string.Empty;
+
+        [JsonPropertyName("secondaryColor")]
+        public string SecondaryColor { get; set; } = string.Empty;
+
+        [JsonPropertyName("accentColor")]
+        public string AccentColor { get; set; } = string.Empty;
+
+        [JsonPropertyName("headingFont")]
+        public string HeadingFont { get; set; } = string.Empty;
+
+        [JsonPropertyName("bodyFont")]
+        public string BodyFont { get; set; } = string.Empty;
+    }
+
+    // Allowed fonts that are commonly installed on Windows
+    private static readonly HashSet<string> AllowedFonts = new(StringComparer.OrdinalIgnoreCase)
+    {
+        // Serif
+        "Georgia", "Times New Roman", "Garamond", "Book Antiqua", "Palatino Linotype",
+        // Sans-serif
+        "Segoe UI", "Segoe UI Semibold", "Segoe UI Light", "Arial", "Arial Black",
+        "Calibri", "Calibri Light", "Trebuchet MS", "Century Gothic", "Verdana", "Tahoma"
+    };
+
+    /// <summary>
+    /// Validates font name against allowed list, returns null if invalid.
+    /// </summary>
+    private static string? SanitizeFont(string? font)
+    {
+        if (string.IsNullOrWhiteSpace(font))
+            return null;
+
+        font = font.Trim();
+
+        // Check if it's in our allowed list
+        if (AllowedFonts.Contains(font))
+            return font;
+
+        // Try to find a close match (case-insensitive)
+        var match = AllowedFonts.FirstOrDefault(f => f.Equals(font, StringComparison.OrdinalIgnoreCase));
+        return match;
+    }
+}
