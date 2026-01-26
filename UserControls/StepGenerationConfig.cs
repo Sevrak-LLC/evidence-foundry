@@ -1,5 +1,6 @@
 using ReelDiscovery.Helpers;
 using ReelDiscovery.Models;
+using ReelDiscovery.Services;
 
 namespace ReelDiscovery.UserControls;
 
@@ -25,6 +26,7 @@ public class StepGenerationConfig : UserControl, IWizardStep
     private TextBox _txtOutputFolder = null!;
     private Button _btnBrowse = null!;
     private CheckBox _chkOrganizeBySender = null!;
+    private CheckBox _chkTelemetry = null!;
 
     public string StepTitle => "Generation Settings";
     public bool CanMoveNext => !string.IsNullOrWhiteSpace(_txtOutputFolder?.Text);
@@ -400,7 +402,31 @@ public class StepGenerationConfig : UserControl, IWizardStep
             Location = new Point(labelWidth, y + 6)
         };
         mainPanel.Controls.Add(_chkOrganizeBySender);
-        y += rowHeight;
+        y += rowHeight + sectionGap;
+
+        // === Privacy Section ===
+        y = AddSectionHeader(mainPanel, "Privacy", y);
+
+        _chkTelemetry = new CheckBox
+        {
+            Text = "Help improve ReelDiscovery by sending anonymous usage statistics",
+            Checked = TelemetryService.IsTelemetryEnabled(),
+            AutoSize = true,
+            Font = new Font(this.Font.FontFamily, 10F),
+            Location = new Point(labelWidth, y + 6)
+        };
+        mainPanel.Controls.Add(_chkTelemetry);
+
+        var telemetryHelpLabel = new Label
+        {
+            Text = "(Topic name, email count, model used - no personal data)",
+            AutoSize = true,
+            ForeColor = Color.DimGray,
+            Font = new Font(this.Font.FontFamily, 9F),
+            Location = new Point(labelWidth + 20, y + 28)
+        };
+        mainPanel.Controls.Add(telemetryHelpLabel);
+        y += rowHeight + 15;
 
         mainPanel.Height = y + 20;
         scrollPanel.Controls.Add(mainPanel);
@@ -517,11 +543,16 @@ public class StepGenerationConfig : UserControl, IWizardStep
 
         _chkOrganizeBySender.Checked = _state.Config.OrganizeBySender;
 
+        // Load telemetry preference
+        _chkTelemetry.Checked = TelemetryService.IsTelemetryEnabled();
+
         return Task.CompletedTask;
     }
 
     public Task OnLeaveStepAsync()
     {
+        // Save telemetry preference
+        TelemetryService.SetTelemetryEnabled(_chkTelemetry.Checked);
         return Task.CompletedTask;
     }
 

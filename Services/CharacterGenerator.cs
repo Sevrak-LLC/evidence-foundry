@@ -20,12 +20,22 @@ public class CharacterGenerator
     private const int MaxCharactersPerBatch = 25;
 
     /// <summary>
-    /// Assigns a TTS voice based on character name and personality
+    /// Assigns a TTS voice based on character gender (from AI) or inferred from name/personality.
     /// </summary>
-    private string AssignVoice(string firstName, string personalityNotes)
+    private string AssignVoice(string gender, string firstName, string personalityNotes)
     {
-        // Simple heuristic: use common name patterns to guess gender
-        // This is imperfect but provides variety in voices
+        // First, check if AI provided explicit gender
+        var lowerGender = gender?.ToLowerInvariant() ?? "";
+        if (lowerGender == "female" || lowerGender == "f")
+        {
+            return FemaleVoices[_random.Next(FemaleVoices.Length)];
+        }
+        if (lowerGender == "male" || lowerGender == "m")
+        {
+            return MaleVoices[_random.Next(MaleVoices.Length)];
+        }
+
+        // Fallback: use heuristics based on name and personality notes
         var lowerName = firstName.ToLowerInvariant();
         var lowerNotes = personalityNotes?.ToLowerInvariant() ?? "";
 
@@ -201,6 +211,25 @@ IMPORTANT: Create a realistic mix of internal and external contacts:
 - External contacts (customers, vendors, lawyers, consultants) with their OWN separate email domains
 - External characters can be fictional, but internal characters MUST be from the source material
 
+CHARACTER RELATIONSHIPS AND EMOTIONAL DYNAMICS - CRITICAL:
+The personalityNotes field MUST include relationship dynamics with other characters:
+- Who are their ALLIES? (friends, mentors, collaborators they genuinely like)
+- Who are their RIVALS or ENEMIES? (competitors, adversaries, people they distrust or despise)
+- What TENSIONS exist? (grudges, jealousy, resentment, power struggles, old wounds)
+- What makes them ANGRY? What triggers emotional reactions?
+- How do they TRULY feel about the people they work with?
+
+Examples of GOOD personalityNotes (emotionally rich):
+- 'Sarcastic and deadpan. Close friends with Pam - they share inside jokes. Openly mocks and pranks Dwight, viewing him as insufferable. Resents Michael's incompetence but feels guilty about it. Secretly ambitious but hides it behind irony.'
+- 'Intensely loyal to Michael, sees Jim as a direct threat to everything he's worked for. Aggressive and condescending with subordinates, submissive with authority figures. Holds grudges for years. Seethes with resentment when overlooked.'
+- 'Calculating and ruthless behind a polished exterior. Views colleagues as pawns to be used. Despises weakness and sentimentality. Will sabotage rivals while maintaining plausible deniability. Enjoys watching others fail.'
+- 'Warm but with a temper when pushed. Protective of friends, hostile to outsiders. Still bitter about being passed over for promotion. Distrusts management. Will get passive-aggressive when feeling disrespected.'
+
+Examples of BAD personalityNotes (too bland - DO NOT DO THIS):
+- 'Professional and organized. Good communicator.'
+- 'Friendly and helpful team player.'
+- 'Experienced manager with strong leadership skills.'
+
 Always respond with valid JSON matching the specified schema exactly.";
 
         // Build storyline summary with indices for character assignment
@@ -259,6 +288,13 @@ SIGNATURE BLOCKS:
 - Include: name, title, organization, phone (fictional), and optionally address or tagline
 - Personal email domains (gmail.com, yahoo.com, etc.) may have simple or no signatures
 
+PERSONALITY NOTES - MAKE THEM EMOTIONALLY RICH:
+- DO NOT write bland descriptions like 'professional and organized'
+- INCLUDE who they like, who they dislike, who they resent
+- INCLUDE what triggers them emotionally
+- INCLUDE their real attitudes toward colleagues (not just job function)
+- Think about the SOURCE MATERIAL - how do these characters ACTUALLY interact?
+
 Respond with JSON in this exact format:
 {{
   ""primaryCompanyDomain"": ""string (e.g., dundermifflin.com)"",
@@ -267,12 +303,13 @@ Respond with JSON in this exact format:
     {{
       ""firstName"": ""string"",
       ""lastName"": ""string"",
+      ""gender"": ""male"" | ""female"" (for TTS voice selection),
       ""role"": ""string (job title)"",
       ""department"": ""string"",
       ""organization"": ""string (company name)"",
       ""domain"": ""string (email domain for this character)"",
       ""isExternal"": boolean (true if not part of primary company),
-      ""personalityNotes"": ""string (1-2 sentences about communication style)"",
+      ""personalityNotes"": ""string (2-3 sentences about personality, relationships, who they like/dislike, what triggers them)"",
       ""signatureBlock"": ""string (professional email signature with name, title, company, phone - use \\n for line breaks)"",
       ""storylineIndices"": [0, 1, 2] (array of storyline indices this character is involved in)
     }}
@@ -307,7 +344,7 @@ Respond with JSON in this exact format:
                 PersonalityNotes = c.PersonalityNotes,
                 SignatureBlock = c.SignatureBlock ?? string.Empty,
                 IsExternal = c.IsExternal,
-                VoiceId = AssignVoice(c.FirstName, c.PersonalityNotes)
+                VoiceId = AssignVoice(c.Gender, c.FirstName, c.PersonalityNotes)
             };
 
             result.Characters.Add(character);
@@ -372,6 +409,9 @@ Respond with JSON in this exact format:
 
         [JsonPropertyName("storylineIndices")]
         public List<int> StorylineIndices { get; set; } = new();
+
+        [JsonPropertyName("gender")]
+        public string Gender { get; set; } = string.Empty;
     }
 }
 

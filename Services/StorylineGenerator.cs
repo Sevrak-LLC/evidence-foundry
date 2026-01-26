@@ -143,6 +143,25 @@ For example:
 
 The emails should feel AUTHENTIC to the source material's world, not like a corporate translation of it.
 
+EMOTIONAL INTENSITY IS CRITICAL:
+Every storyline MUST have real emotional stakes and interpersonal conflict:
+- What's the CONFLICT? Who is fighting, disagreeing, or clashing?
+- What EMOTIONS drive the exchanges? (anger, fear, betrayal, desperation, jealousy, grief, contempt)
+- Are there VILLAINS, antagonists, or people being blamed?
+- Will tempers flare? Will characters say things they shouldn't?
+- Are there SIDES being taken? People turning against each other?
+
+The description field MUST specify:
+1. The core conflict/tension
+2. Which characters are in opposition
+3. The emotional tone (heated, tense, bitter, desperate, accusatory, etc.)
+
+DO NOT create bland, cordial storylines:
+- BAD: 'Planning the company picnic' (boring, no conflict)
+- GOOD: 'Company picnic disaster - food poisoning blamed on Angela, accusations of deliberate sabotage, HR gets involved'
+- BAD: 'Quarterly budget review' (routine, no stakes)
+- GOOD: 'Quarterly budget exposes missing funds - accusations fly between departments, someone's getting fired'
+
 Always respond with valid JSON matching the specified schema exactly.";
 
         var existingTitlesNote = existingTitles != null && existingTitles.Count > 0
@@ -191,12 +210,19 @@ Each storyline should:
 3. Involve 2-6 characters FROM the source material
 4. Span a realistic timeframe for that story's events{dateRangeInstruction}
 
+CRITICAL - MAKE STORYLINES EMOTIONALLY CHARGED:
+- Every storyline needs CONFLICT and TENSION between characters
+- The description MUST name who is in conflict with whom
+- Include the EMOTIONAL STAKES (fear, anger, betrayal, desperation, jealousy)
+- Characters who are enemies/rivals should CLASH in email threads
+- Don't make everyone professional and cordial - let real emotions show
+
 Respond with JSON in this exact format:
 {{
   ""storylines"": [
     {{
       ""title"": ""string"",
-      ""description"": ""string (2-3 sentences describing the storyline)"",
+      ""description"": ""string (2-3 sentences: the conflict, who's against whom, and the emotional stakes)"",
       ""timelineHint"": ""string (e.g., 'Spans 2 weeks', 'Single day event')"",
       ""suggestedEmailCount"": number (5-20),
       ""keyCharacterRoles"": [""string""]

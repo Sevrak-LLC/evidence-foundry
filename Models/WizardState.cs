@@ -34,8 +34,8 @@ public class WizardState
     public List<Character> Characters { get; set; } = new();
     public string CompanyDomain { get; set; } = string.Empty;
 
-    // Presentation themes by domain (generated with characters)
-    public Dictionary<string, PresentationTheme> DomainThemes { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    // Organization themes by domain (used for emails and documents)
+    public Dictionary<string, OrganizationTheme> DomainThemes { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     // Step 5 - Generation Config
     public GenerationConfig Config { get; set; } = new();

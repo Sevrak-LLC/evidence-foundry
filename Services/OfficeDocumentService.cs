@@ -11,9 +11,9 @@ namespace ReelDiscovery.Services;
 
 public class OfficeDocumentService
 {
-    public byte[] CreateWordDocument(string title, string content, PresentationTheme? theme = null)
+    public byte[] CreateWordDocument(string title, string content, OrganizationTheme? theme = null)
     {
-        var t = theme ?? PresentationTheme.Default;
+        var t = theme ?? OrganizationTheme.Default;
 
         using var stream = new MemoryStream();
         using (var doc = WordprocessingDocument.Create(stream, WordprocessingDocumentType.Document, true))
@@ -166,10 +166,10 @@ public class OfficeDocumentService
         return stream.ToArray();
     }
 
-    public byte[] CreatePowerPointDocument(string title, List<(string slideTitle, string content)> slides, PresentationTheme? theme = null)
+    public byte[] CreatePowerPointDocument(string title, List<(string slideTitle, string content)> slides, OrganizationTheme? theme = null)
     {
         // Use provided theme or default colors
-        var t = theme ?? PresentationTheme.Default;
+        var t = theme ?? OrganizationTheme.Default;
 
         using var stream = new MemoryStream();
         using (var doc = PresentationDocument.Create(stream, PresentationDocumentType.Presentation, true))
@@ -237,7 +237,7 @@ public class OfficeDocumentService
         return stream.ToArray();
     }
 
-    private static A.Theme CreateModernTheme(PresentationTheme t)
+    private static A.Theme CreateModernTheme(OrganizationTheme t)
     {
         return new A.Theme(
             new A.ThemeElements(
@@ -365,7 +365,7 @@ public class OfficeDocumentService
         uint slideId,
         string title,
         string subtitle,
-        PresentationTheme t)
+        OrganizationTheme t)
     {
         var slidePart = presentationPart.AddNewPart<SlidePart>();
 
@@ -404,7 +404,7 @@ public class OfficeDocumentService
         uint slideId,
         string title,
         string content,
-        PresentationTheme t)
+        OrganizationTheme t)
     {
         var slidePart = presentationPart.AddNewPart<SlidePart>();
 

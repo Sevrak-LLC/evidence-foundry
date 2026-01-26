@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using ReelDiscovery.Helpers;
 using ReelDiscovery.Models;
+using ReelDiscovery.Services;
 
 namespace ReelDiscovery.UserControls;
 
@@ -176,10 +177,21 @@ public class StepComplete : UserControl, IWizardStep
         _state = state;
     }
 
-    public Task OnEnterStepAsync()
+    public async Task OnEnterStepAsync()
     {
         LoadStatistics();
-        return Task.CompletedTask;
+
+        // Send telemetry event (only if user opted in)
+        if (_state.Result != null)
+        {
+            await TelemetryService.SendGenerationEventAsync(
+                _state.Topic,
+                _state.Result.TotalEmailsGenerated,
+                _state.Result.TotalThreadsGenerated,
+                _state.Result.TotalAttachmentsGenerated,
+                _state.SelectedModel,
+                _state.Result.ElapsedTime);
+        }
     }
 
     public Task OnLeaveStepAsync()

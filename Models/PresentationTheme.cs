@@ -1,9 +1,9 @@
 namespace ReelDiscovery.Models;
 
 /// <summary>
-/// Defines a color theme for PowerPoint presentations, typically associated with an organization/domain.
+/// Defines a color and typography theme for an organization, used for emails and documents.
 /// </summary>
-public class PresentationTheme
+public class OrganizationTheme
 {
     /// <summary>
     /// The domain this theme is associated with (e.g., "starkindustries.com")
@@ -63,7 +63,7 @@ public class PresentationTheme
     /// <summary>
     /// Creates a default blue professional theme
     /// </summary>
-    public static PresentationTheme Default => new()
+    public static OrganizationTheme Default => new()
     {
         ThemeName = "Professional Blue",
         PrimaryColor = "2B579A",
@@ -73,3 +73,6 @@ public class PresentationTheme
         BodyFont = "Segoe UI"
     };
 }
+
+// Backward compatibility alias
+public class PresentationTheme : OrganizationTheme { }

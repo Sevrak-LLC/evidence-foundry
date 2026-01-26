@@ -13,15 +13,15 @@ public class ThemeGenerator
     }
 
     /// <summary>
-    /// Generates presentation themes for all unique domains found in the character list.
+    /// Generates organization themes for all unique domains found in the character list.
     /// </summary>
-    public async Task<Dictionary<string, PresentationTheme>> GenerateThemesForDomainsAsync(
+    public async Task<Dictionary<string, OrganizationTheme>> GenerateThemesForDomainsAsync(
         string topic,
         List<Character> characters,
         IProgress<string>? progress = null,
         CancellationToken ct = default)
     {
-        var themes = new Dictionary<string, PresentationTheme>(StringComparer.OrdinalIgnoreCase);
+        var themes = new Dictionary<string, OrganizationTheme>(StringComparer.OrdinalIgnoreCase);
 
         // Get unique domains and their organization names
         var domainOrgs = characters
@@ -34,7 +34,7 @@ public class ThemeGenerator
         if (domainOrgs.Count == 0)
             return themes;
 
-        progress?.Report($"Generating presentation themes for {domainOrgs.Count} organizations...");
+        progress?.Report($"Generating organization themes for {domainOrgs.Count} organizations...");
 
         var systemPrompt = @"You are a brand designer creating professional color schemes and typography for corporate documents.
 Given organizations from a specific topic/universe, create appropriate themes that match each organization's character and industry.
@@ -100,7 +100,7 @@ Respond with JSON:
                 if (string.IsNullOrEmpty(t.Domain))
                     continue;
 
-                themes[t.Domain] = new PresentationTheme
+                themes[t.Domain] = new OrganizationTheme
                 {
                     Domain = t.Domain,
                     OrganizationName = t.OrganizationName ?? domainOrgs.GetValueOrDefault(t.Domain, "Organization"),
@@ -119,7 +119,7 @@ Respond with JSON:
         {
             if (!themes.ContainsKey(domain))
             {
-                themes[domain] = new PresentationTheme
+                themes[domain] = new OrganizationTheme
                 {
                     Domain = domain,
                     OrganizationName = domainOrgs[domain],

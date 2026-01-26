@@ -94,7 +94,7 @@ public class EmailGenerator
                     var storylineThreads = await GenerateThreadsForStorylineAsync(
                         storyline, state.Characters, state.CompanyDomain,
                         emailCount, storyStart, storyEnd,
-                        state.Config, ct);
+                        state.Config, state.DomainThemes, ct);
 
                     // Add to concurrent collection
                     foreach (var thread in storylineThreads)
@@ -407,13 +407,15 @@ public class EmailGenerator
         // Image attachments
         if (config.IncludeImages && config.ImagePercentage > 0)
         {
-            var imageCount = Math.Max(0, (int)Math.Round(emailCount * config.ImagePercentage / 100.0));
+            var imageCount = Math.Max(1, (int)Math.Round(emailCount * config.ImagePercentage / 100.0));
             if (imageCount > 0)
             {
-                instructions.Add($@"IMAGE ATTACHMENTS: Include EXACTLY {imageCount} email(s) with images (no more, no less).
+                instructions.Add($@"IMAGE ATTACHMENTS - MANDATORY: You MUST set hasImage: true for EXACTLY {imageCount} email(s).
+  - This is REQUIRED, not optional. Set hasImage: true for {imageCount} emails.
   - Images should be photos, screenshots, or visual evidence relevant to the plot
   - MAKE MOST IMAGES INLINE (isImageInline: true) - the reader sees the image embedded in the email
-  - Provide a VIVID imageDescription that can be used to generate the image");
+  - Provide a VIVID, DETAILED imageDescription that can be used to generate the image with DALL-E
+  - Example: 'A candid photo taken at the office party showing Michael wearing a ridiculous costume while Jim looks on with an exasperated expression'");
                 limits.Add($"images: {imageCount}");
             }
         }
@@ -487,32 +489,71 @@ public class EmailGenerator
         DateTime startDate,
         DateTime endDate,
         GenerationConfig config,
+        Dictionary<string, OrganizationTheme> domainThemes,
         CancellationToken ct)
     {
         var systemPrompt = @"You are generating immersive email/message threads set WITHIN a fictional universe for an e-discovery dataset.
 These should read like authentic communications between characters in that world - capturing their voices, the stakes, and the drama of the source material.
 
-WRITING STYLE - MAKE EMAILS ENGAGING AND REALISTIC:
+CRITICAL - EMOTIONAL AUTHENTICITY:
+Characters who dislike each other should NOT be cordial and professional. Real emails between people in conflict show:
+- Passive-aggressive jabs and subtle insults
+- Curt, cold responses that barely hide contempt
+- Accusations (direct or implied)
+- Defensive reactions and blame-shifting
+- CC'ing others to 'witness' or build alliances
+- Barely contained anger ('I don't appreciate your tone', 'Per my LAST email...')
+- Sarcasm and mockery
+- Threats (veiled or explicit)
+
+EXAMPLES OF EMOTIONALLY AUTHENTIC EMAILS:
+
+Between RIVALS/ENEMIES:
+'Michael, I've now explained this THREE times. Perhaps if you spent less time on your improv classes and more time reading the reports I send you, we wouldn't keep having this conversation. The numbers don't lie - your branch is underperforming. Again. - Jan'
+
+'Dwight - I don't know why you thought it was appropriate to CC the entire office on your 'concerns' about my sales numbers, but I'll be discussing this with Michael. If you have a problem with me, say it to my face. - Jim'
+
+Between ALLIES sharing frustration:
+'Can you BELIEVE what she said in that meeting?? I'm still shaking. She basically accused me of sabotaging the whole project. I need to vent - lunch today? Don't reply all on this one obviously lol'
+
+Passive-aggressive 'professional' hostility:
+'As I mentioned in my previous email (attached again for your convenience, since you seem to have missed it), the deadline was Friday. I'm happy to discuss your challenges with time management at your earliest convenience.'
+
+DO NOT write emails like this (too bland):
+'Hi Michael, Just following up on the report. Please let me know if you have any questions. Thanks, Dwight'
+
+WRITING STYLE:
 1. VARY EMAIL LENGTH REALISTICALLY:
-   - Quick replies: 1-2 sentences ('Got it, on my way.' or 'This is a disaster. Call me.')
-   - Standard messages: 2-3 paragraphs with substance
-   - Important/emotional messages: 3-5 paragraphs with detail, context, and feeling
-   - Mix these naturally - not every email should be the same length
+   - Quick hostile replies: 'Fine.' or 'Whatever you say.' or 'Unbelievable.'
+   - Venting messages: Long, emotional paragraphs when someone is upset
+   - Cold professional responses: Short, clipped sentences when barely containing anger
+   - Mix these based on the emotional state of the character
 
-2. CAPTURE CHARACTER VOICES:
-   - Write how these characters would ACTUALLY communicate
-   - Include their quirks, speech patterns, and personality
-   - Show their relationships through tone (formal with superiors, casual with friends, tense with rivals)
+2. USE VARIED FORMATTING - NOT JUST PLAIN PARAGRAPHS:
+   - Bullet points for lists: '- Item one' or '• Item one'
+   - Numbered lists for steps or priorities: '1. First step' '2. Second step'
+   - Action items: '[ ] Task to complete' or 'ACTION REQUIRED: ...'
+   - ALL CAPS for emphasis when frustrated or angry
+   - Bold key points with *asterisks* for emphasis
+   - Short, punchy sentences mixed with longer explanatory ones
 
-3. INCLUDE DRAMA AND STAKES:
+3. CAPTURE CHARACTER RELATIONSHIPS:
+   - Write how these characters would ACTUALLY communicate based on their relationship
+   - If they hate each other, SHOW IT in the email
+   - If they're allies, show warmth and inside jokes
+   - Use the personality notes to inform how characters interact
+   - Tone should shift dramatically based on recipient (warm to friends, hostile to rivals)
+
+4. INCLUDE DRAMA AND STAKES:
    - Reference specific plot events and their consequences
-   - Show emotions: fear, excitement, anger, concern, desperation
+   - Show emotions: fear, excitement, anger, concern, desperation, contempt, jealousy
    - Include subtext and things left unsaid
-   - Let tensions simmer and conflicts escalate
+   - Let tensions EXPLODE sometimes, not just simmer
+   - Include emails people would regret sending
 
-4. MAKE IT FEEL AUTHENTIC TO THE WORLD:
+5. MAKE IT FEEL AUTHENTIC TO THE WORLD:
    - Use in-universe terminology, locations, and references
-   - Reference shared history between characters
+   - Reference shared history and grudges between characters
    - Include world-appropriate concerns and priorities
 
 ATTACHMENTS - INTEGRATE NATURALLY INTO EMAIL CONTENT:
@@ -562,13 +603,22 @@ Date Range: {startDate:yyyy-MM-dd} to {endDate:yyyy-MM-dd}
 Generate an email thread with {emailCount} emails for this storyline.
 The emails should tell a coherent story with a beginning, middle, and conclusion - staying TRUE to the fictional universe.
 
-MAKE THE EMAILS ENGAGING:
-- Vary lengths realistically: some quick replies (1-2 sentences), some standard (2-3 paragraphs), some detailed (3-5 paragraphs)
-- Capture each character's unique voice and personality
+CRITICAL - EMOTIONAL AUTHENTICITY:
+- Look at each character's personality notes - if they DISLIKE someone, their emails should SHOW IT
+- Rivals and enemies should be hostile, passive-aggressive, or coldly professional - NOT friendly
+- Allies should be warm, share frustrations about mutual enemies, use inside jokes
+- Include at least ONE email where someone is clearly angry, upset, or hostile
+- Let tensions escalate - don't keep everything polite and professional
+- Include emails people might regret sending (too angry, too honest, cc'd wrong people)
+
+MAKE THE EMAILS VARIED AND REALISTIC:
+- Vary lengths: curt angry replies ('Fine.'), venting rants, cold professional responses
+- Use formatting: bullet points, numbered lists, *emphasis*, ALL CAPS when frustrated
+- Show the RELATIONSHIP in every email - enemies don't write friendly emails
 - Include the drama, tension, and stakes from the source material
-- Show emotions: concern, anger, excitement, fear, frustration
-- Reference specific events, locations, and details from the fictional world
-- Let conflicts build and tensions simmer across the thread
+- Show real emotions: contempt, anger, fear, jealousy, betrayal, desperation
+- Reference the grudges and conflicts between these specific characters
+- Let conflicts EXPLODE at least once, not just simmer politely
 
 {attachmentInstructions}
 
@@ -603,17 +653,38 @@ Respond with JSON in this exact format:
   ]
 }}
 
-IMPORTANT:
+CRITICAL RULES:
 - All email addresses must match exactly one of the characters listed above
 - Dates must be within the specified range and in chronological order
 - First email should NOT be a reply (replyToIndex: -1 or omit)
 - Use replyToIndex to create branching: a side conversation might reply to email 2 even when there are 5 emails
 - Forwards bring new people into the conversation - the 'To' field should include people not in the original thread
-- EVERY email body MUST end with the sender's signature block (copy it exactly from above)
-- The signature should appear after a blank line at the end of the email body
 - DO NOT include '> ' quoted text or 'On [date] wrote:' sections - the system adds those automatically
 - Write only the NEW content the sender is adding (their message + signature)
-- When an email has an attachment, the body MUST reference it naturally (e.g., 'Attached is the report...' or 'Here's a photo from...')";
+- When an email has an attachment, the body MUST reference it naturally (e.g., 'Attached is the report...' or 'Here's a photo from...')
+
+EMAIL BODY FORMAT - IMPORTANT:
+- The bodyPlain field should contain ONLY the email message content
+- NEVER start bodyPlain with 'Subject:', 'RE:', 'FW:', or any header-like text
+- The subject is a SEPARATE field - do not repeat it in the body
+- bodyPlain should start with a greeting (e.g., 'Hi Jim,', 'Team,', 'All,') or jump straight into the message
+- Example of WRONG format: 'Subject: RE: Budget Meeting\n\nHi team...'
+- Example of CORRECT format: 'Hi team,\n\nRegarding the budget meeting...'
+
+SIGNATURE BLOCK RULES - EXTREMELY IMPORTANT:
+- The signature at the end of bodyPlain MUST belong to the person in fromEmail
+- NEVER put one character's signature on another character's email
+- Example: If fromEmail is ""jim.halpert@dundermifflin.com"", the signature MUST be Jim Halpert's signature
+- Copy the EXACT signature block for that character from the list above - character by character
+- If fromEmail is ""shiv.roy@waystarroyco.com"", the email MUST end with Shiv Roy's signature, NOT Logan Roy's or anyone else's
+- This is a DATA INTEGRITY issue - wrong signatures make the emails invalid
+
+ATTACHMENT REMINDER - READ THE ATTACHMENT INSTRUCTIONS ABOVE CAREFULLY:
+- If the instructions say to include N images, you MUST set hasImage: true for exactly N emails
+- If the instructions say to include N documents, you MUST set hasDocument: true for exactly N emails
+- If the instructions say to include N voicemails, you MUST set hasVoicemail: true for exactly N emails
+- Do NOT skip attachments - they are REQUIRED if specified in the instructions above
+- Provide detailed imageDescription/documentDescription/voicemailContext for each attachment";
 
         var response = await _openAI.GetJsonCompletionAsync<ThreadApiResponse>(systemPrompt, userPrompt, "Email Thread Generation", ct);
 
@@ -701,6 +772,10 @@ IMPORTANT:
                 fullBody += ThreadingHelper.FormatForwardedContent(referencedEmail);
             }
 
+            // Get sender's organization theme for email styling
+            var senderDomain = fromChar.Domain;
+            domainThemes.TryGetValue(senderDomain, out var senderTheme);
+
             var email = new EmailMessage
             {
                 ThreadId = thread.Id,
@@ -709,7 +784,7 @@ IMPORTANT:
                 Cc = ccChars,
                 Subject = subject,
                 BodyPlain = fullBody,
-                BodyHtml = HtmlEmailFormatter.ConvertToHtml(fullBody),
+                BodyHtml = HtmlEmailFormatter.ConvertToHtml(fullBody, senderTheme),
                 SentDate = sentDate,
                 SequenceInThread = sequence++,
                 // Store attachment plans from AI response
@@ -1131,8 +1206,8 @@ Respond with JSON:
             title = chainState.BaseTitle;
         }
 
-        // Get the presentation theme for the sender's organization/domain
-        PresentationTheme? theme = null;
+        // Get the organization theme for the sender's domain
+        OrganizationTheme? theme = null;
         var senderDomain = email.From?.Domain;
         if (!string.IsNullOrEmpty(senderDomain) && state.DomainThemes.TryGetValue(senderDomain, out var domainTheme))
         {
@@ -1252,8 +1327,8 @@ Respond with JSON:
             .Select(s => (s.SlideTitle, s.Content))
             .ToList() ?? new List<(string, string)> { ("Slide 1", "Content") };
 
-        // Get the presentation theme for the sender's organization/domain
-        PresentationTheme? theme = null;
+        // Get the organization theme for the sender's domain
+        OrganizationTheme? theme = null;
         var senderDomain = email.From?.Domain;
         if (!string.IsNullOrEmpty(senderDomain) && state.DomainThemes.TryGetValue(senderDomain, out var domainTheme))
         {

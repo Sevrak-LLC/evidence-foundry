@@ -161,6 +161,24 @@ All generated content is fictional and created by AI for demonstration purposes 
 
 Do not use generated content to mislead or deceive.
 
+## Privacy & Telemetry
+
+ReelDiscovery includes **optional, opt-in** anonymous usage telemetry to help us improve the product.
+
+**On first run**, you'll be asked if you want to participate. You can change this anytime in the Generation Settings.
+
+**What we collect (if you opt in):**
+- Topic entered (first 50 characters only)
+- Number of emails/threads generated
+- AI model used
+- App version
+
+**What we DON'T collect:**
+- Your name, email, or any personal information
+- Your OpenAI API key
+- Generated email content
+- IP address or device identifiers
+
 ## Tech Stack
 
 - .NET 8.0 / Windows Forms
