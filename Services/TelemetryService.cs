@@ -11,36 +11,7 @@ namespace ReelDiscovery.Services;
 public static class TelemetryService
 {
     private static readonly HttpClient _httpClient = new() { Timeout = TimeSpan.FromSeconds(5) };
-
-    // Webhook URL is loaded from environment variable or local config file
-    private static readonly string? WebhookUrl = GetWebhookUrl();
-
-    private static string? GetWebhookUrl()
-    {
-        // First try environment variable
-        var envUrl = Environment.GetEnvironmentVariable("REELDISCOVERY_TELEMETRY_WEBHOOK");
-        if (!string.IsNullOrEmpty(envUrl))
-            return envUrl;
-
-        // Then try local config file (gitignored)
-        var configPath = Path.Combine(
-            AppDomain.CurrentDomain.BaseDirectory,
-            "telemetry.config");
-
-        if (File.Exists(configPath))
-        {
-            try
-            {
-                return File.ReadAllText(configPath).Trim();
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-        return null;
-    }
+    private const string WebhookUrl = "https://hooks.slack.com/services/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";
 
     private static readonly string SettingsPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -149,9 +120,6 @@ public static class TelemetryService
 
     private static async Task SendSlackMessageAsync(string text)
     {
-        if (string.IsNullOrEmpty(WebhookUrl))
-            return;
-
         var payload = new { text };
         var json = JsonSerializer.Serialize(payload);
         var content = new StringContent(json, Encoding.UTF8, "application/json");
