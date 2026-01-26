@@ -99,22 +99,6 @@ dotnet run
 | Voicemails | Off | ~$0.015/voicemail |
 | Calendar Invites | On | No extra cost |
 
-## API Cost Estimates
-
-Costs vary based on the model selected and features enabled:
-
-| Model | ~Cost per 50 emails |
-|-------|---------------------|
-| GPT-4o-mini | $0.10 - $0.30 |
-| GPT-4o | $0.50 - $1.50 |
-| GPT-4-turbo | $0.80 - $2.00 |
-
-Additional costs:
-- DALL-E images: ~$0.04 each
-- TTS voicemails: ~$0.015 each
-
-The application tracks token usage and displays estimated costs in the completion summary.
-
 ## Output Format
 
 Generated emails are saved as standard `.eml` files that can be imported into:
