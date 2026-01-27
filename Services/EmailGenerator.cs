@@ -638,8 +638,9 @@ TECHNICAL RULES:
 1. Each email must logically follow the previous one
 2. Reference previous emails naturally in replies (the system will automatically add quoted text)
 3. ALWAYS include the sender's signature block at the end of each email body
-4. Signature blocks must be used EXACTLY as provided
+4. Signature blocks must be used EXACTLY as provided - copy them character for character
 5. DO NOT include quoted previous emails in bodyPlain - the system adds those automatically
+6. IDENTITY RULE: The person in fromEmail IS the person writing the email. The greeting, body text, and signature MUST all be written AS that person. If fromEmail is alice@example.com, then Alice is writing, Alice's perspective is used, and Alice's signature block goes at the end. NEVER write an email as one character but put a different character in fromEmail.
 
 THREAD STRUCTURE - CREATE REALISTIC COMPLEXITY:
 For longer threads (5+ emails), create realistic branching and side conversations:
@@ -914,8 +915,11 @@ ATTACHMENT REMINDER:
             sentDate = DateHelper.RandomDateInRange(startDate, endDate);
         }
 
+        // Fix sender/signature mismatch: ensure the body's signature matches the fromEmail character
+        var correctedBody = CorrectSignatureBlock(e.BodyPlain, fromChar, characters);
+
         // Build the full email body with quoted content for replies/forwards
-        var fullBody = e.BodyPlain;
+        var fullBody = correctedBody;
 
         // Get the email being replied to/forwarded based on replyToIndex
         EmailMessage? referencedEmail = null;
@@ -968,6 +972,124 @@ ATTACHMENT REMINDER:
         };
 
         return email;
+    }
+
+    /// <summary>
+    /// Programmatically correct the signature block in an email body to match the actual sender.
+    /// The AI sometimes puts the wrong character's signature on an email.
+    /// </summary>
+    private static string CorrectSignatureBlock(string body, Character fromChar, List<Character> allCharacters)
+    {
+        if (string.IsNullOrWhiteSpace(body) || string.IsNullOrWhiteSpace(fromChar.SignatureBlock))
+            return body;
+
+        var correctSig = fromChar.SignatureBlock.Trim();
+
+        // Check if the correct signature is already present
+        if (body.Contains(correctSig, StringComparison.OrdinalIgnoreCase))
+            return body;
+
+        // Check if any OTHER character's signature is in the body
+        foreach (var otherChar in allCharacters)
+        {
+            if (otherChar.Id == fromChar.Id || string.IsNullOrWhiteSpace(otherChar.SignatureBlock))
+                continue;
+
+            var wrongSig = otherChar.SignatureBlock.Trim();
+            if (string.IsNullOrWhiteSpace(wrongSig))
+                continue;
+
+            var sigIndex = body.IndexOf(wrongSig, StringComparison.OrdinalIgnoreCase);
+            if (sigIndex >= 0)
+            {
+                // Replace the wrong signature with the correct one
+                body = body[..sigIndex] + correctSig + body[(sigIndex + wrongSig.Length)..];
+                return body;
+            }
+        }
+
+        // No exact signature block match found - check for wrong character names in common signature patterns
+        // Look for patterns like "Best,\nWrong Name" or "Thanks,\nWrong Name" or "Regards,\nWrong Name"
+        foreach (var otherChar in allCharacters)
+        {
+            if (otherChar.Id == fromChar.Id)
+                continue;
+
+            // Check for the other character's full name near the end of the email (last 30% of body)
+            var searchRegion = body.Length > 100
+                ? body[(int)(body.Length * 0.7)..]
+                : body;
+
+            var nameIndex = searchRegion.IndexOf(otherChar.FullName, StringComparison.OrdinalIgnoreCase);
+            if (nameIndex >= 0)
+            {
+                // Found another character's name in the signature area
+                // Look backwards for a common sign-off pattern to find where the signature starts
+                var absoluteIndex = body.Length - searchRegion.Length + nameIndex;
+                var beforeName = body[..absoluteIndex];
+
+                // Find the last sign-off line before this name
+                var signOffPatterns = new[] { "Best,", "Best regards,", "Regards,", "Thanks,", "Thank you,",
+                    "Sincerely,", "Cheers,", "Kind regards,", "Warm regards,", "All the best,",
+                    "Best wishes,", "Thanks!", "Thank you!", "Respectfully,", "Cordially," };
+
+                int signOffStart = -1;
+                foreach (var pattern in signOffPatterns)
+                {
+                    var idx = beforeName.LastIndexOf(pattern, StringComparison.OrdinalIgnoreCase);
+                    if (idx >= 0 && idx > signOffStart)
+                    {
+                        signOffStart = idx;
+                    }
+                }
+
+                if (signOffStart >= 0)
+                {
+                    // Replace everything from the sign-off to the end with the correct signature
+                    body = body[..signOffStart].TrimEnd() + "\n\n" + correctSig;
+                    return body;
+                }
+                else
+                {
+                    // No sign-off found, just replace from the wrong name onwards
+                    body = body[..absoluteIndex].TrimEnd() + "\n\n" + correctSig;
+                    return body;
+                }
+            }
+        }
+
+        // Also check if fromChar's own name is missing entirely from the signature area
+        // If so, the AI may have written a signature with a completely different format
+        var tailRegion = body.Length > 100 ? body[(int)(body.Length * 0.7)..] : body;
+        if (!tailRegion.Contains(fromChar.FullName, StringComparison.OrdinalIgnoreCase) &&
+            !tailRegion.Contains(fromChar.FirstName, StringComparison.OrdinalIgnoreCase))
+        {
+            // The correct sender's name doesn't appear at all in the signature area
+            // Try to find and replace any sign-off + name pattern at the end
+            var signOffPatterns = new[] { "Best,", "Best regards,", "Regards,", "Thanks,", "Thank you,",
+                "Sincerely,", "Cheers,", "Kind regards,", "Warm regards,", "All the best,",
+                "Best wishes,", "Thanks!", "Thank you!", "Respectfully,", "Cordially," };
+
+            int lastSignOff = -1;
+            foreach (var pattern in signOffPatterns)
+            {
+                var tailStart = (int)(body.Length * 0.7);
+                var idx = body.IndexOf(pattern, tailStart, StringComparison.OrdinalIgnoreCase);
+                if (idx >= 0 && (lastSignOff == -1 || idx < lastSignOff))
+                {
+                    lastSignOff = idx;
+                }
+            }
+
+            if (lastSignOff >= 0)
+            {
+                // Replace from the sign-off to end with correct signature
+                body = body[..lastSignOff].TrimEnd() + "\n\n" + correctSig;
+                return body;
+            }
+        }
+
+        return body;
     }
 
     private List<EmailMessage> SelectEmailsForAttachments(List<EmailMessage> emails, int percentage)
