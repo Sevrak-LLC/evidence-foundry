@@ -57,16 +57,17 @@ public class EmlFileService
             }
         }
 
-        // Build body
-        var builder = new BodyBuilder
-        {
-            TextBody = email.BodyPlain
-        };
+        // Build body - always use HTML for consistent rendering across email clients
+        var builder = new BodyBuilder();
 
-        // Add HTML body if present
         if (!string.IsNullOrEmpty(email.BodyHtml))
         {
             builder.HtmlBody = email.BodyHtml;
+        }
+        else
+        {
+            // Fallback only if HTML generation somehow failed
+            builder.HtmlBody = HtmlEmailFormatter.ConvertToHtml(email.BodyPlain);
         }
 
         // Add attachments
