@@ -103,6 +103,16 @@ public static class DateHelper
         return start.AddMinutes(randomMinutes);
     }
 
+    /// <summary>
+    /// Interpolate a date within a range based on a progress fraction (0.0 to 1.0)
+    /// </summary>
+    public static DateTime InterpolateDateInRange(DateTime start, DateTime end, double fraction)
+    {
+        fraction = Math.Clamp(fraction, 0.0, 1.0);
+        var totalMinutes = (end - start).TotalMinutes;
+        return start.AddMinutes(totalMinutes * fraction);
+    }
+
     public static string FormatForFileName(DateTime date)
     {
         return date.ToString("yyyyMMdd_HHmmss");

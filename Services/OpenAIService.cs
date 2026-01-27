@@ -1,4 +1,5 @@
 using System.ClientModel;
+using System.Net.Http;
 using System.Text.Json;
 using OpenAI;
 using OpenAI.Audio;
@@ -16,13 +17,20 @@ public class OpenAIService
     private readonly ChatClient _chatClient;
     private readonly AIModelConfig? _modelConfig;
     private readonly TokenUsageTracker? _usageTracker;
-    private const int MaxRetries = 3;
+    private const int MaxRetries = 4;
+
+    private static OpenAIClient CreateClient(string apiKey)
+    {
+        var options = new OpenAIClientOptions();
+        options.NetworkTimeout = TimeSpan.FromMinutes(10);
+        return new OpenAIClient(new System.ClientModel.ApiKeyCredential(apiKey), options);
+    }
 
     public OpenAIService(string apiKey, string model)
     {
         _apiKey = apiKey;
         _model = model;
-        _client = new OpenAIClient(apiKey);
+        _client = CreateClient(apiKey);
         _chatClient = _client.GetChatClient(model);
     }
 
@@ -32,7 +40,7 @@ public class OpenAIService
         _model = modelConfig.ModelId;
         _modelConfig = modelConfig;
         _usageTracker = usageTracker;
-        _client = new OpenAIClient(apiKey);
+        _client = CreateClient(apiKey);
         _chatClient = _client.GetChatClient(modelConfig.ModelId);
     }
 

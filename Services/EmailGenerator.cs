@@ -15,6 +15,9 @@ public class EmailGenerator
     // Track document chains across threads for versioning
     private readonly ConcurrentDictionary<string, DocumentChainState> _documentChains = new();
 
+    // Maximum emails per API call to avoid token limits and timeouts
+    private const int MaxEmailsPerBatch = 15;
+
     public EmailGenerator(OpenAIService openAI)
     {
         _openAI = openAI;
@@ -70,6 +73,10 @@ public class EmailGenerator
             var parallelism = Math.Max(1, state.Config.ParallelThreads);
             using var semaphore = new SemaphoreSlim(parallelism, parallelism);
 
+            // EML service for incremental saving
+            var emlService = new EmlFileService();
+            Directory.CreateDirectory(state.Config.OutputFolder);
+
             // Prepare all storyline tasks with their parameters
             var storylineTasks = state.Storylines.Select(async (storyline, i) =>
             {
@@ -86,7 +93,7 @@ public class EmailGenerator
                     lock (progressLock)
                     {
                         progressData.CurrentStoryline = storyline.Title;
-                        progressData.CurrentOperation = $"Generating emails for: {storyline.Title}";
+                        progressData.CurrentOperation = $"Processing storyline: {storyline.Title}";
                     }
                     progress.Report(progressData);
 
@@ -103,6 +110,23 @@ public class EmailGenerator
                     }
 
                     // Update progress atomically
+                    var newCompleted = Interlocked.Add(ref completedEmails[0], emailCount);
+                    lock (progressLock)
+                    {
+                        progressData.CompletedEmails = newCompleted;
+                    }
+                    progress.Report(progressData);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw; // Let cancellation propagate
+                }
+                catch (Exception ex)
+                {
+                    // Per-storyline error handling: log and continue with others
+                    result.Errors.Add($"Storyline '{storyline.Title}' failed: {ex.Message}");
+
+                    // Still count these emails as "completed" for progress tracking
                     var newCompleted = Interlocked.Add(ref completedEmails[0], emailCount);
                     lock (progressLock)
                     {
@@ -320,16 +344,12 @@ public class EmailGenerator
             // Convert to list for saving and results
             var threadsList = threads.ToList();
 
-            // Save EML files
+            // Save any remaining EML files (threads that weren't saved incrementally)
             progressData.CurrentOperation = "Saving EML files...";
             progress.Report(progressData);
 
             try
             {
-                // Ensure output folder exists
-                Directory.CreateDirectory(state.Config.OutputFolder);
-
-                var emlService = new EmlFileService();
                 var emlProgress = new Progress<(int completed, int total, string currentFile)>(p =>
                 {
                     progressData.CurrentOperation = $"Saving: {p.currentFile}";
@@ -337,11 +357,22 @@ public class EmailGenerator
                 });
 
                 await emlService.SaveAllEmailsAsync(threadsList, state.Config.OutputFolder, state.Config.OrganizeBySender, emlProgress, ct);
+
+                // Release attachment byte arrays to free memory after saving
+                foreach (var thread in threadsList)
+                {
+                    foreach (var email in thread.Messages)
+                    {
+                        foreach (var attachment in email.Attachments)
+                        {
+                            attachment.Content = null;
+                        }
+                    }
+                }
             }
             catch (Exception ex)
             {
                 result.Errors.Add($"Failed to save EML files: {ex.Message}");
-                // Include inner exception for more details
                 if (ex.InnerException != null)
                 {
                     result.Errors.Add($"  Inner error: {ex.InnerException.Message}");
@@ -381,68 +412,6 @@ public class EmailGenerator
         if (string.IsNullOrEmpty(signature)) return "    (no signature)";
         var lines = signature.Replace("\\n", "\n").Split('\n');
         return string.Join("\n", lines.Select(l => $"    {l}"));
-    }
-
-    private static string BuildAttachmentInstructions(GenerationConfig config, int emailCount)
-    {
-        var instructions = new List<string>();
-        var limits = new List<string>();
-
-        // Document attachments
-        if (config.AttachmentPercentage > 0 && config.EnabledAttachmentTypes.Count > 0)
-        {
-            var docCount = Math.Max(0, (int)Math.Round(emailCount * config.AttachmentPercentage / 100.0));
-            if (docCount > 0)
-            {
-                var types = string.Join(", ", config.EnabledAttachmentTypes.Select(t => t.ToString().ToLower()));
-                instructions.Add($@"DOCUMENT ATTACHMENTS: Include EXACTLY {docCount} email(s) with document attachments (no more, no less).
-  - Available types: {types}
-  - Make documents relevant to the storyline (reports, spreadsheets, presentations)
-  - The email body MUST reference the attachment naturally
-  - Provide a detailed documentDescription that explains what the document contains");
-                limits.Add($"documents: {docCount}");
-            }
-        }
-
-        // Image attachments
-        if (config.IncludeImages && config.ImagePercentage > 0)
-        {
-            var imageCount = Math.Max(1, (int)Math.Round(emailCount * config.ImagePercentage / 100.0));
-            if (imageCount > 0)
-            {
-                instructions.Add($@"IMAGE ATTACHMENTS - MANDATORY: You MUST set hasImage: true for EXACTLY {imageCount} email(s).
-  - This is REQUIRED, not optional. Set hasImage: true for {imageCount} emails.
-  - Images should be photos, screenshots, or visual evidence relevant to the plot
-  - MAKE MOST IMAGES INLINE (isImageInline: true) - the reader sees the image embedded in the email
-  - Provide a VIVID, DETAILED imageDescription that can be used to generate the image with DALL-E
-  - Example: 'A candid photo taken at the office party showing Michael wearing a ridiculous costume while Jim looks on with an exasperated expression'");
-                limits.Add($"images: {imageCount}");
-            }
-        }
-
-        // Voicemails
-        if (config.IncludeVoicemails && config.VoicemailPercentage > 0)
-        {
-            var vmCount = Math.Max(0, (int)Math.Round(emailCount * config.VoicemailPercentage / 100.0));
-            if (vmCount > 0)
-            {
-                instructions.Add($@"VOICEMAIL ATTACHMENTS: Include EXACTLY {vmCount} email(s) with voicemail attachments (no more, no less).
-  - Voicemails are audio messages that complement or precede the email
-  - Great for urgent situations, follow-ups
-  - Provide voicemailContext describing what the voice message is about");
-                limits.Add($"voicemails: {vmCount}");
-            }
-        }
-
-        if (instructions.Count == 0)
-        {
-            return "ATTACHMENTS: Do NOT include any attachments in this thread. Set all hasDocument, hasImage, hasVoicemail to false.";
-        }
-
-        var limitsStr = string.Join(", ", limits);
-        return $"ATTACHMENT LIMITS - STRICT COUNT: {limitsStr}\n" +
-               "DO NOT exceed these counts. Most emails should have NO attachments.\n\n" +
-               string.Join("\n\n", instructions);
     }
 
     private List<int> DistributeEmails(List<Storyline> storylines, int totalEmails)
@@ -492,7 +461,106 @@ public class EmailGenerator
         Dictionary<string, OrganizationTheme> domainThemes,
         CancellationToken ct)
     {
-        var systemPrompt = @"You are generating immersive email/message threads set WITHIN a fictional universe for an e-discovery dataset.
+        var systemPrompt = BuildEmailSystemPrompt();
+
+        var characterList = string.Join("\n\n", characters.Select(c =>
+            $"- {c.FullName} ({c.Email})\n  Role: {c.Role}, {c.Department} @ {c.Organization}\n  Style: {c.PersonalityNotes}\n  Signature:\n{IndentSignature(c.SignatureBlock)}"));
+
+        var thread = new EmailThread
+        {
+            StorylineId = storyline.Id
+        };
+
+        // Break into batches to avoid token limits and timeouts
+        var totalBatches = (int)Math.Ceiling((double)emailCount / MaxEmailsPerBatch);
+        var emailsGenerated = 0;
+        var sequence = 0;
+
+        // Distribute attachments across batches proportionally
+        var totalDocAttachments = config.AttachmentPercentage > 0 && config.EnabledAttachmentTypes.Count > 0
+            ? Math.Max(0, (int)Math.Round(emailCount * config.AttachmentPercentage / 100.0))
+            : 0;
+        var totalImageAttachments = config.IncludeImages && config.ImagePercentage > 0
+            ? Math.Max(1, (int)Math.Round(emailCount * config.ImagePercentage / 100.0))
+            : 0;
+        var totalVoicemailAttachments = config.IncludeVoicemails && config.VoicemailPercentage > 0
+            ? Math.Max(0, (int)Math.Round(emailCount * config.VoicemailPercentage / 100.0))
+            : 0;
+
+        var docsAssigned = 0;
+        var imagesAssigned = 0;
+        var voicemailsAssigned = 0;
+
+        for (int batch = 0; batch < totalBatches; batch++)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var batchSize = Math.Min(MaxEmailsPerBatch, emailCount - emailsGenerated);
+            var isFirstBatch = batch == 0;
+            var isLastBatch = batch == totalBatches - 1;
+
+            // Calculate date window for this batch
+            var batchStartDate = DateHelper.InterpolateDateInRange(startDate, endDate, (double)emailsGenerated / emailCount);
+            var batchEndDate = DateHelper.InterpolateDateInRange(startDate, endDate, (double)(emailsGenerated + batchSize) / emailCount);
+
+            // Distribute attachments for this batch proportionally
+            var batchDocs = DistributeAttachmentsForBatch(totalDocAttachments, ref docsAssigned, batchSize, emailCount - emailsGenerated, isLastBatch);
+            var batchImages = DistributeAttachmentsForBatch(totalImageAttachments, ref imagesAssigned, batchSize, emailCount - emailsGenerated, isLastBatch);
+            var batchVoicemails = DistributeAttachmentsForBatch(totalVoicemailAttachments, ref voicemailsAssigned, batchSize, emailCount - emailsGenerated, isLastBatch);
+
+            // Build batch-specific attachment instructions
+            var batchAttachmentInstructions = BuildBatchAttachmentInstructions(config, batchDocs, batchImages, batchVoicemails);
+
+            // Build narrative context from previous batches
+            var narrativeContext = "";
+            if (!isFirstBatch && thread.Messages.Count > 0)
+            {
+                narrativeContext = BuildNarrativeContext(thread.Messages);
+            }
+
+            // Determine narrative phase
+            var narrativePhase = isFirstBatch ? "BEGINNING - Introduce the conflict and set up the storyline."
+                : isLastBatch ? "CONCLUSION - Bring the storyline to a resolution or climax."
+                : $"MIDDLE (Part {batch + 1} of {totalBatches}) - Escalate tensions and develop the conflict.";
+
+            var userPrompt = BuildBatchUserPrompt(
+                storyline, characterList, batchStartDate, batchEndDate,
+                batchSize, batchAttachmentInstructions, narrativeContext,
+                narrativePhase, isFirstBatch, thread.Subject);
+
+            var response = await _openAI.GetJsonCompletionAsync<ThreadApiResponse>(systemPrompt, userPrompt, $"Email Thread Generation (batch {batch + 1}/{totalBatches})", ct);
+
+            if (response == null)
+                throw new InvalidOperationException($"Failed to generate batch {batch + 1} for storyline: {storyline.Title}");
+
+            // Capture the subject from the first batch
+            if (isFirstBatch)
+            {
+                thread.Subject = response.Subject;
+            }
+
+            // Process emails from this batch
+            foreach (var e in response.Emails)
+            {
+                var emailMessage = ConvertDtoToEmailMessage(e, thread, characters, domainThemes, startDate, endDate, ref sequence);
+                thread.Messages.Add(emailMessage);
+            }
+
+            emailsGenerated += response.Emails.Count;
+        }
+
+        // Setup threading headers
+        ThreadingHelper.SetupThreading(thread, domain);
+
+        return new List<EmailThread> { thread };
+    }
+
+    /// <summary>
+    /// Build the system prompt for email generation (shared across batches)
+    /// </summary>
+    private static string BuildEmailSystemPrompt()
+    {
+        return @"You are generating immersive email/message threads set WITHIN a fictional universe for an e-discovery dataset.
 These should read like authentic communications between characters in that world - capturing their voices, the stakes, and the drama of the source material.
 
 CRITICAL - EMOTIONAL AUTHENTICITY:
@@ -585,23 +653,143 @@ Use the 'replyToIndex' field to specify which email is being replied to or forwa
 - This allows branching: email 5 might reply to email 2 (a side conversation), not email 4
 
 Respond with valid JSON only.";
+    }
 
-        var characterList = string.Join("\n\n", characters.Select(c =>
-            $"- {c.FullName} ({c.Email})\n  Role: {c.Role}, {c.Department} @ {c.Organization}\n  Style: {c.PersonalityNotes}\n  Signature:\n{IndentSignature(c.SignatureBlock)}"));
+    /// <summary>
+    /// Build a narrative context summary from previous emails for batch continuity
+    /// </summary>
+    private static string BuildNarrativeContext(List<EmailMessage> previousMessages)
+    {
+        // Summarize the last few emails to give the AI context
+        var recentMessages = previousMessages.TakeLast(5).ToList();
+        var summaries = recentMessages.Select(m =>
+        {
+            // Take first 150 chars of body (before any quoted content)
+            var bodyPreview = m.BodyPlain;
+            var quoteIndex = bodyPreview.IndexOf("\n> ", StringComparison.Ordinal);
+            if (quoteIndex > 0) bodyPreview = bodyPreview[..quoteIndex];
+            var forwardIndex = bodyPreview.IndexOf("---------- Forwarded", StringComparison.Ordinal);
+            if (forwardIndex > 0) bodyPreview = bodyPreview[..forwardIndex];
+            if (bodyPreview.Length > 150) bodyPreview = bodyPreview[..150] + "...";
 
-        // Build attachment configuration instructions
-        var attachmentInstructions = BuildAttachmentInstructions(config, emailCount);
+            return $"  - {m.From.FullName} → {string.Join(", ", m.To.Select(t => t.FirstName))}: {bodyPreview.Replace("\n", " ").Trim()}";
+        });
 
-        var userPrompt = $@"Storyline: {storyline.Title}
+        return $@"PREVIOUS EMAILS IN THIS THREAD (continue from here - use replyToIndex relative to THIS batch, starting at 0):
+The thread subject is already established. Here's what happened so far ({previousMessages.Count} emails total):
+{string.Join("\n", summaries)}
+
+IMPORTANT: Continue the narrative naturally from where it left off. Reference events from the previous emails.
+Your replyToIndex values should be 0-based within THIS batch (0 = first email in this batch).
+The first email in this batch should be a reply or forward continuing the conversation.";
+    }
+
+    /// <summary>
+    /// Distribute attachment counts for a batch proportionally
+    /// </summary>
+    private static int DistributeAttachmentsForBatch(int totalAttachments, ref int assigned, int batchSize, int remaining, bool isLastBatch)
+    {
+        if (totalAttachments <= 0 || assigned >= totalAttachments)
+            return 0;
+
+        if (isLastBatch)
+        {
+            // Last batch gets whatever is left
+            var left = totalAttachments - assigned;
+            assigned += left;
+            return left;
+        }
+
+        // Proportional distribution
+        var batchShare = (int)Math.Round((double)(totalAttachments - assigned) * batchSize / remaining);
+        batchShare = Math.Min(batchShare, totalAttachments - assigned);
+        batchShare = Math.Min(batchShare, batchSize); // Can't have more attachments than emails
+        assigned += batchShare;
+        return batchShare;
+    }
+
+    /// <summary>
+    /// Build attachment instructions for a specific batch
+    /// </summary>
+    private static string BuildBatchAttachmentInstructions(GenerationConfig config, int docCount, int imageCount, int voicemailCount)
+    {
+        var instructions = new List<string>();
+        var limits = new List<string>();
+
+        if (docCount > 0 && config.EnabledAttachmentTypes.Count > 0)
+        {
+            var types = string.Join(", ", config.EnabledAttachmentTypes.Select(t => t.ToString().ToLower()));
+            instructions.Add($@"DOCUMENT ATTACHMENTS: Include EXACTLY {docCount} email(s) with document attachments (no more, no less).
+  - Available types: {types}
+  - Make documents relevant to the storyline (reports, spreadsheets, presentations)
+  - The email body MUST reference the attachment naturally
+  - Provide a detailed documentDescription that explains what the document contains");
+            limits.Add($"documents: {docCount}");
+        }
+
+        if (imageCount > 0)
+        {
+            instructions.Add($@"IMAGE ATTACHMENTS - MANDATORY: You MUST set hasImage: true for EXACTLY {imageCount} email(s).
+  - This is REQUIRED, not optional. Set hasImage: true for {imageCount} emails.
+  - Images should be photos, screenshots, or visual evidence relevant to the plot
+  - MAKE MOST IMAGES INLINE (isImageInline: true) - the reader sees the image embedded in the email
+  - Provide a VIVID, DETAILED imageDescription that can be used to generate the image with DALL-E
+  - Example: 'A candid photo taken at the office party showing Michael wearing a ridiculous costume while Jim looks on with an exasperated expression'");
+            limits.Add($"images: {imageCount}");
+        }
+
+        if (voicemailCount > 0)
+        {
+            instructions.Add($@"VOICEMAIL ATTACHMENTS: Include EXACTLY {voicemailCount} email(s) with voicemail attachments (no more, no less).
+  - Voicemails are audio messages that complement or precede the email
+  - Great for urgent situations, follow-ups
+  - Provide voicemailContext describing what the voice message is about");
+            limits.Add($"voicemails: {voicemailCount}");
+        }
+
+        if (instructions.Count == 0)
+        {
+            return "ATTACHMENTS: Do NOT include any attachments in this batch. Set all hasDocument, hasImage, hasVoicemail to false.";
+        }
+
+        var limitsStr = string.Join(", ", limits);
+        return $"ATTACHMENT LIMITS - STRICT COUNT: {limitsStr}\n" +
+               "DO NOT exceed these counts. Most emails should have NO attachments.\n\n" +
+               string.Join("\n\n", instructions);
+    }
+
+    /// <summary>
+    /// Build the user prompt for a specific batch
+    /// </summary>
+    private string BuildBatchUserPrompt(
+        Storyline storyline, string characterList,
+        DateTime batchStartDate, DateTime batchEndDate,
+        int batchSize, string attachmentInstructions,
+        string narrativeContext, string narrativePhase,
+        bool isFirstBatch, string? existingSubject)
+    {
+        var subjectInstruction = isFirstBatch
+            ? @"""subject"": ""string (original email subject, not including RE: or FW:)"""
+            : $@"""subject"": ""{existingSubject}"" (MUST use this exact subject)";
+
+        var firstEmailNote = isFirstBatch
+            ? "- First email should NOT be a reply (replyToIndex: -1 or omit)"
+            : "- First email in this batch should continue the thread (reply or forward)";
+
+        return $@"Storyline: {storyline.Title}
 Description: {storyline.Description}
+
+NARRATIVE PHASE: {narrativePhase}
 
 Available Characters:
 {characterList}
 
-Date Range: {startDate:yyyy-MM-dd} to {endDate:yyyy-MM-dd}
+Date Range: {batchStartDate:yyyy-MM-dd} to {batchEndDate:yyyy-MM-dd}
 
-Generate an email thread with {emailCount} emails for this storyline.
-The emails should tell a coherent story with a beginning, middle, and conclusion - staying TRUE to the fictional universe.
+{narrativeContext}
+
+Generate EXACTLY {batchSize} emails for this storyline.
+The emails should stay TRUE to the fictional universe.
 
 CRITICAL - EMOTIONAL AUTHENTICITY:
 - Look at each character's personality notes - if they DISLIKE someone, their emails should SHOW IT
@@ -630,7 +818,7 @@ For threads with 5+ emails, include at least ONE of these realistic patterns:
 
 Respond with JSON in this exact format:
 {{
-  ""subject"": ""string (original email subject, not including RE: or FW:)"",
+  {subjectInstruction},
   ""emails"": [
     {{
       ""fromEmail"": ""string (must be one of the character emails)"",
@@ -640,7 +828,7 @@ Respond with JSON in this exact format:
       ""bodyPlain"": ""string (full email body including greeting and signature)"",
       ""isReply"": boolean,
       ""isForward"": boolean,
-      ""replyToIndex"": number (0-based index of which email this replies to/forwards; omit or use -1 for first email),
+      ""replyToIndex"": number (0-based index WITHIN THIS BATCH of which email this replies to/forwards; use -1 for first email),
       ""hasDocument"": boolean (true if this email has a document attachment),
       ""documentType"": ""word"" | ""excel"" | ""powerpoint"" (only if hasDocument is true),
       ""documentDescription"": ""string describing document content (only if hasDocument is true)"",
@@ -654,157 +842,132 @@ Respond with JSON in this exact format:
 }}
 
 CRITICAL RULES:
+- Generate EXACTLY {batchSize} emails
 - All email addresses must match exactly one of the characters listed above
 - Dates must be within the specified range and in chronological order
-- First email should NOT be a reply (replyToIndex: -1 or omit)
-- Use replyToIndex to create branching: a side conversation might reply to email 2 even when there are 5 emails
-- Forwards bring new people into the conversation - the 'To' field should include people not in the original thread
+{firstEmailNote}
+- Use replyToIndex to create branching within this batch
+- Forwards bring new people into the conversation
 - DO NOT include '> ' quoted text or 'On [date] wrote:' sections - the system adds those automatically
 - Write only the NEW content the sender is adding (their message + signature)
-- When an email has an attachment, the body MUST reference it naturally (e.g., 'Attached is the report...' or 'Here's a photo from...')
+- When an email has an attachment, the body MUST reference it naturally
 
 EMAIL BODY FORMAT - IMPORTANT:
 - The bodyPlain field should contain ONLY the email message content
 - NEVER start bodyPlain with 'Subject:', 'RE:', 'FW:', or any header-like text
 - The subject is a SEPARATE field - do not repeat it in the body
-- bodyPlain should start with a greeting (e.g., 'Hi Jim,', 'Team,', 'All,') or jump straight into the message
-- Example of WRONG format: 'Subject: RE: Budget Meeting\n\nHi team...'
-- Example of CORRECT format: 'Hi team,\n\nRegarding the budget meeting...'
+- bodyPlain should start with a greeting or jump straight into the message
 
 SIGNATURE BLOCK RULES - EXTREMELY IMPORTANT:
 - The signature at the end of bodyPlain MUST belong to the person in fromEmail
 - NEVER put one character's signature on another character's email
-- Example: If fromEmail is ""jim.halpert@dundermifflin.com"", the signature MUST be Jim Halpert's signature
 - Copy the EXACT signature block for that character from the list above - character by character
-- If fromEmail is ""shiv.roy@waystarroyco.com"", the email MUST end with Shiv Roy's signature, NOT Logan Roy's or anyone else's
 - This is a DATA INTEGRITY issue - wrong signatures make the emails invalid
 
-ATTACHMENT REMINDER - READ THE ATTACHMENT INSTRUCTIONS ABOVE CAREFULLY:
+ATTACHMENT REMINDER:
 - If the instructions say to include N images, you MUST set hasImage: true for exactly N emails
 - If the instructions say to include N documents, you MUST set hasDocument: true for exactly N emails
 - If the instructions say to include N voicemails, you MUST set hasVoicemail: true for exactly N emails
-- Do NOT skip attachments - they are REQUIRED if specified in the instructions above
-- Provide detailed imageDescription/documentDescription/voicemailContext for each attachment";
+- Do NOT skip attachments - they are REQUIRED if specified in the instructions above";
+    }
 
-        var response = await _openAI.GetJsonCompletionAsync<ThreadApiResponse>(systemPrompt, userPrompt, "Email Thread Generation", ct);
+    /// <summary>
+    /// Convert an EmailDto from the API response into an EmailMessage, handling threading and quoted content
+    /// </summary>
+    private EmailMessage ConvertDtoToEmailMessage(
+        EmailDto e, EmailThread thread, List<Character> characters,
+        Dictionary<string, OrganizationTheme> domainThemes,
+        DateTime startDate, DateTime endDate, ref int sequence)
+    {
+        var fromChar = characters.FirstOrDefault(c =>
+            c.Email.Equals(e.FromEmail, StringComparison.OrdinalIgnoreCase))
+            ?? characters[_random.Next(characters.Count)];
 
-        if (response == null)
-            throw new InvalidOperationException($"Failed to generate thread for storyline: {storyline.Title}");
+        var toChars = e.ToEmails
+            .Select(email => characters.FirstOrDefault(c =>
+                c.Email.Equals(email, StringComparison.OrdinalIgnoreCase)))
+            .Where(c => c != null)
+            .Cast<Character>()
+            .ToList();
 
-        var thread = new EmailThread
+        if (toChars.Count == 0)
         {
-            StorylineId = storyline.Id,
-            Subject = response.Subject
-        };
-
-        var sequence = 0;
-        foreach (var e in response.Emails)
-        {
-            var fromChar = characters.FirstOrDefault(c =>
-                c.Email.Equals(e.FromEmail, StringComparison.OrdinalIgnoreCase))
-                ?? characters[_random.Next(characters.Count)];
-
-            var toChars = e.ToEmails
-                .Select(email => characters.FirstOrDefault(c =>
-                    c.Email.Equals(email, StringComparison.OrdinalIgnoreCase)))
-                .Where(c => c != null)
-                .Cast<Character>()
-                .ToList();
-
-            if (toChars.Count == 0)
-            {
-                toChars.Add(characters.Where(c => c.Id != fromChar.Id).First());
-            }
-
-            var ccChars = (e.CcEmails ?? new List<string>())
-                .Select(email => characters.FirstOrDefault(c =>
-                    c.Email.Equals(email, StringComparison.OrdinalIgnoreCase)))
-                .Where(c => c != null)
-                .Cast<Character>()
-                .ToList();
-
-            var subject = response.Subject;
-            if (e.IsForward)
-                subject = ThreadingHelper.AddForwardPrefix(subject);
-            else if (e.IsReply && sequence > 0)
-                subject = ThreadingHelper.AddReplyPrefix(subject);
-
-            DateTime sentDate;
-            if (!DateTime.TryParse(e.SentDateTime, out sentDate))
-            {
-                sentDate = DateHelper.RandomDateInRange(startDate, endDate);
-            }
-
-            // Build the full email body with quoted content for replies/forwards
-            var fullBody = e.BodyPlain;
-
-            // Get the email being replied to/forwarded based on replyToIndex
-            // This allows for branching threads where email 5 might reply to email 2
-            EmailMessage? referencedEmail = null;
-            if (e.ReplyToIndex >= 0 && e.ReplyToIndex < thread.Messages.Count)
-            {
-                referencedEmail = thread.Messages[e.ReplyToIndex];
-            }
-            else if (thread.Messages.Count > 0)
-            {
-                // Fall back to the most recent email
-                referencedEmail = thread.Messages.Last();
-            }
-
-            // Determine if this should be treated as a reply
-            // If the AI didn't explicitly set isReply but this isn't the first email and isn't a forward,
-            // treat it as a reply to ensure quoted content is included
-            var shouldQuoteAsReply = e.IsReply;
-            if (!shouldQuoteAsReply && !e.IsForward && sequence > 0 && referencedEmail != null)
-            {
-                // Auto-detect as reply if not the first email and not explicitly a forward
-                shouldQuoteAsReply = true;
-            }
-
-            if (shouldQuoteAsReply && referencedEmail != null)
-            {
-                // Add quoted reply content
-                fullBody += ThreadingHelper.FormatQuotedReply(referencedEmail);
-            }
-            else if (e.IsForward && referencedEmail != null)
-            {
-                // Add forwarded content
-                fullBody += ThreadingHelper.FormatForwardedContent(referencedEmail);
-            }
-
-            // Get sender's organization theme for email styling
-            var senderDomain = fromChar.Domain;
-            domainThemes.TryGetValue(senderDomain, out var senderTheme);
-
-            var email = new EmailMessage
-            {
-                ThreadId = thread.Id,
-                From = fromChar,
-                To = toChars,
-                Cc = ccChars,
-                Subject = subject,
-                BodyPlain = fullBody,
-                BodyHtml = HtmlEmailFormatter.ConvertToHtml(fullBody, senderTheme),
-                SentDate = sentDate,
-                SequenceInThread = sequence++,
-                // Store attachment plans from AI response
-                PlannedHasDocument = e.HasDocument,
-                PlannedDocumentType = e.DocumentType,
-                PlannedDocumentDescription = e.DocumentDescription,
-                PlannedHasImage = e.HasImage,
-                PlannedImageDescription = e.ImageDescription,
-                PlannedIsImageInline = e.IsImageInline,
-                PlannedHasVoicemail = e.HasVoicemail,
-                PlannedVoicemailContext = e.VoicemailContext
-            };
-
-            thread.Messages.Add(email);
+            toChars.Add(characters.Where(c => c.Id != fromChar.Id).First());
         }
 
-        // Setup threading headers
-        ThreadingHelper.SetupThreading(thread, domain);
+        var ccChars = (e.CcEmails ?? new List<string>())
+            .Select(email => characters.FirstOrDefault(c =>
+                c.Email.Equals(email, StringComparison.OrdinalIgnoreCase)))
+            .Where(c => c != null)
+            .Cast<Character>()
+            .ToList();
 
-        return new List<EmailThread> { thread };
+        var subject = thread.Subject;
+        if (e.IsForward)
+            subject = ThreadingHelper.AddForwardPrefix(subject);
+        else if (e.IsReply && sequence > 0)
+            subject = ThreadingHelper.AddReplyPrefix(subject);
+
+        DateTime sentDate;
+        if (!DateTime.TryParse(e.SentDateTime, out sentDate))
+        {
+            sentDate = DateHelper.RandomDateInRange(startDate, endDate);
+        }
+
+        // Build the full email body with quoted content for replies/forwards
+        var fullBody = e.BodyPlain;
+
+        // Get the email being replied to/forwarded based on replyToIndex
+        EmailMessage? referencedEmail = null;
+        if (e.ReplyToIndex >= 0 && e.ReplyToIndex < thread.Messages.Count)
+        {
+            referencedEmail = thread.Messages[e.ReplyToIndex];
+        }
+        else if (thread.Messages.Count > 0)
+        {
+            referencedEmail = thread.Messages.Last();
+        }
+
+        var shouldQuoteAsReply = e.IsReply;
+        if (!shouldQuoteAsReply && !e.IsForward && sequence > 0 && referencedEmail != null)
+        {
+            shouldQuoteAsReply = true;
+        }
+
+        if (shouldQuoteAsReply && referencedEmail != null)
+        {
+            fullBody += ThreadingHelper.FormatQuotedReply(referencedEmail);
+        }
+        else if (e.IsForward && referencedEmail != null)
+        {
+            fullBody += ThreadingHelper.FormatForwardedContent(referencedEmail);
+        }
+
+        var senderDomain = fromChar.Domain;
+        domainThemes.TryGetValue(senderDomain, out var senderTheme);
+
+        var email = new EmailMessage
+        {
+            ThreadId = thread.Id,
+            From = fromChar,
+            To = toChars,
+            Cc = ccChars,
+            Subject = subject,
+            BodyPlain = fullBody,
+            BodyHtml = HtmlEmailFormatter.ConvertToHtml(fullBody, senderTheme),
+            SentDate = sentDate,
+            SequenceInThread = sequence++,
+            PlannedHasDocument = e.HasDocument,
+            PlannedDocumentType = e.DocumentType,
+            PlannedDocumentDescription = e.DocumentDescription,
+            PlannedHasImage = e.HasImage,
+            PlannedImageDescription = e.ImageDescription,
+            PlannedIsImageInline = e.IsImageInline,
+            PlannedHasVoicemail = e.HasVoicemail,
+            PlannedVoicemailContext = e.VoicemailContext
+        };
+
+        return email;
     }
 
     private List<EmailMessage> SelectEmailsForAttachments(List<EmailMessage> emails, int percentage)
