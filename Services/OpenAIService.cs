@@ -5,12 +5,14 @@ using OpenAI;
 using OpenAI.Audio;
 using OpenAI.Chat;
 using OpenAI.Images;
-using ReelDiscovery.Models;
+using EvidenceFoundry.Models;
 
-namespace ReelDiscovery.Services;
+namespace EvidenceFoundry.Services;
 
 public class OpenAIService
 {
+    public static TimeSpan? RateLimitDelayOverride { get; set; }
+
     private readonly string _apiKey;
     private readonly string _model;
     private readonly OpenAIClient _client;
@@ -18,6 +20,7 @@ public class OpenAIService
     private readonly AIModelConfig? _modelConfig;
     private readonly TokenUsageTracker? _usageTracker;
     private const int MaxRetries = 4;
+    private static readonly int[] TransientStatusCodes = { 408, 429, 500, 502, 503, 504 };
 
     private static OpenAIClient CreateClient(string apiKey)
     {
@@ -74,6 +77,7 @@ public class OpenAIService
         string? operationName = null,
         CancellationToken ct = default)
     {
+        Exception? lastException = null;
         for (int attempt = 0; attempt < MaxRetries; attempt++)
         {
             try
@@ -84,7 +88,12 @@ public class OpenAIService
                     new UserChatMessage(userPrompt)
                 };
 
-                var response = await _chatClient.CompleteChatAsync(messages, cancellationToken: ct);
+                var options = new ChatCompletionOptions
+                {
+                    MaxOutputTokenCount = GetMaxOutputTokens(isJson: false)
+                };
+
+                var response = await _chatClient.CompleteChatAsync(messages, options, ct);
 
                 if (response.Value.Content.Count > 0)
                 {
@@ -96,20 +105,16 @@ public class OpenAIService
 
                 throw new InvalidOperationException("Empty response from OpenAI");
             }
-            catch (ClientResultException ex) when (ex.Status == 429)
+            catch (Exception ex) when (IsRetryable(ex, ct))
             {
-                // Rate limited - exponential backoff
-                var delay = TimeSpan.FromSeconds(Math.Pow(2, attempt + 1));
-                await Task.Delay(delay, ct);
-            }
-            catch (ClientResultException ex) when (ex.Status == 503)
-            {
-                // Service unavailable - retry
-                await Task.Delay(TimeSpan.FromSeconds(5), ct);
+                lastException = ex;
+                await DelayForRetryAsync(attempt, ex, ct);
             }
         }
 
-        throw new InvalidOperationException("Failed to get response from OpenAI after multiple attempts.");
+        throw new InvalidOperationException(
+            $"Failed to get response from OpenAI after multiple attempts. {lastException?.Message}",
+            lastException);
     }
 
     public async Task<T?> GetJsonCompletionAsync<T>(
@@ -118,6 +123,7 @@ public class OpenAIService
         string? operationName = null,
         CancellationToken ct = default) where T : class
     {
+        Exception? lastException = null;
         for (int attempt = 0; attempt < MaxRetries; attempt++)
         {
             try
@@ -130,7 +136,8 @@ public class OpenAIService
 
                 var options = new ChatCompletionOptions
                 {
-                    ResponseFormat = ChatResponseFormat.CreateJsonObjectFormat()
+                    ResponseFormat = ChatResponseFormat.CreateJsonObjectFormat(),
+                    MaxOutputTokenCount = GetMaxOutputTokens(isJson: true)
                 };
 
                 var response = await _chatClient.CompleteChatAsync(messages, options, ct);
@@ -149,24 +156,25 @@ public class OpenAIService
 
                 throw new InvalidOperationException("Empty response from OpenAI");
             }
-            catch (ClientResultException ex) when (ex.Status == 429)
+            catch (JsonException ex)
             {
-                var delay = TimeSpan.FromSeconds(Math.Pow(2, attempt + 1));
-                await Task.Delay(delay, ct);
-            }
-            catch (ClientResultException ex) when (ex.Status == 503)
-            {
-                await Task.Delay(TimeSpan.FromSeconds(5), ct);
-            }
-            catch (JsonException)
-            {
+                lastException = ex;
                 // JSON parsing failed, retry
                 if (attempt == MaxRetries - 1)
                     throw;
+
+                await DelayForRetryAsync(attempt, ex, ct);
+            }
+            catch (Exception ex) when (IsRetryable(ex, ct))
+            {
+                lastException = ex;
+                await DelayForRetryAsync(attempt, ex, ct);
             }
         }
 
-        throw new InvalidOperationException("Failed to get valid JSON response from OpenAI after multiple attempts.");
+        throw new InvalidOperationException(
+            $"Failed to get valid JSON response from OpenAI after multiple attempts. {lastException?.Message}",
+            lastException);
     }
 
     // Legacy overloads for backward compatibility
@@ -186,6 +194,18 @@ public class OpenAIService
                 usage.InputTokenCount,
                 usage.OutputTokenCount);
         }
+    }
+
+    private int GetMaxOutputTokens(bool isJson)
+    {
+        if (_modelConfig != null)
+        {
+            var configured = isJson ? _modelConfig.MaxJsonOutputTokens : _modelConfig.MaxOutputTokens;
+            if (configured > 0)
+                return configured;
+        }
+
+        return isJson ? AIModelConfig.DefaultMaxJsonOutputTokens : AIModelConfig.DefaultMaxOutputTokens;
     }
 
     public async Task<byte[]?> GenerateImageAsync(
@@ -215,19 +235,14 @@ public class OpenAIService
 
                 return null;
             }
-            catch (ClientResultException ex) when (ex.Status == 429)
-            {
-                var delay = TimeSpan.FromSeconds(Math.Pow(2, attempt + 1));
-                await Task.Delay(delay, ct);
-            }
-            catch (ClientResultException ex) when (ex.Status == 503)
-            {
-                await Task.Delay(TimeSpan.FromSeconds(5), ct);
-            }
             catch (ClientResultException ex) when (ex.Status == 400)
             {
                 // Content policy violation or invalid prompt - don't retry
                 return null;
+            }
+            catch (Exception ex) when (IsRetryable(ex, ct))
+            {
+                await DelayForRetryAsync(attempt, ex, ct);
             }
         }
 
@@ -281,22 +296,46 @@ public class OpenAIService
 
                 return null;
             }
-            catch (ClientResultException ex) when (ex.Status == 429)
-            {
-                var delay = TimeSpan.FromSeconds(Math.Pow(2, attempt + 1));
-                await Task.Delay(delay, ct);
-            }
-            catch (ClientResultException ex) when (ex.Status == 503)
-            {
-                await Task.Delay(TimeSpan.FromSeconds(5), ct);
-            }
             catch (ClientResultException ex) when (ex.Status == 400)
             {
                 // Invalid request - don't retry
                 return null;
             }
+            catch (Exception ex) when (IsRetryable(ex, ct))
+            {
+                await DelayForRetryAsync(attempt, ex, ct);
+            }
         }
 
         return null;
+    }
+
+    private static bool IsRetryable(Exception ex, CancellationToken ct)
+    {
+        if (ex is ClientResultException cre)
+            return TransientStatusCodes.Contains(cre.Status);
+
+        if (ex is HttpRequestException)
+            return true;
+
+        if (ex is TaskCanceledException && !ct.IsCancellationRequested)
+            return true;
+
+        return false;
+    }
+
+    private static TimeSpan GetRetryDelay(int attempt, Exception ex)
+    {
+        if (ex is ClientResultException { Status: 429 } && RateLimitDelayOverride.HasValue)
+            return RateLimitDelayOverride.Value;
+
+        var baseSeconds = Math.Pow(2, attempt + 1);
+        var jitter = 0.8 + (Random.Shared.NextDouble() * 0.4);
+        return TimeSpan.FromSeconds(baseSeconds * jitter);
+    }
+
+    private static Task DelayForRetryAsync(int attempt, Exception ex, CancellationToken ct)
+    {
+        return Task.Delay(GetRetryDelay(attempt, ex), ct);
     }
 }

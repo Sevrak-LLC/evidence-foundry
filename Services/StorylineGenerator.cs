@@ -1,22 +1,33 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
-using ReelDiscovery.Models;
+using EvidenceFoundry.Helpers;
+using EvidenceFoundry.Models;
 
-namespace ReelDiscovery.Services;
+namespace EvidenceFoundry.Services;
 
 public class StorylineGenerator
 {
     private readonly OpenAIService _openAI;
-    private const int MaxStorylinesPerBatch = 15;
+    private readonly StoryBeatGenerator _beatGenerator;
+    private readonly EmailThreadGenerator _threadGenerator;
+    private const string RandomIndustryPreference = "Random";
 
     public StorylineGenerator(OpenAIService openAI)
     {
         _openAI = openAI;
+        _beatGenerator = new StoryBeatGenerator(openAI);
+        _threadGenerator = new EmailThreadGenerator();
     }
 
-    public async Task<StorylineGenerationResult> GenerateStorylinesAsync(
+    public async Task<StorylineGenerationResult> GenerateStorylineAsync(
         string topic,
+        string issueDescription,
         string additionalInstructions,
-        int storylineCount = 10,
+        string plaintiffIndustry,
+        string defendantIndustry,
+        int plaintiffOrganizationCount,
+        int defendantOrganizationCount,
+        World? worldModel,
         bool wantsDocuments = true,
         bool wantsImages = false,
         bool wantsVoicemails = false,
@@ -24,15 +35,181 @@ public class StorylineGenerator
         CancellationToken ct = default)
     {
         var mediaHints = BuildMediaHints(wantsDocuments, wantsImages, wantsVoicemails);
+        var normalizedPlaintiffCount = NormalizePartyCount(plaintiffOrganizationCount);
+        var normalizedDefendantCount = NormalizePartyCount(defendantOrganizationCount);
 
-        // For large storyline counts, generate in batches to avoid API output limits
-        if (storylineCount > MaxStorylinesPerBatch)
+        progress?.Report("Generating storyline...");
+        var issueContext = string.IsNullOrWhiteSpace(issueDescription) ? topic : issueDescription;
+        var normalizedPlaintiffIndustry = NormalizeIndustryPreference(plaintiffIndustry);
+        var normalizedDefendantIndustry = NormalizeIndustryPreference(defendantIndustry);
+        var includeOtherIndustry = string.Equals(normalizedPlaintiffIndustry, nameof(Industry.Other), StringComparison.OrdinalIgnoreCase)
+            || string.Equals(normalizedDefendantIndustry, nameof(Industry.Other), StringComparison.OrdinalIgnoreCase);
+
+        var systemPrompt = @"You are the EvidenceFoundry Narrative Generator.
+
+Your job: produce fictional, narrative-driven pre-dispute setups that can be expanded into realistic corporate email corpora for eDiscovery testing.
+
+CORE RULES (NON-NEGOTIABLE)
+- Entirely fictional case: invent all companies, domains, people, teams, products, internal project names, and events. Do NOT use real company names, real people, or identifiable real-world incidents.
+- Realistic workplace communication: mundane work mixed with tension. Allow minor typos, shorthand (FYI/pls), occasional slang, and imperfect memory.
+- eDiscovery usefulness: narratives should naturally create discoverable relevance and evidence trails without mentioning disputes, litigation, or discovery.
+- Organization roles required: include at least two distinct organizations and explicitly identify which organization is the likely plaintiff and which is the likely defendant in the eventual dispute (they must be different organizations). Do not describe filings or legal proceedings.
+- Ambiguity is required: include innocent explanations, red herrings, conflicting statements, miscommunication, and ""could be nothing"" details. Do not make every clue conclusive.
+- No tidy conclusions: the core tensions MUST remain unresolved with open questions, pending decisions, or ongoing conflict. Minor sub-issues may resolve.
+- No edgy content: avoid explicit sexual content, graphic violence, hate/harassment/slurs, self-harm, or shock content. If the topic touches HR/retaliation, keep summaries professional and non-explicit.
+
+SETTING
+- Each narrative must indicate where it takes place (e.g., city/state/country or region). Keep it generic; do not reference real events tied to that place.
+
+TOPIC HANDLING
+- If the issue description or label contains any real entity names or looks like a real incident, replace them with fictional equivalents while preserving the underlying scenario type.
+
+OPTIONAL eDISCOVERY HOOKS (USE WHEN THEY FIT)
+You may include any of the following if they make sense for the topic and narrative beats:
+- Confidentiality: NDAs, ""need-to-know,"" internal-only markings, restricted distribution.
+- Policy/compliance: procurement rules, gifts/conflicts, retention, security, HR policies.
+- Data/record handling: ""clean up,"" deletion, personal email, off-channel comms, device resets, vague ""don't write this down"" hints.
+Keep these plausible and non-instructional (do not provide step-by-step wrongdoing guidance). Do not frame them as litigation or disputes.
+
+SMOKING GUN (about 30% of narratives)
+- Sometimes include a subtle but decisive ""smoking gun"" clue that would materially resolve the eventual dispute if found later (e.g., a forwarded email, attachment filename, invoice pattern, calendar note, file path reference, vendor quote mismatch).
+- If the user explicitly requests a different rate or explicitly requires/forbids a smoking gun, follow the user.
+
+NARRATIVE QUALITY BAR
+Each narrative should be rich enough to generate many realistic emails without feeling repetitive:
+- Multiple departments/roles with competing incentives (at least leadership, management, IC/SME, HR/compliance, IT/security, and legal; plus an external if relevant).
+- A clear sequence of beats.
+- Plausible motives (fear, ambition, resentment, loyalty, confusion, burnout) and believable misunderstandings.
+
+OUTPUT REQUIREMENTS (STRICT)
+- Return ONLY valid JSON that matches the specified schema exactly.
+- No markdown, no commentary, no extra keys, no trailing commas.
+- Use double quotes for all JSON strings and property names.
+- Ensure internal consistency of names/titles/relationships/sequence of events within each narrative.
+- The summary field MUST clearly state the core pre-dispute situation, who is involved, and the tensions/risks that later lead to a dispute. Do NOT mention any dispute, claim, lawsuit, litigation, arbitration, investigation, subpoena, enforcement action, discovery process, or legal proceedings.";
+
+        var industryOptions = FormatIndustryOptionsForStorylines(includeOtherIndustry);
+        var worldContext = BuildWorldModelContext(worldModel);
+        var worldRules = worldModel != null
+            ? @"WORLD MODEL CONSTRAINTS:
+- Use ONLY the provided organizations and their domains. Do NOT invent or rename organizations.
+- Explicitly label the provided organizations as plaintiffs/defendants as given in the world model.
+- Use the provided key people by name. Do NOT invent new named people.
+- You may reference additional unnamed roles/teams if needed, but do not add named individuals beyond the world model."
+            : string.Empty;
+
+        var userPrompt = $@"Selected Case Issue: {topic}
+Issue Description: {issueContext}
+
+Additional Instructions: {(string.IsNullOrWhiteSpace(additionalInstructions) ? "None" : additionalInstructions)}
+Plaintiff Industry: {normalizedPlaintiffIndustry}
+Defendant Industry: {normalizedDefendantIndustry}
+Plaintiff Organization Count: {normalizedPlaintiffCount}
+Defendant Organization Count: {normalizedDefendantCount}
+{mediaHints}
+{(string.IsNullOrWhiteSpace(worldRules) ? "" : $"\n{worldRules}")}
+{(string.IsNullOrWhiteSpace(worldContext) ? "" : $"\nWORLD MODEL (JSON):\n{worldContext}")}
+
+Generate exactly 1 fictional corporate pre-dispute narrative for eDiscovery testing.
+
+Allowed industries (use exact enum values only):
+{industryOptions}
+
+REQUIREMENTS:
+- Entirely fictional: invent all companies, domains, people, teams, products, internal project names, and events. If the issue description or label contains real entities, replace them with fictional equivalents.
+- Each narrative must include where it takes place (city/state/country or region).
+- Build in ambiguity: include innocent explanations, red herrings, conflicting statements, miscommunication, and ""could be nothing"" details.
+- Include multiple departments/roles with competing incentives (leadership, management, IC/SME, HR/compliance, IT/security, legal; plus external entities or people if relevant).
+- Explicitly name at least two distinct organizations in each narrative. The summary MUST clearly label the likely plaintiff organization(s) and the likely defendant organization(s).
+- Include exactly {normalizedPlaintiffCount} distinct plaintiff organization(s) and exactly {normalizedDefendantCount} distinct defendant organization(s), all explicitly named in the summary.
+- If a plaintiff/defendant industry is not ""Random"", that organization MUST use that exact industry enum value.
+- If an industry is ""Random"", choose any allowed industry value. Use ""Other"" only when an industry explicitly requests it.
+- In the summary, include a final sentence starting with ""Organizations:"" that lists each organization and its industry using the allowed industry enum values.
+- Organizations generated as plaintiffs must not be also defendants and vice versa.
+- Provide clear narrative beats (setup, escalation, unresolved ending with open questions or pending action) that can expand into many emails.
+- Use any applicable media hints to create natural opportunities for documents, images, or voicemails.
+- Keep content professional and non-explicit; avoid edgy content.
+- The narrative MUST describe only the pre-dispute events and communications that lead up to the issue described above.
+- Do NOT mention any dispute, claim, lawsuit, litigation, arbitration, investigation, regulator, subpoena, enforcement action, discovery process, preservation, or legal proceedings (other than the required plaintiff/defendant role labels).
+
+Respond with JSON in this exact format:
+{{
+  ""storylines"": [
+    {{
+      ""title"": ""string"",
+      ""logline"": ""string (1-2 sentences)"",
+      ""summary"": ""string (10-15 sentences: the pre-dispute situation, who is involved, and any ambiguity)"",
+      ""plotOutline"": [""string (3-7 bullets, short sentences)""]],
+      ""tensionDrivers"": [""string (3-6 items)""],
+      ""ambiguities"": [""string (3-6 items)""],
+      ""redHerrings"": [""string (2-4 items)""],
+      ""evidenceThemes"": [""string (3-6 items)""]
+    }}
+  ]
+}}";
+
+        var response = await _openAI.GetJsonCompletionAsync<StorylineApiResponse>(systemPrompt, userPrompt, "Storyline Generation", ct);
+
+        if (response == null || response.Storylines.Count == 0)
+            throw new InvalidOperationException("Failed to generate a storyline.");
+
+        var result = new StorylineGenerationResult();
+
+        if (response.Storylines.Count > 1)
         {
-            return await GenerateStorylinesInBatchesAsync(topic, additionalInstructions, storylineCount, mediaHints, progress, ct);
+            result.StorylineFilterSummary = $"Received {response.Storylines.Count} storylines; using the first one only.";
         }
 
-        progress?.Report("Generating storylines...");
-        return await GenerateSingleBatchAsync(topic, additionalInstructions, storylineCount, null, true, mediaHints, ct);
+        var storyline = response.Storylines[0];
+        result.Storyline = new Storyline
+        {
+            Title = storyline.Title,
+            Logline = storyline.Logline,
+            Summary = storyline.Summary,
+            PlotOutline = storyline.PlotOutline?
+                .Where(p => !string.IsNullOrWhiteSpace(p))
+                .Select(p => new StoryOutline { Point = p.Trim() })
+                .ToList() ?? new List<StoryOutline>(),
+            TensionDrivers = FilterAndTrimList(storyline.TensionDrivers),
+            Ambiguities = FilterAndTrimList(storyline.Ambiguities),
+            RedHerrings = FilterAndTrimList(storyline.RedHerrings),
+            EvidenceThemes = FilterAndTrimList(storyline.EvidenceThemes)
+        };
+
+        await ApplyStorylineDateRangeAsync(result, topic, additionalInstructions, progress, ct);
+        ValidateStoryline(result);
+        SetMasterDateRangeFromStoryline(result);
+        return result;
+    }
+
+    public async Task<IReadOnlyList<StoryBeat>> GenerateStoryBeatsAsync(
+        string topic,
+        Storyline storyline,
+        IReadOnlyList<Organization> organizations,
+        IReadOnlyList<Character> characters,
+        IProgress<string>? progress = null,
+        CancellationToken ct = default)
+    {
+        if (storyline == null)
+            throw new ArgumentNullException(nameof(storyline));
+
+        var beats = await _beatGenerator.GenerateStoryBeatsAsync(
+            topic,
+            storyline,
+            organizations,
+            characters,
+            progress,
+            ct);
+
+        foreach (var beat in beats)
+        {
+            beat.StorylineId = storyline.Id;
+        }
+
+        _threadGenerator.PlanEmailThreadsForBeats(beats, characters.Count, Random.Shared);
+
+        storyline.Beats = beats;
+        return beats;
     }
 
     private static string BuildMediaHints(bool wantsDocuments, bool wantsImages, bool wantsVoicemails)
@@ -62,202 +239,200 @@ public class StorylineGenerator
         return "\n\nMEDIA OPPORTUNITIES - Design storylines that naturally include:\n" + string.Join("\n", hints.Select(h => $"• {h}"));
     }
 
-    private async Task<StorylineGenerationResult> GenerateStorylinesInBatchesAsync(
+    private static string FormatIndustryOptionsForStorylines(bool includeOther)
+    {
+        var options = Enum.GetNames(typeof(Industry))
+            .Where(name => includeOther || !string.Equals(name, nameof(Industry.Other), StringComparison.OrdinalIgnoreCase))
+            .Select(name => $"{name} ({EnumHelper.HumanizeEnumName(name)})");
+
+        return string.Join(", ", options);
+    }
+
+    private static string NormalizeIndustryPreference(string? preference)
+    {
+        if (string.IsNullOrWhiteSpace(preference))
+        {
+            return RandomIndustryPreference;
+        }
+
+        var trimmed = preference.Trim();
+        return string.Equals(trimmed, RandomIndustryPreference, StringComparison.OrdinalIgnoreCase)
+            ? RandomIndustryPreference
+            : trimmed;
+    }
+
+    private static int NormalizePartyCount(int value)
+    {
+        if (value < 1)
+            return 1;
+        if (value > 3)
+            return 3;
+        return value;
+    }
+
+    private static List<string> FilterAndTrimList(IEnumerable<string>? values)
+    {
+        if (values == null)
+            return new List<string>();
+
+        return values
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value.Trim())
+            .ToList();
+    }
+
+    private static string BuildWorldModelContext(World? worldModel)
+    {
+        if (worldModel == null)
+            return string.Empty;
+
+        var organizations = worldModel.Plaintiffs.Select(org => new
+        {
+            name = org.Name,
+            domain = org.Domain,
+            description = org.Description,
+            organizationType = org.OrganizationType.ToString(),
+            industry = org.Industry.ToString(),
+            state = org.State.ToString(),
+            founded = org.Founded?.Year,
+            side = "Plaintiff",
+            keyPeople = org.EnumerateCharacters().Select(a => new
+            {
+                firstName = a.Character.FirstName,
+                lastName = a.Character.LastName,
+                email = a.Character.Email,
+                role = a.Role.Name.ToString(),
+                department = a.Department.Name.ToString(),
+                personality = a.Character.Personality,
+                communicationStyle = a.Character.CommunicationStyle,
+                involvement = a.Character.Involvement,
+                involvementSummary = a.Character.InvolvementSummary
+            })
+        })
+        .Concat(worldModel.Defendants.Select(org => new
+        {
+            name = org.Name,
+            domain = org.Domain,
+            description = org.Description,
+            organizationType = org.OrganizationType.ToString(),
+            industry = org.Industry.ToString(),
+            state = org.State.ToString(),
+            founded = org.Founded?.Year,
+            side = "Defendant",
+            keyPeople = org.EnumerateCharacters().Select(a => new
+            {
+                firstName = a.Character.FirstName,
+                lastName = a.Character.LastName,
+                email = a.Character.Email,
+                role = a.Role.Name.ToString(),
+                department = a.Department.Name.ToString(),
+                personality = a.Character.Personality,
+                communicationStyle = a.Character.CommunicationStyle,
+                involvement = a.Character.Involvement,
+                involvementSummary = a.Character.InvolvementSummary
+            })
+        }))
+        .ToList();
+
+        var context = new
+        {
+            caseContext = new
+            {
+                caseArea = worldModel.CaseContext.CaseArea,
+                matterType = worldModel.CaseContext.MatterType,
+                issue = worldModel.CaseContext.Issue,
+                issueDescription = worldModel.CaseContext.IssueDescription
+            },
+            organizations
+        };
+
+        return JsonSerializer.Serialize(context, new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    private async Task ApplyStorylineDateRangeAsync(
+        StorylineGenerationResult result,
         string topic,
         string additionalInstructions,
-        int totalCount,
-        string mediaHints,
         IProgress<string>? progress,
         CancellationToken ct)
     {
-        var result = new StorylineGenerationResult();
-        var existingTitles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var batchCount = (int)Math.Ceiling((double)totalCount / MaxStorylinesPerBatch);
-        var remaining = totalCount;
+        if (result.Storyline == null)
+            return;
 
-        for (int batch = 0; batch < batchCount; batch++)
-        {
-            ct.ThrowIfCancellationRequested();
+        progress?.Report("Suggesting storyline date range...");
 
-            var batchSize = Math.Min(MaxStorylinesPerBatch, remaining);
-            var isFirstBatch = batch == 0;
+        var systemPrompt = @"You are the EvidenceFoundry Date Range Assistant.
 
-            // Report progress
-            progress?.Report($"Generating storylines (batch {batch + 1} of {batchCount})...");
+Your job: assign a reasonable start and end date for the storyline based on the narrative summary provided.
 
-            var batchResult = await GenerateSingleBatchAsync(
-                topic,
-                additionalInstructions,
-                batchSize,
-                existingTitles,
-                isFirstBatch,
-                mediaHints,
-                ct);
+RULES (STRICT)
+- Return ONLY valid JSON matching the specified schema.
+- Use YYYY-MM-DD format for dates.
+- End date must be on or after start date.
+- If the narratives imply a time period, align to it; otherwise choose a plausible range within the past 2-4 years.
+- Prefer the shortest reasonable range that the storyline could plausibly occur within.
+- Avoid starting on the 1st of a month or ending on the last day of a month unless explicitly implied (e.g., quarter-end, fiscal year).
+- Do NOT default to January 1 through December 31 ranges.
+- Keep spans under 6 months unless the narrative explicitly requires longer (still keep it as short as plausible).";
 
-            // First batch sets date range info
-            if (isFirstBatch)
-            {
-                result.SuggestedStartDate = batchResult.SuggestedStartDate;
-                result.SuggestedEndDate = batchResult.SuggestedEndDate;
-                result.DateRangeReasoning = batchResult.DateRangeReasoning;
-            }
+        ct.ThrowIfCancellationRequested();
 
-            // Add storylines and track titles to avoid duplicates
-            foreach (var storyline in batchResult.Storylines)
-            {
-                result.Storylines.Add(storyline);
-                existingTitles.Add(storyline.Title);
-            }
-
-            // Report completion of batch
-            progress?.Report($"Generated {result.Storylines.Count} of {totalCount} storylines...");
-
-            remaining -= batchSize;
-        }
-
-        return result;
-    }
-
-    private async Task<StorylineGenerationResult> GenerateSingleBatchAsync(
-        string topic,
-        string additionalInstructions,
-        int storylineCount,
-        HashSet<string>? existingTitles,
-        bool includeDateRange,
-        string mediaHints,
-        CancellationToken ct)
-    {
-        var systemPrompt = @"You are a creative writer generating email storylines set WITHIN the fictional universe of the source material.
-
-You will be given a topic (movie, TV show, book, or other subject) and must create storylines that:
-1. Stay TRUE to the original fictional universe - if it's Game of Thrones, the emails are between characters IN Westeros discussing dragons, politics, battles, and intrigue
-2. Reference ACTUAL events, plot points, characters, and conflicts from the source material
-3. Capture the authentic tone, drama, and stakes of the original work
-4. Feel like communications that would actually happen within that fictional world
-
-For example:
-- Game of Thrones: Ravens/messages between houses about alliances, betrayals, battles, and the threat beyond the Wall
-- Star Wars: Imperial memos, Rebel communications, Jedi Council discussions
-- The Office: Actual Dunder Mifflin emails about paper sales, office drama, and Michael's management disasters
-- Breaking Bad: Texts and emails about the meth operation, DEA concerns, and cartel dealings
-
-The emails should feel AUTHENTIC to the source material's world, not like a corporate translation of it.
-
-EMOTIONAL INTENSITY IS CRITICAL:
-Every storyline MUST have real emotional stakes and interpersonal conflict:
-- What's the CONFLICT? Who is fighting, disagreeing, or clashing?
-- What EMOTIONS drive the exchanges? (anger, fear, betrayal, desperation, jealousy, grief, contempt)
-- Are there VILLAINS, antagonists, or people being blamed?
-- Will tempers flare? Will characters say things they shouldn't?
-- Are there SIDES being taken? People turning against each other?
-
-The description field MUST specify:
-1. The core conflict/tension
-2. Which characters are in opposition
-3. The emotional tone (heated, tense, bitter, desperate, accusatory, etc.)
-
-DO NOT create bland, cordial storylines:
-- BAD: 'Planning the company picnic' (boring, no conflict)
-- GOOD: 'Company picnic disaster - food poisoning blamed on Angela, accusations of deliberate sabotage, HR gets involved'
-- BAD: 'Quarterly budget review' (routine, no stakes)
-- GOOD: 'Quarterly budget exposes missing funds - accusations fly between departments, someone's getting fired'
-
-Always respond with valid JSON matching the specified schema exactly.";
-
-        var existingTitlesNote = existingTitles != null && existingTitles.Count > 0
-            ? $"\n\nIMPORTANT: The following storylines have already been created. DO NOT duplicate these - create DIFFERENT storylines based on OTHER events from the source material:\n{string.Join("\n", existingTitles.Select(t => $"- {t}"))}\n"
-            : "";
-
-        var dateRangeSection = includeDateRange
-            ? @",
-  ""suggestedDateRange"": {
-    ""reasoning"": ""string explaining why these dates were chosen"",
-    ""startDate"": ""YYYY-MM-DD"",
-    ""endDate"": ""YYYY-MM-DD""
-  }"
-            : "";
-
-        var dateRangeInstruction = includeDateRange
-            ? @"
-
-Also suggest an appropriate date range for when these emails would have been sent, based on:
-- If this is a movie/TV show/book, use dates that fit the setting or release period
-- If this is a general topic, suggest dates within the past 1-2 years"
-            : "";
+        var storyline = result.Storyline;
 
         var userPrompt = $@"Topic: {topic}
-
 Additional Instructions: {(string.IsNullOrWhiteSpace(additionalInstructions) ? "None" : additionalInstructions)}
-{existingTitlesNote}{mediaHints}
 
-Generate exactly {storylineCount} storylines set WITHIN the fictional universe of ""{topic}"", based on ACTUAL EVENTS and PLOT POINTS from the source material.
+Storyline:
+Title: {storyline.Title}
+Summary: {storyline.Summary}
 
-IMPORTANT: Each storyline must:
-1. Be DIRECTLY BASED ON a specific event, plot point, or story arc from the source material
-2. Stay IN-UNIVERSE - don't translate to a corporate setting, keep the original fictional context
-3. Capture the authentic drama, stakes, and tone of the original work
-4. Use titles that reference the actual events (e.g., for Game of Thrones: ""The Red Wedding Aftermath"", ""Wildfire Explosion at the Sept"", ""Dragons Missing from Dragonpit"")
-
-The storylines should feel like they're happening INSIDE the fictional world:
-- Game of Thrones: Political intrigue, battle planning, betrayals, supernatural threats
-- Star Wars: Rebellion operations, Imperial orders, Jedi matters, trade negotiations
-- Breaking Bad: Drug operation logistics, DEA investigations, cartel dealings
-- The Office: Actual paper company dysfunction, Michael's disasters, office romance drama
-
-Each storyline should:
-1. Naturally generate email/message threads that characters in that world would send
-2. Have a clear beginning, middle, and potential resolution
-3. Involve 2-6 characters FROM the source material
-4. Span a realistic timeframe for that story's events{dateRangeInstruction}
-
-CRITICAL - MAKE STORYLINES EMOTIONALLY CHARGED:
-- Every storyline needs CONFLICT and TENSION between characters
-- The description MUST name who is in conflict with whom
-- Include the EMOTIONAL STAKES (fear, anger, betrayal, desperation, jealousy)
-- Characters who are enemies/rivals should CLASH in email threads
-- Don't make everyone professional and cordial - let real emotions show
-
-Respond with JSON in this exact format:
+Return JSON in this exact format:
 {{
-  ""storylines"": [
-    {{
-      ""title"": ""string"",
-      ""description"": ""string (2-3 sentences: the conflict, who's against whom, and the emotional stakes)"",
-      ""timelineHint"": ""string (e.g., 'Spans 2 weeks', 'Single day event')"",
-      ""suggestedEmailCount"": number (5-20),
-      ""keyCharacterRoles"": [""string""]
-    }}
-  ]{dateRangeSection}
+  ""startDate"": ""YYYY-MM-DD"",
+  ""endDate"": ""YYYY-MM-DD""
 }}";
 
-        var response = await _openAI.GetJsonCompletionAsync<StorylineApiResponse>(systemPrompt, userPrompt, "Storyline Generation", ct);
+        var response = await _openAI.GetJsonCompletionAsync<StorylineDateRangeSingleResponse>(
+            systemPrompt,
+            userPrompt,
+            "Storyline Date Range",
+            ct);
 
         if (response == null)
-            throw new InvalidOperationException("Failed to generate storylines");
+            return;
 
-        var result = new StorylineGenerationResult();
-
-        foreach (var s in response.Storylines)
+        if (!DateTime.TryParse(response.StartDate, out var start) ||
+            !DateTime.TryParse(response.EndDate, out var end))
         {
-            result.Storylines.Add(new Storyline
-            {
-                Title = s.Title,
-                Description = s.Description,
-                TimelineHint = s.TimelineHint,
-                SuggestedEmailCount = s.SuggestedEmailCount
-            });
+            return;
         }
 
-        if (response.SuggestedDateRange != null)
-        {
-            if (DateTime.TryParse(response.SuggestedDateRange.StartDate, out var start))
-                result.SuggestedStartDate = start;
-            if (DateTime.TryParse(response.SuggestedDateRange.EndDate, out var end))
-                result.SuggestedEndDate = end;
-            result.DateRangeReasoning = response.SuggestedDateRange.Reasoning;
-        }
+        var normalized = DateHelper.NormalizeStorylineDateRange(storyline, start, end);
+        storyline.StartDate = normalized.start;
+        storyline.EndDate = normalized.end;
+    }
 
-        return result;
+    private static void SetMasterDateRangeFromStoryline(StorylineGenerationResult result)
+    {
+        var storyline = result.Storyline;
+        if (storyline?.StartDate == null || storyline.EndDate == null)
+            return;
+
+        result.SuggestedStartDate = storyline.StartDate.Value;
+        result.SuggestedEndDate = storyline.EndDate.Value;
+    }
+
+    private static void ValidateStoryline(StorylineGenerationResult result)
+    {
+        var storyline = result.Storyline;
+        if (storyline == null)
+            throw new InvalidOperationException("No storyline was generated.");
+
+        if (!storyline.StartDate.HasValue || !storyline.EndDate.HasValue)
+            throw new InvalidOperationException("Storyline is missing a valid date range.");
+
+        if (storyline.EndDate.Value.Date < storyline.StartDate.Value.Date)
+            throw new InvalidOperationException("Storyline has an invalid date range.");
     }
 
     // API Response DTOs
@@ -265,9 +440,6 @@ Respond with JSON in this exact format:
     {
         [JsonPropertyName("storylines")]
         public List<StorylineDto> Storylines { get; set; } = new();
-
-        [JsonPropertyName("suggestedDateRange")]
-        public DateRangeDto? SuggestedDateRange { get; set; }
     }
 
     private class StorylineDto
@@ -275,24 +447,30 @@ Respond with JSON in this exact format:
         [JsonPropertyName("title")]
         public string Title { get; set; } = string.Empty;
 
-        [JsonPropertyName("description")]
-        public string Description { get; set; } = string.Empty;
+        [JsonPropertyName("logline")]
+        public string Logline { get; set; } = string.Empty;
 
-        [JsonPropertyName("timelineHint")]
-        public string TimelineHint { get; set; } = string.Empty;
+        [JsonPropertyName("summary")]
+        public string Summary { get; set; } = string.Empty;
 
-        [JsonPropertyName("suggestedEmailCount")]
-        public int SuggestedEmailCount { get; set; }
+        [JsonPropertyName("plotOutline")]
+        public List<string>? PlotOutline { get; set; }
 
-        [JsonPropertyName("keyCharacterRoles")]
-        public List<string> KeyCharacterRoles { get; set; } = new();
+        [JsonPropertyName("tensionDrivers")]
+        public List<string>? TensionDrivers { get; set; }
+
+        [JsonPropertyName("ambiguities")]
+        public List<string>? Ambiguities { get; set; }
+
+        [JsonPropertyName("redHerrings")]
+        public List<string>? RedHerrings { get; set; }
+
+        [JsonPropertyName("evidenceThemes")]
+        public List<string>? EvidenceThemes { get; set; }
     }
 
-    private class DateRangeDto
+    private class StorylineDateRangeSingleResponse
     {
-        [JsonPropertyName("reasoning")]
-        public string Reasoning { get; set; } = string.Empty;
-
         [JsonPropertyName("startDate")]
         public string StartDate { get; set; } = string.Empty;
 
@@ -303,8 +481,8 @@ Respond with JSON in this exact format:
 
 public class StorylineGenerationResult
 {
-    public List<Storyline> Storylines { get; set; } = new();
+    public Storyline? Storyline { get; set; }
     public DateTime? SuggestedStartDate { get; set; }
     public DateTime? SuggestedEndDate { get; set; }
-    public string? DateRangeReasoning { get; set; }
+    public string? StorylineFilterSummary { get; set; }
 }

@@ -1,7 +1,6 @@
-using System.Reflection;
-using ReelDiscovery.Helpers;
+using EvidenceFoundry.Helpers;
 
-namespace ReelDiscovery.Forms;
+namespace EvidenceFoundry.Forms;
 
 public class DisclaimerDialog : Form
 {
@@ -12,48 +11,11 @@ public class DisclaimerDialog : Form
     public DisclaimerDialog()
     {
         InitializeUI();
-        LoadIcon();
-    }
-
-    private void LoadIcon()
-    {
-        try
-        {
-            var assembly = Assembly.GetExecutingAssembly();
-            var resourceName = "ReelDiscovery.Resources.QD_Logo_Color_236x256.ico";
-            using var stream = assembly.GetManifestResourceStream(resourceName);
-            if (stream != null)
-            {
-                this.Icon = new Icon(stream);
-            }
-        }
-        catch
-        {
-            // Icon loading failed, use default
-        }
-    }
-
-    private static void LoadLogoImage(PictureBox pictureBox)
-    {
-        try
-        {
-            var assembly = Assembly.GetExecutingAssembly();
-            var resourceName = "ReelDiscovery.Resources.98c804f5-9d4f-4d4b-a654-a9b33c92781f.png";
-            using var stream = assembly.GetManifestResourceStream(resourceName);
-            if (stream != null)
-            {
-                pictureBox.Image = Image.FromStream(stream);
-            }
-        }
-        catch
-        {
-            // Logo loading failed, leave empty
-        }
     }
 
     private void InitializeUI()
     {
-        this.Text = "ReelDiscovery - Terms of Use";
+        this.Text = "EvidenceFoundry - Terms of Use";
         this.Size = new Size(700, 750);
         this.StartPosition = FormStartPosition.CenterScreen;
         this.FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -83,15 +45,13 @@ public class DisclaimerDialog : Form
             BackColor = Color.FromArgb(45, 45, 48)
         };
 
-        // Load and display the logo image - scaled to fit header
-        var logoBox = new PictureBox
+        // PlaceholderImage: reserve banner space without loading an image.
+        var logoPlaceholder = new Panel
         {
             Dock = DockStyle.Fill,
-            SizeMode = PictureBoxSizeMode.Zoom,
             BackColor = Color.FromArgb(45, 45, 48)
         };
-        LoadLogoImage(logoBox);
-        headerPanel.Controls.Add(logoBox);
+        headerPanel.Controls.Add(logoPlaceholder);
         mainLayout.Controls.Add(headerPanel, 0, 0);
 
         // Subheader
@@ -203,12 +163,12 @@ This software generates synthetic email content using artificial intelligence fo
 
 \cf2\b NO WARRANTY\cf1\b0\par
 \par
-This software is provided ""as is"" without warranty of any kind, express or implied. QuikData makes no representations or warranties regarding the accuracy, completeness, or suitability of the generated content for any purpose.\par
+This software is provided ""as is"" without warranty of any kind, express or implied. Sevrak LLC makes no representations or warranties regarding the accuracy, completeness, or suitability of the generated content for any purpose.\par
 \par
 
 \cf2\b LIMITATION OF LIABILITY\cf1\b0\par
 \par
-QuikData shall not be liable for any direct, indirect, incidental, special, consequential, or punitive damages arising from the use of this software or its generated content, including but not limited to damages for loss of profits, data, or other intangible losses.\par
+Sevrak LLC shall not be liable for any direct, indirect, incidental, special, consequential, or punitive damages arising from the use of this software or its generated content, including but not limited to damages for loss of profits, data, or other intangible losses.\par
 \par
 
 \cf2\b USER RESPONSIBILITY\cf1\b0\par
@@ -233,7 +193,7 @@ This tool is intended solely for e-discovery software demonstrations, training, 
 
 \cf2\b INDEMNIFICATION\cf1\b0\par
 \par
-You agree to indemnify and hold harmless QuikData and its affiliates from any claims, damages, or expenses arising from your use of this software or the generated content.\par
+You agree to indemnify and hold harmless Sevrak LLC and its affiliates from any claims, damages, or expenses arising from your use of this software or the generated content.\par
 \par
 }";
     }

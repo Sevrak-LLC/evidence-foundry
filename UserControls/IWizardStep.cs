@@ -1,6 +1,6 @@
-using ReelDiscovery.Models;
+using EvidenceFoundry.Models;
 
-namespace ReelDiscovery.UserControls;
+namespace EvidenceFoundry.UserControls;
 
 public interface IWizardStep
 {

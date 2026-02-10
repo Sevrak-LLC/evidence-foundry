@@ -1,3 +1,4 @@
+using System.Text;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
@@ -5,15 +6,18 @@ using DocumentFormat.OpenXml.Spreadsheet;
 using DocumentFormat.OpenXml.Presentation;
 using A = DocumentFormat.OpenXml.Drawing;
 using P = DocumentFormat.OpenXml.Presentation;
-using ReelDiscovery.Models;
+using EvidenceFoundry.Models;
 
-namespace ReelDiscovery.Services;
+namespace EvidenceFoundry.Services;
 
 public class OfficeDocumentService
 {
     public byte[] CreateWordDocument(string title, string content, OrganizationTheme? theme = null)
     {
         var t = theme ?? OrganizationTheme.Default;
+        var safeTitle = SanitizeXmlText(title);
+        var safeContent = SanitizeXmlText(content);
+        var safeOrgName = SanitizeXmlText(t.OrganizationName ?? string.Empty);
 
         using var stream = new MemoryStream();
         using (var doc = WordprocessingDocument.Create(stream, WordprocessingDocumentType.Document, true))
@@ -28,7 +32,7 @@ public class OfficeDocumentService
             );
 
             // Add header with organization branding (colored bar with org name)
-            if (!string.IsNullOrEmpty(t.OrganizationName))
+            if (!string.IsNullOrEmpty(safeOrgName))
             {
                 var headerPara = body.AppendChild(new Paragraph(
                     new ParagraphProperties(
@@ -44,7 +48,7 @@ public class OfficeDocumentService
                         new DocumentFormat.OpenXml.Wordprocessing.Color { Val = t.TextLight },
                         new DocumentFormat.OpenXml.Wordprocessing.RunFonts { Ascii = t.HeadingFont, HighAnsi = t.HeadingFont }
                     ),
-                    new DocumentFormat.OpenXml.Wordprocessing.Text($"  {t.OrganizationName}")
+                    new DocumentFormat.OpenXml.Wordprocessing.Text($"  {safeOrgName}")
                 ));
 
                 // Add accent line under header
@@ -70,7 +74,7 @@ public class OfficeDocumentService
                 new DocumentFormat.OpenXml.Wordprocessing.Color { Val = t.PrimaryColor },
                 new DocumentFormat.OpenXml.Wordprocessing.RunFonts { Ascii = t.HeadingFont, HighAnsi = t.HeadingFont }
             ));
-            titleRun.AppendChild(new DocumentFormat.OpenXml.Wordprocessing.Text(title));
+            titleRun.AppendChild(new DocumentFormat.OpenXml.Wordprocessing.Text(safeTitle));
 
             // Add subtle divider line
             var dividerPara = body.AppendChild(new Paragraph(
@@ -83,7 +87,7 @@ public class OfficeDocumentService
             ));
 
             // Add content paragraphs with better typography
-            var paragraphs = content.Split(new[] { "\n\n", "\r\n\r\n" }, StringSplitOptions.RemoveEmptyEntries);
+            var paragraphs = safeContent.Split(new[] { "\n\n", "\r\n\r\n" }, StringSplitOptions.RemoveEmptyEntries);
             foreach (var para in paragraphs)
             {
                 var p = body.AppendChild(new Paragraph(
@@ -134,7 +138,7 @@ public class OfficeDocumentService
             {
                 Id = workbookPart.GetIdOfPart(worksheetPart),
                 SheetId = 1,
-                Name = title.Length > 31 ? title[..31] : title
+                Name = SanitizeSheetName(title)
             };
             sheets.Append(sheet);
 
@@ -170,6 +174,7 @@ public class OfficeDocumentService
     {
         // Use provided theme or default colors
         var t = theme ?? OrganizationTheme.Default;
+        var safeTitle = SanitizeXmlText(title);
 
         using var stream = new MemoryStream();
         using (var doc = PresentationDocument.Create(stream, PresentationDocumentType.Presentation, true))
@@ -223,18 +228,48 @@ public class OfficeDocumentService
             uint slideId = 256;
 
             // Create title slide (special formatting)
-            CreateTitleSlide(presentationPart, slideLayoutPart, slideIdList, slideId++, title, "Generated Email Dataset", t);
+            CreateTitleSlide(presentationPart, slideLayoutPart, slideIdList, slideId++, safeTitle, "Generated Email Dataset", t);
 
             // Create content slides
             foreach (var (slideTitle, content) in slides)
             {
-                CreateContentSlide(presentationPart, slideLayoutPart, slideIdList, slideId++, slideTitle, content, t);
+                CreateContentSlide(
+                    presentationPart,
+                    slideLayoutPart,
+                    slideIdList,
+                    slideId++,
+                    SanitizeXmlText(slideTitle),
+                    SanitizeXmlText(content),
+                    t);
             }
 
             presentationPart.Presentation.Save();
         }
 
         return stream.ToArray();
+    }
+
+    private static string SanitizeSheetName(string? title)
+    {
+        var name = (title ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            name = "Sheet1";
+        }
+
+        var invalidChars = new[] { '[', ']', ':', '*', '?', '/', '\\' };
+        foreach (var ch in invalidChars)
+        {
+            name = name.Replace(ch, '_');
+        }
+
+        name = name.Trim('\'');
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            name = "Sheet1";
+        }
+
+        return name.Length > 31 ? name[..31] : name;
     }
 
     private static A.Theme CreateModernTheme(OrganizationTheme t)
@@ -254,7 +289,8 @@ public class OfficeDocumentService
                     new A.Accent6Color(new A.RgbColorModelHex { Val = "FFC000" }),  // Gold
                     new A.Hyperlink(new A.RgbColorModelHex { Val = "0563C1" }),
                     new A.FollowedHyperlinkColor(new A.RgbColorModelHex { Val = "954F72" })
-                ) { Name = t.ThemeName },
+                )
+                { Name = t.ThemeName },
                 new A.FontScheme(
                     new A.MajorFont(
                         new A.LatinFont { Typeface = t.HeadingFont },
@@ -266,7 +302,8 @@ public class OfficeDocumentService
                         new A.EastAsianFont { Typeface = "" },
                         new A.ComplexScriptFont { Typeface = "" }
                     )
-                ) { Name = t.ThemeName },
+                )
+                { Name = t.ThemeName },
                 new A.FormatScheme(
                     new A.FillStyleList(
                         new A.SolidFill(new A.SchemeColor { Val = A.SchemeColorValues.PhColor }),
@@ -288,17 +325,20 @@ public class OfficeDocumentService
                         new A.SolidFill(new A.SchemeColor { Val = A.SchemeColorValues.PhColor }),
                         new A.SolidFill(new A.SchemeColor { Val = A.SchemeColorValues.PhColor })
                     )
-                ) { Name = t.ThemeName }
+                )
+                { Name = t.ThemeName }
             )
-        ) { Name = $"{t.ThemeName} Theme" };
+        )
+        { Name = $"{t.ThemeName} Theme" };
     }
 
     private static Cell CreateCell(string columnName, uint rowIndex, string value)
     {
+        var safeValue = SanitizeXmlText(value);
         return new Cell
         {
             CellReference = $"{columnName}{rowIndex}",
-            CellValue = new CellValue(value),
+            CellValue = new CellValue(safeValue),
             DataType = CellValues.String
         };
     }
@@ -471,6 +511,7 @@ public class OfficeDocumentService
 
     private static P.Shape CreateStyledTextShape(uint id, string name, string text, long x, long y, long width, long height, int fontSize, string colorHex, bool bold, string fontName)
     {
+        text = SanitizeXmlText(text);
         var runProps = new A.RunProperties
         {
             Language = "en-US",
@@ -503,6 +544,7 @@ public class OfficeDocumentService
 
     private static P.Shape CreateContentTextShape(uint id, string name, string text, long x, long y, long width, long height, int fontSize, string textColorHex, string fontName)
     {
+        text = SanitizeXmlText(text);
         var runProps = new A.RunProperties
         {
             Language = "en-US",
@@ -554,5 +596,51 @@ public class OfficeDocumentService
                 new A.PresetGeometry(new A.AdjustValueList()) { Preset = A.ShapeTypeValues.Rectangle },
                 new A.NoFill()),
             textBody);
+    }
+
+    private static string SanitizeXmlText(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+            return string.Empty;
+
+        var sb = new StringBuilder(value.Length);
+        for (var i = 0; i < value.Length; i++)
+        {
+            var ch = value[i];
+            if (char.IsHighSurrogate(ch))
+            {
+                if (i + 1 < value.Length && char.IsLowSurrogate(value[i + 1]))
+                {
+                    var codePoint = char.ConvertToUtf32(ch, value[i + 1]);
+                    if (IsValidXmlCodePoint(codePoint))
+                    {
+                        sb.Append(ch);
+                        sb.Append(value[i + 1]);
+                    }
+                    i++;
+                }
+                continue;
+            }
+
+            if (char.IsLowSurrogate(ch))
+                continue;
+
+            if (IsValidXmlCodePoint(ch))
+            {
+                sb.Append(ch);
+            }
+        }
+
+        return sb.ToString();
+    }
+
+    private static bool IsValidXmlCodePoint(int codePoint)
+    {
+        return codePoint == 0x9
+               || codePoint == 0xA
+               || codePoint == 0xD
+               || (codePoint >= 0x20 && codePoint <= 0xD7FF)
+               || (codePoint >= 0xE000 && codePoint <= 0xFFFD)
+               || (codePoint >= 0x10000 && codePoint <= 0x10FFFF);
     }
 }

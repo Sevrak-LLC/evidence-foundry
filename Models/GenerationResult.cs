@@ -1,4 +1,4 @@
-namespace ReelDiscovery.Models;
+namespace EvidenceFoundry.Models;
 
 public class GenerationResult
 {
@@ -30,4 +30,19 @@ public class GenerationProgress
 
     public double OverallPercentage =>
         TotalEmails == 0 ? 0 : (CompletedEmails * 100.0) / TotalEmails;
+
+    public GenerationProgress Snapshot()
+    {
+        return new GenerationProgress
+        {
+            TotalEmails = TotalEmails,
+            CompletedEmails = CompletedEmails,
+            TotalAttachments = TotalAttachments,
+            CompletedAttachments = CompletedAttachments,
+            TotalImages = TotalImages,
+            CompletedImages = CompletedImages,
+            CurrentOperation = CurrentOperation,
+            CurrentStoryline = CurrentStoryline
+        };
+    }
 }

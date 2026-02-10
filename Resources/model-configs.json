@@ -1,0 +1,51 @@
+[
+  {
+    "modelId": "gpt-4o",
+    "displayName": "GPT-4o",
+    "inputTokenPricePerMillion": 2.5,
+    "outputTokenPricePerMillion": 10.0,
+    "maxOutputTokens": 2400,
+    "maxJsonOutputTokens": 6000
+  },
+  {
+    "modelId": "gpt-4o-mini",
+    "displayName": "GPT-4o Mini",
+    "inputTokenPricePerMillion": 0.15,
+    "outputTokenPricePerMillion": 0.6,
+    "maxOutputTokens": 2400,
+    "maxJsonOutputTokens": 6000,
+    "isDefault": true
+  },
+  {
+    "modelId": "gpt-4-turbo",
+    "displayName": "GPT-4 Turbo",
+    "inputTokenPricePerMillion": 10.0,
+    "outputTokenPricePerMillion": 30.0,
+    "maxOutputTokens": 2400,
+    "maxJsonOutputTokens": 6000
+  },
+  {
+    "modelId": "gpt-3.5-turbo",
+    "displayName": "GPT-3.5 Turbo",
+    "inputTokenPricePerMillion": 0.5,
+    "outputTokenPricePerMillion": 1.5,
+    "maxOutputTokens": 2400,
+    "maxJsonOutputTokens": 6000
+  },
+  {
+    "modelId": "o1-preview",
+    "displayName": "O1 Preview",
+    "inputTokenPricePerMillion": 15.0,
+    "outputTokenPricePerMillion": 60.0,
+    "maxOutputTokens": 2400,
+    "maxJsonOutputTokens": 6000
+  },
+  {
+    "modelId": "o1-mini",
+    "displayName": "O1 Mini",
+    "inputTokenPricePerMillion": 3.0,
+    "outputTokenPricePerMillion": 12.0,
+    "maxOutputTokens": 2400,
+    "maxJsonOutputTokens": 6000
+  }
+]

@@ -1,4 +1,4 @@
-namespace ReelDiscovery.Models;
+namespace EvidenceFoundry.Models;
 
 /// <summary>
 /// Defines a color and typography theme for an organization, used for emails and documents.

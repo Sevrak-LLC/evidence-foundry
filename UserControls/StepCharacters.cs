@@ -1,25 +1,28 @@
 using System.ComponentModel;
-using ReelDiscovery.Helpers;
-using ReelDiscovery.Models;
-using ReelDiscovery.Services;
+using EvidenceFoundry.Helpers;
+using EvidenceFoundry.Models;
+using EvidenceFoundry.Services;
 
-namespace ReelDiscovery.UserControls;
+namespace EvidenceFoundry.UserControls;
 
 public class StepCharacters : UserControl, IWizardStep
 {
     private WizardState _state = null!;
     private DataGridView _gridCharacters = null!;
+    private DataGridView _gridPlaintiffs = null!;
+    private DataGridView _gridDefendants = null!;
     private Button _btnRegenerate = null!;
     private Button _btnDelete = null!;
-    private Label _lblCompanyInfo = null!;
     private Label _lblStatus = null!;
     private LoadingOverlay _loadingOverlay = null!;
     private bool _isLoading = false;
-    private BindingList<Character> _bindingList = null!;
+    private BindingList<CharacterRow> _characterRows = null!;
+    private BindingList<Organization> _plaintiffRows = null!;
+    private BindingList<Organization> _defendantRows = null!;
     private ListSortDirection _sortDirection = ListSortDirection.Ascending;
     private int _sortColumnIndex = -1;
 
-    public string StepTitle => "Review Characters";
+    public string StepTitle => "Review Organizations & Characters";
     public bool CanMoveNext => _state?.Characters.Count >= 2 && !_isLoading;
     public bool CanMoveBack => !_isLoading;
     public string NextButtonText => "Next >";
@@ -43,76 +46,94 @@ public class StepCharacters : UserControl, IWizardStep
             Padding = new Padding(10)
         };
 
-        mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 50));
+        mainLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 180));
         mainLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
-        mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
+        mainLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
         // Header with regenerate button
-        var headerPanel = new Panel { Dock = DockStyle.Fill };
+        _btnDelete = ButtonHelper.CreateButton("Delete Selected", 110, 32, ButtonStyle.Default);
+        _btnDelete.Click += BtnDelete_Click;
+
+        _btnRegenerate = ButtonHelper.CreateButton("Regenerate", 110, 32, ButtonStyle.Primary);
+        _btnRegenerate.Click += BtnRegenerate_Click;
+
+        var headerLayout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            AutoSize = true
+        };
+        headerLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        headerLayout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 
         var lblHeader = new Label
         {
-            Text = "The AI has generated characters for your email dataset. You can edit their details.",
+            Text = "The AI has generated organizations and characters. You can review and edit details.",
             AutoSize = true,
-            Location = new Point(0, 5)
+            Margin = new Padding(0, 6, 10, 0)
         };
-        headerPanel.Controls.Add(lblHeader);
+        headerLayout.Controls.Add(lblHeader, 0, 0);
 
-        _btnDelete = ButtonHelper.CreateButton("Delete Selected", 110, 32, ButtonStyle.Default);
-        _btnDelete.Anchor = AnchorStyles.Right | AnchorStyles.Top;
-        _btnDelete.Click += BtnDelete_Click;
-        headerPanel.Controls.Add(_btnDelete);
-
-        _btnRegenerate = ButtonHelper.CreateButton("Regenerate", 110, 32, ButtonStyle.Primary);
-        _btnRegenerate.Anchor = AnchorStyles.Right | AnchorStyles.Top;
-        _btnRegenerate.Click += BtnRegenerate_Click;
-        headerPanel.Controls.Add(_btnRegenerate);
-
-        headerPanel.Resize += (s, e) =>
+        var headerButtonPanel = new FlowLayoutPanel
         {
-            _btnRegenerate.Location = new Point(headerPanel.Width - 120, 0);
-            _btnDelete.Location = new Point(headerPanel.Width - 240, 0);
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            WrapContents = false,
+            FlowDirection = FlowDirection.RightToLeft,
+            Margin = new Padding(0)
+        };
+        headerButtonPanel.Controls.Add(_btnRegenerate);
+        headerButtonPanel.Controls.Add(_btnDelete);
+        headerLayout.Controls.Add(headerButtonPanel, 1, 0);
+
+        headerLayout.Layout += (s, e) =>
+        {
+            var maxWidth = Math.Max(0, headerLayout.Width - headerButtonPanel.Width - 10);
+            lblHeader.MaximumSize = new Size(maxWidth, 0);
         };
 
-        mainLayout.Controls.Add(headerPanel, 0, 0);
+        mainLayout.Controls.Add(headerLayout, 0, 0);
+
+        // Organization grids panel
+        var orgPanel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+            Padding = new Padding(0, 0, 0, 0)
+        };
+        orgPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        orgPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+
+        var plaintiffPanel = BuildOrgPanel("Plaintiff Organizations", out _gridPlaintiffs);
+        var defendantPanel = BuildOrgPanel("Defendant Organizations", out _gridDefendants);
+
+        orgPanel.Controls.Add(plaintiffPanel, 0, 0);
+        orgPanel.Controls.Add(defendantPanel, 1, 0);
+
+        mainLayout.Controls.Add(orgPanel, 0, 1);
 
         // Characters grid
         _gridCharacters = new DataGridView
         {
             Dock = DockStyle.Fill,
             AutoGenerateColumns = false,
-            AllowUserToAddRows = true,
+            AllowUserToAddRows = false,
             AllowUserToDeleteRows = true,
             SelectionMode = DataGridViewSelectionMode.FullRowSelect,
             MultiSelect = false,
-            RowHeadersVisible = true,
+            RowHeadersVisible = false,
             BackgroundColor = SystemColors.Window,
             BorderStyle = BorderStyle.Fixed3D
         };
 
-        _gridCharacters.Columns.Add(new DataGridViewCheckBoxColumn
-        {
-            Name = "IsExternal",
-            HeaderText = "Ext",
-            DataPropertyName = "IsExternal",
-            Width = 40
-        });
-
         _gridCharacters.Columns.Add(new DataGridViewTextBoxColumn
         {
-            Name = "FirstName",
-            HeaderText = "First Name",
-            DataPropertyName = "FirstName",
-            Width = 90
-        });
-
-        _gridCharacters.Columns.Add(new DataGridViewTextBoxColumn
-        {
-            Name = "LastName",
-            HeaderText = "Last Name",
-            DataPropertyName = "LastName",
-            Width = 90
+            Name = "FullName",
+            HeaderText = "Full Name",
+            DataPropertyName = "FullName",
+            Width = 160
         });
 
         _gridCharacters.Columns.Add(new DataGridViewTextBoxColumn
@@ -120,7 +141,7 @@ public class StepCharacters : UserControl, IWizardStep
             Name = "Email",
             HeaderText = "Email",
             DataPropertyName = "Email",
-            Width = 180
+            Width = 200
         });
 
         _gridCharacters.Columns.Add(new DataGridViewTextBoxColumn
@@ -128,15 +149,8 @@ public class StepCharacters : UserControl, IWizardStep
             Name = "Organization",
             HeaderText = "Organization",
             DataPropertyName = "Organization",
-            Width = 130
-        });
-
-        _gridCharacters.Columns.Add(new DataGridViewTextBoxColumn
-        {
-            Name = "Role",
-            HeaderText = "Role/Title",
-            DataPropertyName = "Role",
-            Width = 120
+            Width = 160,
+            ReadOnly = true
         });
 
         _gridCharacters.Columns.Add(new DataGridViewTextBoxColumn
@@ -144,14 +158,24 @@ public class StepCharacters : UserControl, IWizardStep
             Name = "Department",
             HeaderText = "Dept",
             DataPropertyName = "Department",
-            Width = 80
+            Width = 110,
+            ReadOnly = true
         });
 
         _gridCharacters.Columns.Add(new DataGridViewTextBoxColumn
         {
-            Name = "PersonalityNotes",
+            Name = "Role",
+            HeaderText = "Role",
+            DataPropertyName = "Role",
+            Width = 160,
+            ReadOnly = true
+        });
+
+        _gridCharacters.Columns.Add(new DataGridViewTextBoxColumn
+        {
+            Name = "Personality",
             HeaderText = "Personality",
-            DataPropertyName = "PersonalityNotes",
+            DataPropertyName = "Personality",
             AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill
         });
 
@@ -159,20 +183,10 @@ public class StepCharacters : UserControl, IWizardStep
         _gridCharacters.SelectionChanged += GridCharacters_SelectionChanged;
         _gridCharacters.UserDeletingRow += GridCharacters_UserDeletingRow;
 
-        mainLayout.Controls.Add(_gridCharacters, 0, 1);
+        mainLayout.Controls.Add(_gridCharacters, 0, 2);
 
         // Create loading overlay for the grid
         _loadingOverlay = new LoadingOverlay(LoadingOverlay.LoadingType.Characters);
-
-        // Company info
-        _lblCompanyInfo = new Label
-        {
-            Text = "Company Domain: Not yet determined",
-            Dock = DockStyle.Fill,
-            TextAlign = ContentAlignment.MiddleLeft,
-            Font = new Font(this.Font, FontStyle.Bold)
-        };
-        mainLayout.Controls.Add(_lblCompanyInfo, 0, 2);
 
         // Status label
         _lblStatus = new Label
@@ -182,9 +196,88 @@ public class StepCharacters : UserControl, IWizardStep
             TextAlign = ContentAlignment.MiddleLeft,
             ForeColor = Color.Gray
         };
+        _lblStatus.AutoSize = true;
+        mainLayout.Layout += (s, e) =>
+        {
+            var maxWidth = Math.Max(0, mainLayout.ClientSize.Width - mainLayout.Padding.Horizontal);
+            _lblStatus.MaximumSize = new Size(maxWidth, 0);
+        };
         mainLayout.Controls.Add(_lblStatus, 0, 3);
 
         this.Controls.Add(mainLayout);
+    }
+
+    private Panel BuildOrgPanel(string title, out DataGridView grid)
+    {
+        var panel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(0, 0, 5, 0) };
+        var label = new Label
+        {
+            Text = title,
+            Dock = DockStyle.Top,
+            Height = 20,
+            Font = new Font(SystemFonts.DefaultFont, FontStyle.Bold)
+        };
+
+        grid = new DataGridView
+        {
+            Dock = DockStyle.Fill,
+            AutoGenerateColumns = false,
+            AllowUserToAddRows = false,
+            AllowUserToDeleteRows = false,
+            SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+            MultiSelect = false,
+            RowHeadersVisible = false,
+            BackgroundColor = SystemColors.Window,
+            BorderStyle = BorderStyle.Fixed3D
+        };
+
+        grid.Columns.Add(new DataGridViewTextBoxColumn
+        {
+            Name = "Name",
+            HeaderText = "Name",
+            DataPropertyName = "Name",
+            Width = 180
+        });
+
+        grid.Columns.Add(new DataGridViewTextBoxColumn
+        {
+            Name = "Domain",
+            HeaderText = "Domain",
+            DataPropertyName = "Domain",
+            Width = 150
+        });
+
+        grid.Columns.Add(new DataGridViewTextBoxColumn
+        {
+            Name = "OrganizationType",
+            HeaderText = "Type",
+            DataPropertyName = "OrganizationType",
+            Width = 80
+        });
+
+        grid.Columns.Add(new DataGridViewTextBoxColumn
+        {
+            Name = "State",
+            HeaderText = "State",
+            DataPropertyName = "State",
+            Width = 110
+        });
+
+        grid.Columns.Add(new DataGridViewTextBoxColumn
+        {
+            Name = "Founded",
+            HeaderText = "Founded",
+            DataPropertyName = "Founded",
+            Width = 90,
+            DefaultCellStyle = new DataGridViewCellStyle { Format = "yyyy" }
+        });
+
+        grid.CellFormatting += GridOrganizations_CellFormatting;
+
+        panel.Controls.Add(grid);
+        panel.Controls.Add(label);
+
+        return panel;
     }
 
     private async void BtnRegenerate_Click(object? sender, EventArgs e)
@@ -203,12 +296,13 @@ public class StepCharacters : UserControl, IWizardStep
 
             foreach (var row in selectedRows)
             {
-                if (row.DataBoundItem is Character character)
+                if (row.DataBoundItem is CharacterRow characterRow)
                 {
-                    _bindingList.Remove(character);
+                    RemoveCharacter(characterRow.Id);
                 }
             }
 
+            RefreshCharacterGrid();
             UpdateStatus();
             StateChanged?.Invoke(this, EventArgs.Empty);
         }
@@ -222,7 +316,11 @@ public class StepCharacters : UserControl, IWizardStep
 
     private void GridCharacters_UserDeletingRow(object? sender, DataGridViewRowCancelEventArgs e)
     {
-        // Allow deletion - the binding list will handle it
+        if (e.Row?.DataBoundItem is CharacterRow characterRow)
+        {
+            RemoveCharacter(characterRow.Id);
+        }
+
         UpdateStatus();
         StateChanged?.Invoke(this, EventArgs.Empty);
     }
@@ -230,10 +328,9 @@ public class StepCharacters : UserControl, IWizardStep
     private void GridCharacters_ColumnHeaderMouseClick(object? sender, DataGridViewCellMouseEventArgs e)
     {
         var column = _gridCharacters.Columns[e.ColumnIndex];
-        if (column == null || _bindingList == null || _bindingList.Count == 0)
+        if (column == null || _characterRows == null || _characterRows.Count == 0)
             return;
 
-        // Toggle sort direction if clicking the same column
         if (_sortColumnIndex == e.ColumnIndex)
         {
             _sortDirection = _sortDirection == ListSortDirection.Ascending
@@ -246,23 +343,17 @@ public class StepCharacters : UserControl, IWizardStep
             _sortDirection = ListSortDirection.Ascending;
         }
 
-        // Get the property name for sorting
         var propertyName = column.DataPropertyName;
         if (string.IsNullOrEmpty(propertyName))
             return;
 
-        // Sort the list
         var sorted = _sortDirection == ListSortDirection.Ascending
-            ? _state.Characters.OrderBy(c => GetPropertyValue(c, propertyName)).ToList()
-            : _state.Characters.OrderByDescending(c => GetPropertyValue(c, propertyName)).ToList();
+            ? _characterRows.OrderBy(c => GetPropertyValue(c, propertyName)).ToList()
+            : _characterRows.OrderByDescending(c => GetPropertyValue(c, propertyName)).ToList();
 
-        _state.Characters.Clear();
-        foreach (var item in sorted)
-            _state.Characters.Add(item);
+        _characterRows = new BindingList<CharacterRow>(sorted);
+        _gridCharacters.DataSource = _characterRows;
 
-        RefreshGrid();
-
-        // Update column header to show sort direction
         foreach (DataGridViewColumn col in _gridCharacters.Columns)
         {
             col.HeaderCell.SortGlyphDirection = SortOrder.None;
@@ -279,10 +370,10 @@ public class StepCharacters : UserControl, IWizardStep
 
     private void UpdateStatus()
     {
-        var internalCount = _state.Characters.Count(c => !c.IsExternal);
-        var externalCount = _state.Characters.Count(c => c.IsExternal);
-        var domains = _state.Characters.Select(c => c.Domain).Distinct().Count();
-        _lblStatus.Text = $"{_state.Characters.Count} characters ({internalCount} internal, {externalCount} external across {domains} domains).";
+        var orgCount = _state.Organizations.Count;
+        var plaintiffCount = _state.Organizations.Count(o => o.IsPlaintiff);
+        var defendantCount = _state.Organizations.Count(o => o.IsDefendant);
+        _lblStatus.Text = $"{_state.Characters.Count} characters across {orgCount} organizations ({plaintiffCount} plaintiff, {defendantCount} defendant).";
         _lblStatus.ForeColor = _state.Characters.Count >= 2 ? Color.Green : Color.Gray;
     }
 
@@ -291,46 +382,45 @@ public class StepCharacters : UserControl, IWizardStep
         _isLoading = true;
         _btnRegenerate.Enabled = false;
         _lblStatus.Text = "";
-        _loadingOverlay.Show(_gridCharacters);
+        _loadingOverlay.Show(this);
         StateChanged?.Invoke(this, EventArgs.Empty);
 
         try
         {
-            var openAI = _state.CreateOpenAIService();
-            var generator = new CharacterGenerator(openAI);
+            var storyline = _state.Storyline;
+            if (storyline == null)
+                throw new InvalidOperationException("Storyline is required before generating characters.");
 
-            // Create progress reporter that updates the status label
+            var openAI = _state.CreateOpenAIService();
+            var generator = new EntityGeneratorOrchestrator(openAI);
+
             IProgress<string> progress = new Progress<string>(status =>
             {
                 _lblStatus.Text = status;
                 _lblStatus.ForeColor = Color.Blue;
             });
 
-            var result = await generator.GenerateCharactersAsync(
+            var result = await generator.GenerateEntitiesAsync(
                 _state.Topic,
-                _state.Storylines,
+                storyline,
                 progress);
 
+            _state.Organizations = result.Organizations;
             _state.Characters = result.Characters;
-            _state.CompanyDomain = result.CompanyDomain;
+            _state.CompanyDomain = result.PrimaryDomain;
+            storyline.Beats.Clear();
 
-            RefreshGrid();
+            RefreshOrganizationGrids();
+            RefreshCharacterGrid();
 
-            _lblCompanyInfo.Text = $"Primary Company: {result.CompanyName} ({result.CompanyDomain})";
-
-            // Generate presentation themes for each domain
             progress.Report("Generating presentation themes...");
             var themeGenerator = new ThemeGenerator(openAI);
-            _state.DomainThemes = await themeGenerator.GenerateThemesForDomainsAsync(
+            _state.DomainThemes = await themeGenerator.GenerateThemesForOrganizationsAsync(
                 _state.Topic,
-                _state.Characters,
+                _state.Organizations,
                 progress);
 
-            var internalCount = result.Characters.Count(c => !c.IsExternal);
-            var externalCount = result.Characters.Count(c => c.IsExternal);
-            var domains = result.Characters.Select(c => c.Domain).Distinct().Count();
-            _lblStatus.Text = $"Generated {result.Characters.Count} characters ({internalCount} internal, {externalCount} external across {domains} domains).";
-            _lblStatus.ForeColor = Color.Green;
+            UpdateStatus();
         }
         catch (Exception ex)
         {
@@ -349,10 +439,65 @@ public class StepCharacters : UserControl, IWizardStep
         }
     }
 
-    private void RefreshGrid()
+    private void RefreshOrganizationGrids()
     {
-        _bindingList = new BindingList<Character>(_state.Characters);
-        _gridCharacters.DataSource = _bindingList;
+        _plaintiffRows = new BindingList<Organization>(_state.Organizations.Where(o => o.IsPlaintiff).ToList());
+        _defendantRows = new BindingList<Organization>(_state.Organizations.Where(o => o.IsDefendant).ToList());
+        _gridPlaintiffs.DataSource = _plaintiffRows;
+        _gridDefendants.DataSource = _defendantRows;
+    }
+
+    private void RefreshCharacterGrid()
+    {
+        _characterRows = new BindingList<CharacterRow>(BuildCharacterRows());
+        _gridCharacters.DataSource = _characterRows;
+    }
+
+    private List<CharacterRow> BuildCharacterRows()
+    {
+        var rows = new List<CharacterRow>();
+        foreach (var assignment in _state.Organizations.SelectMany(o => o.EnumerateCharacters()))
+        {
+            rows.Add(new CharacterRow(
+                assignment.Character,
+                assignment.Organization.Name,
+                EnumHelper.HumanizeEnumName(assignment.Department.Name.ToString()),
+                EnumHelper.HumanizeEnumName(assignment.Role.Name.ToString())));
+        }
+        return rows;
+    }
+
+    private void RemoveCharacter(Guid characterId)
+    {
+        foreach (var org in _state.Organizations)
+        {
+            foreach (var dept in org.Departments)
+            {
+                foreach (var role in dept.Roles)
+                {
+                    var toRemove = role.Characters.FirstOrDefault(c => c.Id == characterId);
+                    if (toRemove != null)
+                    {
+                        role.Characters.Remove(toRemove);
+                        _state.Characters.RemoveAll(c => c.Id == characterId);
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    private void GridOrganizations_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e)
+    {
+        if (sender is not DataGridView grid || e.Value == null)
+            return;
+
+        var columnName = grid.Columns[e.ColumnIndex].Name;
+        if (columnName == "OrganizationType" || columnName == "State")
+        {
+            e.Value = EnumHelper.HumanizeEnumName(e.Value.ToString() ?? string.Empty);
+            e.FormattingApplied = true;
+        }
     }
 
     public void BindState(WizardState state)
@@ -362,25 +507,16 @@ public class StepCharacters : UserControl, IWizardStep
 
     public async Task OnEnterStepAsync()
     {
-        RefreshGrid();
+        RefreshOrganizationGrids();
+        RefreshCharacterGrid();
 
-        if (!string.IsNullOrEmpty(_state.CompanyDomain))
-        {
-            _lblCompanyInfo.Text = $"Company Domain: {_state.CompanyDomain}";
-        }
-
-        // Auto-generate if no characters yet
         if (_state.Characters.Count == 0)
         {
             await GenerateCharactersAsync();
         }
         else
         {
-            var internalCount = _state.Characters.Count(c => !c.IsExternal);
-            var externalCount = _state.Characters.Count(c => c.IsExternal);
-            var domains = _state.Characters.Select(c => c.Domain).Distinct().Count();
-            _lblStatus.Text = $"{_state.Characters.Count} characters loaded ({internalCount} internal, {externalCount} external across {domains} domains).";
-            _lblStatus.ForeColor = Color.Green;
+            UpdateStatus();
         }
     }
 
@@ -397,18 +533,72 @@ public class StepCharacters : UserControl, IWizardStep
             return Task.FromResult(false);
         }
 
-        // Validate all characters have required fields
         foreach (var character in _state.Characters)
         {
             if (string.IsNullOrWhiteSpace(character.FirstName) ||
                 string.IsNullOrWhiteSpace(character.LastName) ||
                 string.IsNullOrWhiteSpace(character.Email))
             {
-                MessageBox.Show("All characters must have a first name, last name, and email.", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show("All characters must have a name and email.", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return Task.FromResult(false);
             }
         }
 
         return Task.FromResult(true);
+    }
+
+    private sealed class CharacterRow
+    {
+        private readonly Character _character;
+
+        public CharacterRow(Character character, string organization, string department, string role)
+        {
+            _character = character;
+            Organization = organization;
+            Department = department;
+            Role = role;
+        }
+
+        public Guid Id => _character.Id;
+
+        public string FullName
+        {
+            get => _character.FullName;
+            set
+            {
+                var parts = (value ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length == 0)
+                {
+                    _character.FirstName = string.Empty;
+                    _character.LastName = string.Empty;
+                }
+                else if (parts.Length == 1)
+                {
+                    _character.FirstName = parts[0];
+                    _character.LastName = string.Empty;
+                }
+                else
+                {
+                    _character.FirstName = parts[0];
+                    _character.LastName = string.Join(" ", parts.Skip(1));
+                }
+            }
+        }
+
+        public string Email
+        {
+            get => _character.Email;
+            set => _character.Email = value;
+        }
+
+        public string Personality
+        {
+            get => _character.Personality;
+            set => _character.Personality = value;
+        }
+
+        public string Organization { get; }
+        public string Department { get; }
+        public string Role { get; }
     }
 }

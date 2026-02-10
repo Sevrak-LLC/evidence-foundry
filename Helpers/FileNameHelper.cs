@@ -1,7 +1,7 @@
 using System.Text.RegularExpressions;
-using ReelDiscovery.Models;
+using EvidenceFoundry.Models;
 
-namespace ReelDiscovery.Helpers;
+namespace EvidenceFoundry.Helpers;
 
 public static partial class FileNameHelper
 {
@@ -50,7 +50,44 @@ public static partial class FileNameHelper
         // Trim underscores from start/end
         sanitized = sanitized.Trim('_');
 
+        // Windows does not allow trailing dots/spaces or reserved device names.
+        sanitized = sanitized.Trim(' ', '.');
+        if (string.IsNullOrEmpty(sanitized))
+            return "unnamed";
+
+        if (IsReservedDeviceName(sanitized))
+        {
+            sanitized = $"_{sanitized}";
+        }
+
         return string.IsNullOrEmpty(sanitized) ? "unnamed" : sanitized;
+    }
+
+    private static bool IsReservedDeviceName(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
+
+        var baseName = value;
+        var dotIndex = value.IndexOf('.');
+        if (dotIndex >= 0)
+            baseName = value[..dotIndex];
+
+        return baseName.Equals("CON", StringComparison.OrdinalIgnoreCase)
+               || baseName.Equals("PRN", StringComparison.OrdinalIgnoreCase)
+               || baseName.Equals("AUX", StringComparison.OrdinalIgnoreCase)
+               || baseName.Equals("NUL", StringComparison.OrdinalIgnoreCase)
+               || baseName.StartsWith("COM", StringComparison.OrdinalIgnoreCase) && IsDeviceNumber(baseName, "COM")
+               || baseName.StartsWith("LPT", StringComparison.OrdinalIgnoreCase) && IsDeviceNumber(baseName, "LPT");
+    }
+
+    private static bool IsDeviceNumber(string value, string prefix)
+    {
+        if (value.Length != prefix.Length + 1)
+            return false;
+
+        var suffix = value[^1];
+        return suffix is >= '1' and <= '9';
     }
 
     private static string TruncateSubject(string subject, int maxLength)

@@ -1,7 +1,6 @@
-using ReelDiscovery.Forms;
-using ReelDiscovery.Services;
+using EvidenceFoundry.Forms;
 
-namespace ReelDiscovery;
+namespace EvidenceFoundry;
 
 internal static class Program
 {
@@ -16,17 +15,6 @@ internal static class Program
         {
             return; // User declined, exit application
         }
-
-        // Show telemetry opt-in dialog on first run
-        if (!TelemetryService.HasMadeTelemetryChoice())
-        {
-            using var telemetryDialog = new TelemetryOptInDialog();
-            telemetryDialog.ShowDialog();
-            TelemetryService.SetTelemetryEnabled(telemetryDialog.UserOptedIn);
-        }
-
-        // Send launch event (only if user opted in)
-        _ = TelemetryService.SendLaunchEventAsync();
 
         Application.Run(new WizardForm());
     }

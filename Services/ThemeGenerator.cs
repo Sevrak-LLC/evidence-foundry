@@ -1,7 +1,7 @@
 using System.Text.Json.Serialization;
-using ReelDiscovery.Models;
+using EvidenceFoundry.Models;
 
-namespace ReelDiscovery.Services;
+namespace EvidenceFoundry.Services;
 
 public class ThemeGenerator
 {
@@ -13,22 +13,23 @@ public class ThemeGenerator
     }
 
     /// <summary>
-    /// Generates organization themes for all unique domains found in the character list.
+    /// Generates organization themes for all unique domains found in the organization list.
     /// </summary>
-    public async Task<Dictionary<string, OrganizationTheme>> GenerateThemesForDomainsAsync(
+    public async Task<Dictionary<string, OrganizationTheme>> GenerateThemesForOrganizationsAsync(
         string topic,
-        List<Character> characters,
+        List<Organization> organizations,
         IProgress<string>? progress = null,
         CancellationToken ct = default)
     {
         var themes = new Dictionary<string, OrganizationTheme>(StringComparer.OrdinalIgnoreCase);
 
         // Get unique domains and their organization names
-        var domainOrgs = characters
-            .GroupBy(c => c.Domain, StringComparer.OrdinalIgnoreCase)
+        var domainOrgs = organizations
+            .Where(o => !string.IsNullOrWhiteSpace(o.Domain))
+            .GroupBy(o => o.Domain, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(
                 g => g.Key,
-                g => g.First().Organization,
+                g => g.First().Name,
                 StringComparer.OrdinalIgnoreCase);
 
         if (domainOrgs.Count == 0)
@@ -36,15 +37,16 @@ public class ThemeGenerator
 
         progress?.Report($"Generating organization themes for {domainOrgs.Count} organizations...");
 
-        var systemPrompt = @"You are a brand designer creating professional color schemes and typography for corporate documents.
-Given organizations from a specific topic/universe, create appropriate themes that match each organization's character and industry.
+
+        var systemPrompt = @"You are a brand designer creating professional color schemes and typography for fictional corporate documents.
+Given fictional organizations, create appropriate themes that match each organization's industry and personality.
 
 Guidelines:
-- Colors should be professional and readable (good contrast)
+- Colors should be professional, readable, and high-contrast
 - The primary color is used for title backgrounds and header bars
 - The accent color is used for emphasis lines and highlights
-- Consider the organization's industry, personality, and any brand associations
-- For fictional organizations from TV shows/movies, try to match their canonical branding if known
+- Do not mimic or reference real-world brand palettes
+- Keep results plausible for corporate use (no neon or overly saturated palettes)
 
 Font Guidelines - choose fonts that match the organization's personality:
 - Law firms, banks, traditional companies: Serif fonts like 'Georgia', 'Times New Roman', 'Garamond'
@@ -58,18 +60,13 @@ Respond with valid JSON only.";
 
         var orgList = string.Join("\n", domainOrgs.Select(kv => $"- {kv.Value} ({kv.Key})"));
 
-        var userPrompt = $@"Topic/Universe: {topic}
 
-Generate unique color themes for the following organizations:
+        var userPrompt = $@"Topic: {topic}
+
+Generate unique color themes for the following fictional organizations:
 {orgList}
 
-Each theme should reflect the organization's character within the context of ""{topic}"".
-
-For example:
-- A law firm might use navy blue and gold with Georgia/Times New Roman fonts
-- A tech startup might use vibrant blue and orange with Segoe UI/Calibri fonts
-- A government agency might use formal blue and red with Times New Roman
-- Dunder Mifflin (The Office) might use their classic blue and gray with standard corporate fonts
+Each theme should reflect the organization's industry and personality. Do not reference real brands.
 
 Available fonts (use ONLY these - they are commonly installed):
 Serif: Georgia, Times New Roman, Garamond, Book Antiqua, Palatino Linotype

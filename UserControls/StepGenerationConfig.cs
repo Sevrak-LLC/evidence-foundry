@@ -1,17 +1,12 @@
-using ReelDiscovery.Helpers;
-using ReelDiscovery.Models;
-using ReelDiscovery.Services;
+using EvidenceFoundry.Helpers;
+using EvidenceFoundry.Models;
 
-namespace ReelDiscovery.UserControls;
+namespace EvidenceFoundry.UserControls;
 
 public class StepGenerationConfig : UserControl, IWizardStep
 {
     private WizardState _state = null!;
-    private NumericUpDown _numEmailCount = null!;
     private NumericUpDown _numParallelThreads = null!;
-    private CheckBox _chkAISuggestDates = null!;
-    private DateTimePicker _dtpStartDate = null!;
-    private DateTimePicker _dtpEndDate = null!;
     private NumericUpDown _numAttachmentPercent = null!;
     private ComboBox _cboAttachmentComplexity = null!;
     private CheckBox _chkWord = null!;
@@ -26,12 +21,11 @@ public class StepGenerationConfig : UserControl, IWizardStep
     private TextBox _txtOutputFolder = null!;
     private Button _btnBrowse = null!;
     private CheckBox _chkOrganizeBySender = null!;
-    private CheckBox _chkTelemetry = null!;
 
     public string StepTitle => "Generation Settings";
     public bool CanMoveNext => !string.IsNullOrWhiteSpace(_txtOutputFolder?.Text);
     public bool CanMoveBack => true;
-    public string NextButtonText => "Generate Emails >";
+    public string NextButtonText => "Review Summary >";
 
     public event EventHandler? StateChanged;
 
@@ -67,19 +61,6 @@ public class StepGenerationConfig : UserControl, IWizardStep
         // === Generation Settings Section ===
         y = AddSectionHeader(mainPanel, "Generation", y);
 
-        y = AddLabeledRow(mainPanel, "Number of Emails:", y, labelWidth, rowHeight, () =>
-        {
-            _numEmailCount = new NumericUpDown
-            {
-                Minimum = 5,
-                Maximum = 500,
-                Value = 50,
-                Width = 100,
-                Font = new Font(this.Font.FontFamily, 10F)
-            };
-            return _numEmailCount;
-        });
-
         y = AddLabeledRow(mainPanel, "Parallel API Calls:", y, labelWidth, rowHeight, () =>
         {
             var panel = new Panel { Width = 450, Height = rowHeight };
@@ -103,52 +84,6 @@ public class StepGenerationConfig : UserControl, IWizardStep
             panel.Controls.Add(_numParallelThreads);
             panel.Controls.Add(helpLabel);
             return panel;
-        });
-
-        y += sectionGap;
-
-        // === Date Range Section ===
-        y = AddSectionHeader(mainPanel, "Date Range", y);
-
-        // AI suggest dates checkbox (spans both columns)
-        _chkAISuggestDates = new CheckBox
-        {
-            Text = "Let AI suggest dates based on topic",
-            Checked = true,
-            AutoSize = true,
-            Font = new Font(this.Font.FontFamily, 10F),
-            Location = new Point(labelWidth, y + 6)
-        };
-        _chkAISuggestDates.CheckedChanged += (s, e) =>
-        {
-            _dtpStartDate.Enabled = !_chkAISuggestDates.Checked;
-            _dtpEndDate.Enabled = !_chkAISuggestDates.Checked;
-        };
-        mainPanel.Controls.Add(_chkAISuggestDates);
-        y += rowHeight;
-
-        y = AddLabeledRow(mainPanel, "Start Date:", y, labelWidth, rowHeight, () =>
-        {
-            _dtpStartDate = new DateTimePicker
-            {
-                Format = DateTimePickerFormat.Short,
-                Width = 160,
-                Font = new Font(this.Font.FontFamily, 10F),
-                Enabled = false
-            };
-            return _dtpStartDate;
-        });
-
-        y = AddLabeledRow(mainPanel, "End Date:", y, labelWidth, rowHeight, () =>
-        {
-            _dtpEndDate = new DateTimePicker
-            {
-                Format = DateTimePickerFormat.Short,
-                Width = 160,
-                Font = new Font(this.Font.FontFamily, 10F),
-                Enabled = false
-            };
-            return _dtpEndDate;
         });
 
         y += sectionGap;
@@ -404,30 +339,6 @@ public class StepGenerationConfig : UserControl, IWizardStep
         mainPanel.Controls.Add(_chkOrganizeBySender);
         y += rowHeight + sectionGap;
 
-        // === Privacy Section ===
-        y = AddSectionHeader(mainPanel, "Privacy", y);
-
-        _chkTelemetry = new CheckBox
-        {
-            Text = "Help improve ReelDiscovery by sending anonymous usage statistics",
-            Checked = TelemetryService.IsTelemetryEnabled(),
-            AutoSize = true,
-            Font = new Font(this.Font.FontFamily, 10F),
-            Location = new Point(labelWidth, y + 6)
-        };
-        mainPanel.Controls.Add(_chkTelemetry);
-
-        var telemetryHelpLabel = new Label
-        {
-            Text = "(Topic name, email count, model used - no personal data)",
-            AutoSize = true,
-            ForeColor = Color.DimGray,
-            Font = new Font(this.Font.FontFamily, 9F),
-            Location = new Point(labelWidth + 20, y + 28)
-        };
-        mainPanel.Controls.Add(telemetryHelpLabel);
-        y += rowHeight + 15;
-
         mainPanel.Height = y + 20;
         scrollPanel.Controls.Add(mainPanel);
         this.Controls.Add(scrollPanel);
@@ -506,21 +417,7 @@ public class StepGenerationConfig : UserControl, IWizardStep
     public Task OnEnterStepAsync()
     {
         // Load from state
-        _numEmailCount.Value = _state.Config.TotalEmailCount;
         _numParallelThreads.Value = Math.Max(1, Math.Min(10, _state.Config.ParallelThreads));
-        _chkAISuggestDates.Checked = _state.Config.LetAISuggestDates;
-
-        // Set date pickers
-        if (_state.AISuggestedStartDate.HasValue)
-            _dtpStartDate.Value = _state.AISuggestedStartDate.Value;
-        else
-            _dtpStartDate.Value = _state.Config.StartDate;
-
-        if (_state.AISuggestedEndDate.HasValue)
-            _dtpEndDate.Value = _state.AISuggestedEndDate.Value;
-        else
-            _dtpEndDate.Value = _state.Config.EndDate;
-
         _numAttachmentPercent.Value = _state.Config.AttachmentPercentage;
         _cboAttachmentComplexity.SelectedIndex = _state.Config.AttachmentComplexity == AttachmentComplexity.Detailed ? 1 : 0;
         _chkWord.Checked = _state.Config.IncludeWord;
@@ -543,16 +440,11 @@ public class StepGenerationConfig : UserControl, IWizardStep
 
         _chkOrganizeBySender.Checked = _state.Config.OrganizeBySender;
 
-        // Load telemetry preference
-        _chkTelemetry.Checked = TelemetryService.IsTelemetryEnabled();
-
         return Task.CompletedTask;
     }
 
     public Task OnLeaveStepAsync()
     {
-        // Save telemetry preference
-        TelemetryService.SetTelemetryEnabled(_chkTelemetry.Checked);
         return Task.CompletedTask;
     }
 
@@ -564,12 +456,6 @@ public class StepGenerationConfig : UserControl, IWizardStep
             return Task.FromResult(false);
         }
 
-        if (!_chkAISuggestDates.Checked && _dtpStartDate.Value >= _dtpEndDate.Value)
-        {
-            MessageBox.Show("End date must be after start date.", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return Task.FromResult(false);
-        }
-
         if (_numAttachmentPercent.Value > 0 && !_chkWord.Checked && !_chkExcel.Checked && !_chkPowerPoint.Checked)
         {
             MessageBox.Show("Please select at least one attachment type, or set attachment percentage to 0.", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -577,11 +463,7 @@ public class StepGenerationConfig : UserControl, IWizardStep
         }
 
         // Save to state
-        _state.Config.TotalEmailCount = (int)_numEmailCount.Value;
         _state.Config.ParallelThreads = (int)_numParallelThreads.Value;
-        _state.Config.LetAISuggestDates = _chkAISuggestDates.Checked;
-        _state.Config.StartDate = _dtpStartDate.Value;
-        _state.Config.EndDate = _dtpEndDate.Value;
         _state.Config.AttachmentPercentage = (int)_numAttachmentPercent.Value;
         _state.Config.AttachmentComplexity = _cboAttachmentComplexity.SelectedIndex == 1
             ? AttachmentComplexity.Detailed

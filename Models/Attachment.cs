@@ -1,4 +1,4 @@
-namespace ReelDiscovery.Models;
+namespace EvidenceFoundry.Models;
 
 public enum AttachmentType
 {

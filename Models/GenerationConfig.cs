@@ -1,8 +1,7 @@
-namespace ReelDiscovery.Models;
+namespace EvidenceFoundry.Models;
 
 public class GenerationConfig
 {
-    public int TotalEmailCount { get; set; } = 50;
     public DateTime StartDate { get; set; } = DateTime.Now.AddMonths(-3);
     public DateTime EndDate { get; set; } = DateTime.Now;
     public bool LetAISuggestDates { get; set; } = true;

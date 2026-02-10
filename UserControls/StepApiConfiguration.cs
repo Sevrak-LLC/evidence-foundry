@@ -1,20 +1,22 @@
-using ReelDiscovery.Helpers;
-using ReelDiscovery.Models;
-using ReelDiscovery.Services;
+using EvidenceFoundry.Helpers;
+using EvidenceFoundry.Models;
+using EvidenceFoundry.Services;
 
-namespace ReelDiscovery.UserControls;
+namespace EvidenceFoundry.UserControls;
 
 public class StepApiConfiguration : UserControl, IWizardStep
 {
-    private const string SettingsFileName = "reeldiscovery.settings";
     private WizardState _state = null!;
     private TextBox _txtApiKey = null!;
     private ComboBox _cboModel = null!;
     private Button _btnTestConnection = null!;
     private Button _btnConfigureModels = null!;
+    private CheckBox _chkRememberKey = null!;
+    private Button _btnClearSavedKey = null!;
     private Label _lblStatus = null!;
     private Label _lblPricing = null!;
     private bool _connectionTested = false;
+    private bool _suppressRememberEvents = false;
 
     public string StepTitle => "API Configuration";
     public bool CanMoveNext => _connectionTested;
@@ -36,13 +38,14 @@ public class StepApiConfiguration : UserControl, IWizardStep
         {
             Dock = DockStyle.Fill,
             ColumnCount = 2,
-            RowCount = 7,
+            RowCount = 8,
             Padding = new Padding(5)
         };
 
         mainLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 160));
         mainLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 45));  // API Key
+        mainLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));  // Remember key
         mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 50));  // Model + button
         mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));  // Pricing
         mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 55));  // Test button
@@ -70,6 +73,36 @@ public class StepApiConfiguration : UserControl, IWizardStep
         _txtApiKey.TextChanged += (s, e) => _connectionTested = false;
         mainLayout.Controls.Add(_txtApiKey, 1, 0);
 
+        // Remember key and clear saved key
+        mainLayout.Controls.Add(new Label(), 0, 1);
+
+        var rememberPanel = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Padding = new Padding(0, 2, 0, 0)
+        };
+
+        _chkRememberKey = new CheckBox
+        {
+            Text = "Remember API key on this device",
+            AutoSize = true,
+            Font = new Font(this.Font.FontFamily, 9.5F)
+        };
+        _chkRememberKey.CheckedChanged += RememberKey_CheckedChanged;
+        rememberPanel.Controls.Add(_chkRememberKey);
+
+        _btnClearSavedKey = ButtonHelper.CreateButton("Clear saved key", 140, 26, ButtonStyle.Default);
+        _btnClearSavedKey.Margin = new Padding(16, 0, 0, 0);
+        _btnClearSavedKey.Enabled = false;
+        _btnClearSavedKey.Click += BtnClearSavedKey_Click;
+        rememberPanel.Controls.Add(_btnClearSavedKey);
+
+        mainLayout.Controls.Add(rememberPanel, 1, 1);
+
         // Model selection
         var lblModel = new Label
         {
@@ -78,7 +111,7 @@ public class StepApiConfiguration : UserControl, IWizardStep
             TextAlign = ContentAlignment.MiddleLeft,
             Font = new Font(this.Font.FontFamily, 10F)
         };
-        mainLayout.Controls.Add(lblModel, 0, 1);
+        mainLayout.Controls.Add(lblModel, 0, 2);
 
         var modelPanel = new Panel { Dock = DockStyle.Fill };
         _cboModel = new ComboBox
@@ -95,7 +128,7 @@ public class StepApiConfiguration : UserControl, IWizardStep
         _btnConfigureModels.Location = new Point(230, 8);
         _btnConfigureModels.Click += BtnConfigureModels_Click;
         modelPanel.Controls.Add(_btnConfigureModels);
-        mainLayout.Controls.Add(modelPanel, 1, 1);
+        mainLayout.Controls.Add(modelPanel, 1, 2);
 
         // Pricing info label
         _lblPricing = new Label
@@ -106,15 +139,15 @@ public class StepApiConfiguration : UserControl, IWizardStep
             ForeColor = Color.DimGray,
             Font = new Font(this.Font.FontFamily, 9F)
         };
-        mainLayout.Controls.Add(_lblPricing, 1, 2);
+        mainLayout.Controls.Add(_lblPricing, 1, 3);
 
         // Test connection button
-        mainLayout.Controls.Add(new Label(), 0, 3);
+        mainLayout.Controls.Add(new Label(), 0, 4);
 
         _btnTestConnection = ButtonHelper.CreateButton("Test Connection", 160, 38, ButtonStyle.Primary);
         _btnTestConnection.Margin = new Padding(0, 8, 0, 8);
         _btnTestConnection.Click += BtnTestConnection_Click;
-        mainLayout.Controls.Add(_btnTestConnection, 1, 3);
+        mainLayout.Controls.Add(_btnTestConnection, 1, 4);
 
         // Status label
         _lblStatus = new Label
@@ -125,7 +158,7 @@ public class StepApiConfiguration : UserControl, IWizardStep
             ForeColor = Color.Gray,
             Font = new Font(this.Font.FontFamily, 10F)
         };
-        mainLayout.Controls.Add(_lblStatus, 1, 4);
+        mainLayout.Controls.Add(_lblStatus, 1, 5);
 
         // Instructions
         var instructions = new Label
@@ -141,13 +174,13 @@ public class StepApiConfiguration : UserControl, IWizardStep
             ForeColor = Color.DimGray,
             Font = new Font(this.Font.FontFamily, 9.5F)
         };
-        mainLayout.Controls.Add(instructions, 0, 5);
+        mainLayout.Controls.Add(instructions, 0, 6);
         mainLayout.SetColumnSpan(instructions, 2);
 
         // Disclaimer about API charges
         var lblDisclaimer = new Label
         {
-            Text = "NOTICE: QuikData is not responsible for any API charges incurred through usage of this application. " +
+            Text = "NOTICE: Sevrak LLC is not responsible for any API charges incurred through usage of this application. " +
                    "You are solely responsible for monitoring and managing your OpenAI API usage and costs.",
             Dock = DockStyle.Fill,
             TextAlign = ContentAlignment.BottomLeft,
@@ -155,7 +188,7 @@ public class StepApiConfiguration : UserControl, IWizardStep
             Font = new Font(this.Font.FontFamily, 9F, FontStyle.Bold),
             AutoSize = false
         };
-        mainLayout.Controls.Add(lblDisclaimer, 0, 6);
+        mainLayout.Controls.Add(lblDisclaimer, 0, 7);
         mainLayout.SetColumnSpan(lblDisclaimer, 2);
 
         this.Controls.Add(mainLayout);
@@ -184,6 +217,15 @@ public class StepApiConfiguration : UserControl, IWizardStep
         if (dialog.ShowDialog() == DialogResult.OK)
         {
             _state.AvailableModelConfigs = dialog.Models;
+            try
+            {
+                AIModelConfig.SaveModelConfigs(_state.AvailableModelConfigs);
+            }
+            catch (Exception ex)
+            {
+                _lblStatus.Text = $"Model settings save failed: {ex.Message}";
+                _lblStatus.ForeColor = Color.OrangeRed;
+            }
             RefreshModelDropdown();
         }
     }
@@ -236,8 +278,32 @@ public class StepApiConfiguration : UserControl, IWizardStep
                 _lblStatus.ForeColor = Color.Green;
                 _connectionTested = true;
 
-                // Save API key for future sessions
-                SaveApiKey(_txtApiKey.Text.Trim());
+                if (_chkRememberKey.Checked)
+                {
+                    try
+                    {
+                        ApiKeyStore.Save(_txtApiKey.Text.Trim());
+                        UpdateSavedKeyState(true);
+                    }
+                    catch (Exception ex)
+                    {
+                        _lblStatus.Text = $"Saved key failed: {ex.Message}";
+                        _lblStatus.ForeColor = Color.OrangeRed;
+                    }
+                }
+                else if (ApiKeyStore.HasSavedKey())
+                {
+                    try
+                    {
+                        ApiKeyStore.Clear();
+                        UpdateSavedKeyState(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _lblStatus.Text = $"Unable to clear saved key: {ex.Message}";
+                        _lblStatus.ForeColor = Color.OrangeRed;
+                    }
+                }
 
                 // Notify wizard to update navigation buttons
                 StateChanged?.Invoke(this, EventArgs.Empty);
@@ -272,20 +338,28 @@ public class StepApiConfiguration : UserControl, IWizardStep
         // Populate model dropdown from state
         RefreshModelDropdown();
 
+        var hasStoredKey = false;
+
         // Try to load saved API key if state doesn't have one
         if (string.IsNullOrEmpty(_state.ApiKey))
         {
-            var savedKey = LoadApiKey();
-            if (!string.IsNullOrEmpty(savedKey))
+            if (ApiKeyStore.TryLoad(out var savedKey))
             {
                 _state.ApiKey = savedKey;
+                hasStoredKey = true;
             }
+        }
+        else
+        {
+            hasStoredKey = ApiKeyStore.TryLoad(out _);
         }
 
         if (!string.IsNullOrEmpty(_state.ApiKey))
         {
             _txtApiKey.Text = _state.ApiKey;
         }
+
+        UpdateSavedKeyState(hasStoredKey);
 
         // Select the model from state
         if (!string.IsNullOrEmpty(_state.SelectedModel))
@@ -337,44 +411,52 @@ public class StepApiConfiguration : UserControl, IWizardStep
         return Task.FromResult(true);
     }
 
-    private static string GetSettingsPath()
+    private void RememberKey_CheckedChanged(object? sender, EventArgs e)
     {
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        var folder = Path.Combine(appData, "ReelDiscovery");
-        Directory.CreateDirectory(folder);
-        return Path.Combine(folder, SettingsFileName);
-    }
+        if (_suppressRememberEvents)
+            return;
 
-    private static void SaveApiKey(string apiKey)
-    {
-        try
+        if (!_chkRememberKey.Checked && ApiKeyStore.HasSavedKey())
         {
-            var path = GetSettingsPath();
-            // Simple obfuscation - not secure, but prevents casual viewing
-            var encoded = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(apiKey));
-            File.WriteAllText(path, encoded);
-        }
-        catch
-        {
-            // Ignore save errors
-        }
-    }
-
-    private static string? LoadApiKey()
-    {
-        try
-        {
-            var path = GetSettingsPath();
-            if (File.Exists(path))
+            try
             {
-                var encoded = File.ReadAllText(path);
-                return System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(encoded));
+                ApiKeyStore.Clear();
+                UpdateSavedKeyState(false);
+                _lblStatus.Text = "Saved API key cleared.";
+                _lblStatus.ForeColor = Color.DimGray;
+            }
+            catch (Exception ex)
+            {
+                _lblStatus.Text = $"Unable to clear saved key: {ex.Message}";
+                _lblStatus.ForeColor = Color.OrangeRed;
+                _chkRememberKey.Checked = true;
             }
         }
-        catch
+    }
+
+    private void BtnClearSavedKey_Click(object? sender, EventArgs e)
+    {
+        try
         {
-            // Ignore load errors
+            ApiKeyStore.Clear();
+            UpdateSavedKeyState(false);
+            _txtApiKey.Text = string.Empty;
+            _connectionTested = false;
+            _lblStatus.Text = "Saved API key cleared.";
+            _lblStatus.ForeColor = Color.DimGray;
         }
-        return null;
+        catch (Exception ex)
+        {
+            _lblStatus.Text = $"Unable to clear saved key: {ex.Message}";
+            _lblStatus.ForeColor = Color.OrangeRed;
+        }
+    }
+
+    private void UpdateSavedKeyState(bool hasSavedKey)
+    {
+        _suppressRememberEvents = true;
+        _chkRememberKey.Checked = hasSavedKey;
+        _btnClearSavedKey.Enabled = hasSavedKey;
+        _suppressRememberEvents = false;
     }
 }

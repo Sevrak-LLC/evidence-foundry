@@ -1,9 +1,8 @@
 using System.Diagnostics;
-using ReelDiscovery.Helpers;
-using ReelDiscovery.Models;
-using ReelDiscovery.Services;
+using EvidenceFoundry.Helpers;
+using EvidenceFoundry.Models;
 
-namespace ReelDiscovery.UserControls;
+namespace EvidenceFoundry.UserControls;
 
 public class StepComplete : UserControl, IWizardStep
 {
@@ -147,8 +146,8 @@ public class StepComplete : UserControl, IWizardStep
         if (result.VoicemailsGenerated > 0)
             AddStatRow("Voicemails Generated", result.VoicemailsGenerated.ToString());
         AddStatRow("", "");
-        AddStatRow("Topic", _state.Topic);
-        AddStatRow("Storylines Used", _state.Storylines.Count.ToString());
+        AddStatRow("Topic", _state.TopicDisplayName);
+        AddStatRow("Storyline Used", _state.Storyline != null ? "1" : "0");
         AddStatRow("Characters Used", _state.Characters.Count.ToString());
         AddStatRow("", "");
         AddStatRow("Generation Time", result.ElapsedTime.ToString(@"mm\:ss"));
@@ -180,18 +179,6 @@ public class StepComplete : UserControl, IWizardStep
     public async Task OnEnterStepAsync()
     {
         LoadStatistics();
-
-        // Send telemetry event (only if user opted in)
-        if (_state.Result != null)
-        {
-            await TelemetryService.SendGenerationEventAsync(
-                _state.Topic,
-                _state.Result.TotalEmailsGenerated,
-                _state.Result.TotalThreadsGenerated,
-                _state.Result.TotalAttachmentsGenerated,
-                _state.SelectedModel,
-                _state.Result.ElapsedTime);
-        }
     }
 
     public Task OnLeaveStepAsync()
