@@ -3,7 +3,7 @@ bin/
 obj/
 publish/
 
-# Code scanning results
+# Ignore Code Scanner
 scan/
 
 # User-specific files
