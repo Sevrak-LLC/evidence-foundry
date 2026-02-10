@@ -189,7 +189,7 @@ public static class ApiKeyStore
 #if !WINDOWS
             else
             {
-                Directory.SetUnixFileMode(
+                File.SetUnixFileMode(
                     path,
                     UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
             }
