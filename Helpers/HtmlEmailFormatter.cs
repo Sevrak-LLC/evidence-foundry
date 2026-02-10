@@ -531,63 +531,118 @@ public static class HtmlEmailFormatter
         var html = new System.Text.StringBuilder();
         var lines = forwardedText.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
 
-        html.AppendLine("<div class=\"forward-header\">");
-        html.AppendLine("<div class=\"forward-header-title\">---------- Forwarded message ----------</div>");
+        AppendForwardHeaderStart(html);
 
-        bool inHeader = true;
-        var bodyContent = new System.Text.StringBuilder();
-
+        var state = new ForwardedContentState(html);
         foreach (var rawLine in lines)
         {
-            var line = rawLine.Trim();
-
-            // Skip the original marker line
-            if (line.Contains("Forwarded message") || line.Contains("Begin forwarded message"))
-                continue;
-
-            // Header fields end with an empty line
-            if (inHeader)
-            {
-                if (string.IsNullOrEmpty(line))
-                {
-                    inHeader = false;
-                    html.AppendLine("</div>");
-                    html.AppendLine("<div class=\"quoted-content\">");
-                    continue;
-                }
-
-                // Parse header fields (From:, To:, Date:, Subject:)
-                if (line.Contains(":"))
-                {
-                    var colonIndex = line.IndexOf(':');
-                    var label = line[..colonIndex];
-                    var value = line[(colonIndex + 1)..].Trim();
-                    html.AppendLine($"<div class=\"forward-header-field\"><span class=\"forward-header-label\">{System.Net.WebUtility.HtmlEncode(label)}:</span> {System.Net.WebUtility.HtmlEncode(value)}</div>");
-                }
-            }
-            else
-            {
-                if (string.IsNullOrWhiteSpace(line))
-                {
-                    bodyContent.AppendLine("<p>&nbsp;</p>");
-                }
-                else
-                {
-                    bodyContent.AppendLine($"<p>{System.Net.WebUtility.HtmlEncode(line)}</p>");
-                }
-            }
+            ProcessForwardedLine(rawLine.Trim(), state);
         }
 
-        if (inHeader)
+        if (state.InHeader)
         {
-            html.AppendLine("</div>");
-            html.AppendLine("<div class=\"quoted-content\">");
+            CloseForwardHeader(state);
         }
 
-        html.Append(bodyContent);
+        html.Append(state.BodyContent);
         html.AppendLine("</div>");
 
         return html.ToString();
+    }
+
+    private static void AppendForwardHeaderStart(System.Text.StringBuilder html)
+    {
+        html.AppendLine("<div class=\"forward-header\">");
+        html.AppendLine("<div class=\"forward-header-title\">---------- Forwarded message ----------</div>");
+    }
+
+    private static void ProcessForwardedLine(string line, ForwardedContentState state)
+    {
+        if (IsForwardedMarker(line))
+        {
+            return;
+        }
+
+        if (state.InHeader)
+        {
+            if (IsHeaderTerminator(line))
+            {
+                CloseForwardHeader(state);
+                return;
+            }
+
+            if (TryParseHeaderField(line, out var label, out var value))
+            {
+                AppendForwardHeaderField(state.Html, label, value);
+            }
+
+            return;
+        }
+
+        AppendBodyLine(state.BodyContent, line);
+    }
+
+    private static bool IsForwardedMarker(string line)
+    {
+        return line.Contains("Forwarded message") || line.Contains("Begin forwarded message");
+    }
+
+    private static bool IsHeaderTerminator(string line)
+    {
+        return string.IsNullOrEmpty(line);
+    }
+
+    private static bool TryParseHeaderField(string line, out string label, out string value)
+    {
+        var colonIndex = line.IndexOf(':');
+        if (colonIndex <= 0)
+        {
+            label = string.Empty;
+            value = string.Empty;
+            return false;
+        }
+
+        label = line[..colonIndex];
+        value = line[(colonIndex + 1)..].Trim();
+        return true;
+    }
+
+    private static void AppendForwardHeaderField(System.Text.StringBuilder html, string label, string value)
+    {
+        html.AppendLine(
+            $"<div class=\"forward-header-field\"><span class=\"forward-header-label\">{System.Net.WebUtility.HtmlEncode(label)}:</span> {System.Net.WebUtility.HtmlEncode(value)}</div>");
+    }
+
+    private static void AppendBodyLine(System.Text.StringBuilder bodyContent, string line)
+    {
+        if (string.IsNullOrWhiteSpace(line))
+        {
+            bodyContent.AppendLine("<p>&nbsp;</p>");
+            return;
+        }
+
+        bodyContent.AppendLine($"<p>{System.Net.WebUtility.HtmlEncode(line)}</p>");
+    }
+
+    private static void CloseForwardHeader(ForwardedContentState state)
+    {
+        state.InHeader = false;
+        state.Html.AppendLine("</div>");
+        state.Html.AppendLine("<div class=\"quoted-content\">");
+    }
+
+    private sealed class ForwardedContentState
+    {
+        public ForwardedContentState(System.Text.StringBuilder html)
+        {
+            Html = html;
+        }
+
+        public bool InHeader { get; set; } = true;
+
+        public System.Text.StringBuilder Html { get; }
+
+        public System.Text.StringBuilder BodyContent { get; } = new();
     }
 
     private static string WrapInTemplate(string content, OrganizationTheme? theme)
