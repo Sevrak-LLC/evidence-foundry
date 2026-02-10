@@ -1217,20 +1217,72 @@ public class EmailGenerator
         string characterList,
         CancellationToken ct)
     {
-        if (thread == null) throw new ArgumentNullException(nameof(thread));
-        if (emailCount <= 0)
-            throw new ArgumentOutOfRangeException(nameof(emailCount), "Thread email count must be positive.");
+        ValidateThreadGenerationInputs(thread, emailCount);
 
         _threadGenerator.EnsurePlaceholderMessages(thread, emailCount);
 
         // Break into batches to avoid token limits and timeouts
         var totalBatches = (int)Math.Ceiling((double)emailCount / MaxEmailsPerBatch);
-        var emailsGenerated = 0;
-        var sequence = 0;
 
         var isResponsiveThread = thread.Relevance == EmailThread.ThreadRelevance.Responsive || thread.IsHot;
 
-        // Distribute attachments across batches proportionally
+        var attachmentTotals = CalculateAttachmentTotals(config, emailCount);
+        var attachmentState = new AttachmentDistributionState(
+            attachmentTotals.totalDocAttachments,
+            attachmentTotals.totalImageAttachments,
+            attachmentTotals.totalVoicemailAttachments);
+
+        var batchContext = new ThreadBatchContext(
+            storyline,
+            thread,
+            participants,
+            participantLookup,
+            startDate,
+            endDate,
+            config,
+            domainThemes,
+            systemPrompt,
+            characterList,
+            emailCount);
+
+        var generationState = new ThreadGenerationState(0, string.Empty);
+
+        for (int batch = 0; batch < totalBatches; batch++)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            generationState = await GenerateThreadBatchAsync(
+                batchContext,
+                attachmentState,
+                generationState,
+                batch,
+                totalBatches,
+                isResponsiveThread,
+                ct);
+        }
+
+        if (generationState.EmailsGenerated != emailCount)
+            throw new InvalidOperationException($"Thread generated {generationState.EmailsGenerated} emails but expected {emailCount}.");
+
+        // Setup threading headers
+        ThreadingHelper.SetupThreading(thread, domain);
+
+        return thread;
+    }
+
+    private static void ValidateThreadGenerationInputs(EmailThread thread, int emailCount)
+    {
+        if (thread == null) throw new ArgumentNullException(nameof(thread));
+        if (emailCount <= 0)
+            throw new ArgumentOutOfRangeException(nameof(emailCount), "Thread email count must be positive.");
+    }
+
+    internal static (int totalDocAttachments, int totalImageAttachments, int totalVoicemailAttachments) CalculateAttachmentTotals(
+        GenerationConfig config,
+        int emailCount)
+    {
+        if (config == null) throw new ArgumentNullException(nameof(config));
+
         var totalDocAttachments = config.AttachmentPercentage > 0 && config.EnabledAttachmentTypes.Count > 0
             ? Math.Max(0, (int)Math.Round(emailCount * config.AttachmentPercentage / 100.0))
             : 0;
@@ -1241,96 +1293,188 @@ public class EmailGenerator
             ? Math.Max(0, (int)Math.Round(emailCount * config.VoicemailPercentage / 100.0))
             : 0;
 
-        var docsAssigned = 0;
-        var imagesAssigned = 0;
-        var voicemailsAssigned = 0;
-        var threadSubject = string.Empty;
+        return (totalDocAttachments, totalImageAttachments, totalVoicemailAttachments);
+    }
 
-        for (int batch = 0; batch < totalBatches; batch++)
+    private async Task<ThreadGenerationState> GenerateThreadBatchAsync(
+        ThreadBatchContext context,
+        AttachmentDistributionState attachmentState,
+        ThreadGenerationState state,
+        int batch,
+        int totalBatches,
+        bool isResponsiveThread,
+        CancellationToken ct)
+    {
+        var emailsGenerated = state.EmailsGenerated;
+        var sequence = emailsGenerated;
+        var batchSize = Math.Min(MaxEmailsPerBatch, context.EmailCount - emailsGenerated);
+        var isFirstBatch = batch == 0;
+        var isLastBatch = batch == totalBatches - 1;
+
+        var (batchStartDate, batchEndDate) = GetBatchDateWindow(
+            context.StartDate,
+            context.EndDate,
+            emailsGenerated,
+            batchSize,
+            context.EmailCount);
+
+        var (batchDocs, batchImages, batchVoicemails) = CalculateBatchAttachments(
+            attachmentState,
+            batchSize,
+            context.EmailCount - emailsGenerated,
+            isLastBatch);
+
+        var batchAttachmentInstructions = BuildBatchAttachmentInstructions(
+            context.Config,
+            batchDocs,
+            batchImages,
+            batchVoicemails,
+            isResponsiveThread);
+
+        var narrativeContext = BuildNarrativeContextForBatch(context.Thread, isFirstBatch, emailsGenerated);
+        var narrativePhase = GetNarrativePhase(batch, totalBatches);
+
+        var userPrompt = BuildBatchUserPrompt(
+            context.Storyline,
+            context.Thread,
+            context.CharacterList,
+            batchStartDate,
+            batchEndDate,
+            batchSize,
+            batchAttachmentInstructions,
+            narrativeContext,
+            narrativePhase,
+            isFirstBatch,
+            state.ThreadSubject);
+
+        var response = await GetThreadResponseAsync(
+            context.SystemPrompt,
+            userPrompt,
+            $"Email Thread Generation (batch {batch + 1}/{totalBatches})",
+            ct);
+
+        if (response == null)
+            throw new InvalidOperationException($"Failed to generate batch {batch + 1} for storyline: {context.Storyline.Title}");
+
+        var threadSubject = ResolveThreadSubject(response, state.ThreadSubject, isFirstBatch, context.Storyline);
+        var batchOffset = emailsGenerated;
+        sequence = ApplyBatchEmails(
+            context,
+            response,
+            threadSubject,
+            sequence,
+            batchOffset);
+
+        return new ThreadGenerationState(sequence, threadSubject);
+    }
+
+    private static (DateTime batchStartDate, DateTime batchEndDate) GetBatchDateWindow(
+        DateTime startDate,
+        DateTime endDate,
+        int emailsGenerated,
+        int batchSize,
+        int emailCount)
+    {
+        var batchStartDate = DateHelper.InterpolateDateInRange(startDate, endDate, (double)emailsGenerated / emailCount);
+        var batchEndDate = DateHelper.InterpolateDateInRange(startDate, endDate, (double)(emailsGenerated + batchSize) / emailCount);
+        return (batchStartDate, batchEndDate);
+    }
+
+    private static (int docs, int images, int voicemails) CalculateBatchAttachments(
+        AttachmentDistributionState state,
+        int batchSize,
+        int remainingEmails,
+        bool isLastBatch)
+    {
+        var docs = DistributeAttachmentsForBatch(state.TotalDocAttachments, ref state.DocsAssigned, batchSize, remainingEmails, isLastBatch);
+        var images = DistributeAttachmentsForBatch(state.TotalImageAttachments, ref state.ImagesAssigned, batchSize, remainingEmails, isLastBatch);
+        var voicemails = DistributeAttachmentsForBatch(state.TotalVoicemailAttachments, ref state.VoicemailsAssigned, batchSize, remainingEmails, isLastBatch);
+        return (docs, images, voicemails);
+    }
+
+    private static string BuildNarrativeContextForBatch(EmailThread thread, bool isFirstBatch, int emailsGenerated)
+    {
+        if (isFirstBatch || emailsGenerated <= 0)
+            return string.Empty;
+
+        return BuildNarrativeContext(thread.EmailMessages.Take(emailsGenerated).ToList());
+    }
+
+    private static string ResolveThreadSubject(
+        ThreadApiResponse response,
+        string existingSubject,
+        bool isFirstBatch,
+        Storyline storyline)
+    {
+        if (!isFirstBatch)
+            return existingSubject;
+
+        if (string.IsNullOrWhiteSpace(response.Subject))
+            throw new InvalidOperationException($"Thread subject missing for storyline: {storyline.Title}");
+
+        return response.Subject;
+    }
+
+    private int ApplyBatchEmails(
+        ThreadBatchContext context,
+        ThreadApiResponse response,
+        string threadSubject,
+        int sequence,
+        int batchOffset)
+    {
+        foreach (var email in response.Emails)
         {
-            ct.ThrowIfCancellationRequested();
+            if (sequence >= context.Thread.EmailMessages.Count)
+                throw new InvalidOperationException($"Thread plan expected {context.Thread.EmailMessages.Count} emails but generated more.");
 
-            var batchSize = Math.Min(MaxEmailsPerBatch, emailCount - emailsGenerated);
-            var isFirstBatch = batch == 0;
-            var isLastBatch = batch == totalBatches - 1;
-
-            // Calculate date window for this batch
-            var batchStartDate = DateHelper.InterpolateDateInRange(startDate, endDate, (double)emailsGenerated / emailCount);
-            var batchEndDate = DateHelper.InterpolateDateInRange(startDate, endDate, (double)(emailsGenerated + batchSize) / emailCount);
-
-            // Distribute attachments for this batch proportionally
-            var batchDocs = DistributeAttachmentsForBatch(totalDocAttachments, ref docsAssigned, batchSize, emailCount - emailsGenerated, isLastBatch);
-            var batchImages = DistributeAttachmentsForBatch(totalImageAttachments, ref imagesAssigned, batchSize, emailCount - emailsGenerated, isLastBatch);
-            var batchVoicemails = DistributeAttachmentsForBatch(totalVoicemailAttachments, ref voicemailsAssigned, batchSize, emailCount - emailsGenerated, isLastBatch);
-
-            // Build batch-specific attachment instructions
-            var batchAttachmentInstructions = BuildBatchAttachmentInstructions(
-                config,
-                batchDocs,
-                batchImages,
-                batchVoicemails,
-                isResponsiveThread);
-
-            // Build narrative context from previous batches
-            var narrativeContext = "";
-            if (!isFirstBatch && emailsGenerated > 0)
-            {
-                narrativeContext = BuildNarrativeContext(thread.EmailMessages.Take(emailsGenerated).ToList());
-            }
-
-            // Determine narrative phase
-            var narrativePhase = GetNarrativePhase(batch, totalBatches);
-
-            var userPrompt = BuildBatchUserPrompt(
-                storyline, thread, characterList, batchStartDate, batchEndDate,
-                batchSize, batchAttachmentInstructions, narrativeContext,
-                narrativePhase, isFirstBatch, threadSubject);
-
-            var response = await GetThreadResponseAsync(systemPrompt, userPrompt, $"Email Thread Generation (batch {batch + 1}/{totalBatches})", ct);
-
-            if (response == null)
-                throw new InvalidOperationException($"Failed to generate batch {batch + 1} for storyline: {storyline.Title}");
-
-            // Capture the subject from the first batch
-            if (isFirstBatch)
-            {
-                if (string.IsNullOrWhiteSpace(response.Subject))
-                    throw new InvalidOperationException($"Thread subject missing for storyline: {storyline.Title}");
-                threadSubject = response.Subject;
-            }
-
-            // Process emails from this batch
-            var batchOffset = emailsGenerated;
-            foreach (var e in response.Emails)
-            {
-                if (sequence >= thread.EmailMessages.Count)
-                    throw new InvalidOperationException($"Thread plan expected {thread.EmailMessages.Count} emails but generated more.");
-
-                var target = thread.EmailMessages[sequence];
-                ConvertDtoToEmailMessage(
-                    e,
-                    thread,
-                    threadSubject,
-                    target,
-                    participants,
-                    participantLookup,
-                    domainThemes,
-                    startDate,
-                    endDate,
-                    ref sequence,
-                    batchOffset);
-            }
-
-            emailsGenerated = sequence;
+            var target = context.Thread.EmailMessages[sequence];
+            ConvertDtoToEmailMessage(
+                email,
+                context.Thread,
+                threadSubject,
+                target,
+                context.Participants,
+                context.ParticipantLookup,
+                context.DomainThemes,
+                context.StartDate,
+                context.EndDate,
+                ref sequence,
+                batchOffset);
         }
 
-        if (emailsGenerated != emailCount)
-            throw new InvalidOperationException($"Thread generated {emailsGenerated} emails but expected {emailCount}.");
+        return sequence;
+    }
 
-        // Setup threading headers
-        ThreadingHelper.SetupThreading(thread, domain);
+    private sealed record ThreadGenerationState(int EmailsGenerated, string ThreadSubject);
 
-        return thread;
+    private sealed record ThreadBatchContext(
+        Storyline Storyline,
+        EmailThread Thread,
+        List<Character> Participants,
+        Dictionary<string, Character> ParticipantLookup,
+        DateTime StartDate,
+        DateTime EndDate,
+        GenerationConfig Config,
+        Dictionary<string, OrganizationTheme> DomainThemes,
+        string SystemPrompt,
+        string CharacterList,
+        int EmailCount);
+
+    private sealed class AttachmentDistributionState
+    {
+        public AttachmentDistributionState(int totalDocAttachments, int totalImageAttachments, int totalVoicemailAttachments)
+        {
+            TotalDocAttachments = totalDocAttachments;
+            TotalImageAttachments = totalImageAttachments;
+            TotalVoicemailAttachments = totalVoicemailAttachments;
+        }
+
+        public int TotalDocAttachments { get; }
+        public int TotalImageAttachments { get; }
+        public int TotalVoicemailAttachments { get; }
+        public int DocsAssigned;
+        public int ImagesAssigned;
+        public int VoicemailsAssigned;
     }
 
     internal async Task<EmailThread?> GenerateThreadWithRetriesAsync(
