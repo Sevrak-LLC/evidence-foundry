@@ -3,6 +3,9 @@ bin/
 obj/
 publish/
 
+# Code scanning results
+scan/
+
 # User-specific files
 *.user
 *.suo

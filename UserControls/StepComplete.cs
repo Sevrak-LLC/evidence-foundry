@@ -174,6 +174,7 @@ public class StepComplete : UserControl, IWizardStep
     public void BindState(WizardState state)
     {
         _state = state;
+        StateChanged?.Invoke(this, EventArgs.Empty);
     }
 
     public async Task OnEnterStepAsync()

@@ -388,66 +388,30 @@ Respond with JSON in this exact format:
         bool allowSingleOccupant,
         int? maxTotalCharacters = null)
     {
-        var roleLookup = organization.Departments
-            .SelectMany(d => d.Roles.Select(r => (Role: r, Department: d)))
-            .GroupBy(r => r.Role.Name)
-            .ToDictionary(g => g.Key, g => g.ToList());
-
+        var roleLookup = BuildRoleLookup(organization);
         var totalCount = organization.EnumerateCharacters().Count();
 
         foreach (var roleDto in roles)
         {
-            if (!EnumHelper.TryParseEnum(roleDto.Name, out RoleName roleName))
+            if (!TryGetRoleAssignments(roleLookup, roleDto, out var roleName, out var roleAssignments))
                 continue;
-            if (!roleLookup.TryGetValue(roleName, out var roleAssignments))
-                continue;
-
-            if (!allowSingleOccupant &&
-                RoleGenerator.SingleOccupantRoles.Contains(roleName) &&
-                roleAssignments.Any(r => r.Role.Characters.Count > 0))
+            if (!CanAssignRole(roleAssignments, roleName, allowSingleOccupant))
                 continue;
 
             var assignment = RoleGenerator.SelectRoleAssignment(roleName, roleAssignments);
             var targetRole = assignment.Role;
             var targetDepartment = assignment.Department;
 
-            foreach (var c in roleDto.Characters ?? new())
-            {
-                if (maxTotalCharacters.HasValue && totalCount >= maxTotalCharacters.Value)
-                    return;
-                if (string.IsNullOrWhiteSpace(c.FirstName) || string.IsNullOrWhiteSpace(c.LastName))
-                    continue;
-
-                var fullName = $"{c.FirstName.Trim()} {c.LastName.Trim()}".Trim();
-                if (usedNames.Contains(fullName))
-                    continue;
-
-                var email = EmailAddressHelper.GenerateUniqueEmail(
-                    c.FirstName,
-                    c.LastName,
-                    organization.Domain,
+            if (TryAddCharactersToRole(
+                    roleDto.Characters,
+                    organization,
+                    targetRole,
+                    targetDepartment,
+                    usedNames,
                     usedEmails,
-                    c.Email);
-                if (string.IsNullOrWhiteSpace(email))
-                    continue;
-                var character = new Character
-                {
-                    FirstName = c.FirstName.Trim(),
-                    LastName = c.LastName.Trim(),
-                    Email = email,
-                    RoleId = targetRole.Id,
-                    DepartmentId = targetDepartment.Id,
-                    OrganizationId = organization.Id,
-                    Personality = string.Empty,
-                    CommunicationStyle = string.Empty,
-                    SignatureBlock = string.Empty
-                };
-
-                targetRole.Characters.Add(character);
-                usedNames.Add(fullName);
-                usedEmails.Add(email);
-                totalCount++;
-            }
+                    maxTotalCharacters,
+                    ref totalCount))
+                return;
         }
     }
 
@@ -467,35 +431,180 @@ Respond with JSON in this exact format:
 
         foreach (var entry in relevance)
         {
-            if (string.IsNullOrWhiteSpace(entry.Email))
-                continue;
-            if (!characterLookup.TryGetValue(entry.Email, out var character))
+            if (!TryGetCharacter(characterLookup, entry, out var character))
                 continue;
 
             character.IsKeyCharacter = entry.IsKeyCharacter;
             character.StorylineRelevance = entry.StorylineRelevance?.Trim() ?? character.StorylineRelevance;
 
-            if (entry.PlotRelevance == null)
+            var plotRelevance = BuildPlotRelevance(entry.PlotRelevance, beatIds);
+            if (plotRelevance.Count > 0)
+                character.PlotRelevance = plotRelevance;
+        }
+    }
+
+    private static Dictionary<RoleName, List<(Role Role, Department Department)>> BuildRoleLookup(Organization organization)
+    {
+        return organization.Departments
+            .SelectMany(d => d.Roles.Select(r => (Role: r, Department: d)))
+            .GroupBy(r => r.Role.Name)
+            .ToDictionary(g => g.Key, g => g.ToList());
+    }
+
+    private static bool TryGetRoleAssignments(
+        IReadOnlyDictionary<RoleName, List<(Role Role, Department Department)>> roleLookup,
+        RoleCharactersDto roleDto,
+        out RoleName roleName,
+        out List<(Role Role, Department Department)> roleAssignments)
+    {
+        roleAssignments = new List<(Role Role, Department Department)>();
+        roleName = default;
+
+        if (!EnumHelper.TryParseEnum(roleDto.Name, out roleName))
+            return false;
+
+        if (!roleLookup.TryGetValue(roleName, out var assignments))
+            return false;
+
+        roleAssignments = assignments;
+        return true;
+    }
+
+    private static bool CanAssignRole(
+        IReadOnlyList<(Role Role, Department Department)> roleAssignments,
+        RoleName roleName,
+        bool allowSingleOccupant)
+    {
+        if (allowSingleOccupant)
+            return true;
+
+        if (!RoleGenerator.SingleOccupantRoles.Contains(roleName))
+            return true;
+
+        return roleAssignments.All(r => r.Role.Characters.Count == 0);
+    }
+
+    private static bool TryAddCharactersToRole(
+        IEnumerable<SimpleCharacterDto>? characters,
+        Organization organization,
+        Role targetRole,
+        Department targetDepartment,
+        HashSet<string> usedNames,
+        HashSet<string> usedEmails,
+        int? maxTotalCharacters,
+        ref int totalCount)
+    {
+        foreach (var c in characters ?? Enumerable.Empty<SimpleCharacterDto>())
+        {
+            if (maxTotalCharacters.HasValue && totalCount >= maxTotalCharacters.Value)
+                return true;
+            if (!TryBuildCharacter(
+                    c,
+                    organization.Domain,
+                    targetRole.Id,
+                    targetDepartment.Id,
+                    organization.Id,
+                    usedNames,
+                    usedEmails,
+                    out var character,
+                    out var fullName,
+                    out var email))
                 continue;
 
-            var plotRelevance = new Dictionary<Guid, string>();
-            foreach (var kvp in entry.PlotRelevance)
-            {
-                if (!Guid.TryParse(kvp.Key, out var beatId))
-                    continue;
-                if (!beatIds.Contains(beatId))
-                    continue;
-                if (string.IsNullOrWhiteSpace(kvp.Value))
-                    continue;
-
-                plotRelevance[beatId] = kvp.Value.Trim();
-            }
-
-            if (plotRelevance.Count > 0)
-            {
-                character.PlotRelevance = plotRelevance;
-            }
+            targetRole.Characters.Add(character);
+            usedNames.Add(fullName);
+            usedEmails.Add(email);
+            totalCount++;
         }
+
+        return false;
+    }
+
+    private static bool TryBuildCharacter(
+        SimpleCharacterDto character,
+        string domain,
+        Guid roleId,
+        Guid departmentId,
+        Guid organizationId,
+        HashSet<string> usedNames,
+        HashSet<string> usedEmails,
+        out Character model,
+        out string fullName,
+        out string email)
+    {
+        model = default!;
+        fullName = string.Empty;
+        email = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(character.FirstName) || string.IsNullOrWhiteSpace(character.LastName))
+            return false;
+
+        fullName = $"{character.FirstName.Trim()} {character.LastName.Trim()}".Trim();
+        if (usedNames.Contains(fullName))
+            return false;
+
+        email = EmailAddressHelper.GenerateUniqueEmail(
+            character.FirstName,
+            character.LastName,
+            domain,
+            usedEmails,
+            character.Email);
+        if (string.IsNullOrWhiteSpace(email))
+            return false;
+
+        model = new Character
+        {
+            FirstName = character.FirstName.Trim(),
+            LastName = character.LastName.Trim(),
+            Email = email,
+            RoleId = roleId,
+            DepartmentId = departmentId,
+            OrganizationId = organizationId,
+            Personality = string.Empty,
+            CommunicationStyle = string.Empty,
+            SignatureBlock = string.Empty
+        };
+
+        return true;
+    }
+
+    private static bool TryGetCharacter(
+        IReadOnlyDictionary<string, Character> characterLookup,
+        CharacterRelevanceDto entry,
+        out Character character)
+    {
+        character = default!;
+        if (string.IsNullOrWhiteSpace(entry.Email))
+            return false;
+
+        if (!characterLookup.TryGetValue(entry.Email, out var found))
+            return false;
+
+        character = found;
+        return true;
+    }
+
+    private static Dictionary<Guid, string> BuildPlotRelevance(
+        IReadOnlyDictionary<string, string>? plotRelevance,
+        HashSet<Guid> beatIds)
+    {
+        if (plotRelevance == null || plotRelevance.Count == 0)
+            return new Dictionary<Guid, string>();
+
+        var result = new Dictionary<Guid, string>();
+        foreach (var kvp in plotRelevance)
+        {
+            if (!Guid.TryParse(kvp.Key, out var beatId))
+                continue;
+            if (!beatIds.Contains(beatId))
+                continue;
+            if (string.IsNullOrWhiteSpace(kvp.Value))
+                continue;
+
+            result[beatId] = kvp.Value.Trim();
+        }
+
+        return result;
     }
 
     private static string SerializeOrganizationForPrompt(Organization organization, bool includeCharacters)

@@ -256,59 +256,87 @@ public static class DateHelper
         var startDate = storylineStart.Date;
         var endDate = storylineEnd.Date;
 
-        if (Math.Abs((beats[0].StartDate.Date - startDate).Days) <= 1)
-        {
-            if (beats[0].StartDate.Date != startDate)
-            {
-                beats[0].StartDate = startDate;
-                changed = true;
-            }
-        }
-
-        if (Math.Abs((beats[^1].EndDate.Date - endDate).Days) <= 1)
-        {
-            if (beats[^1].EndDate.Date != endDate)
-            {
-                beats[^1].EndDate = endDate;
-                changed = true;
-            }
-        }
+        changed |= TryAlignBeatStart(beats[0], startDate);
+        changed |= TryAlignBeatEnd(beats[^1], endDate);
 
         for (var i = 0; i < beats.Count; i++)
         {
             var beat = beats[i];
-            if (beat.StartDate.Date < startDate && (startDate - beat.StartDate.Date).Days <= 1)
-            {
-                beat.StartDate = startDate;
-                changed = true;
-            }
-
-            if (beat.EndDate.Date > endDate && (beat.EndDate.Date - endDate).Days <= 1)
-            {
-                beat.EndDate = endDate;
-                changed = true;
-            }
+            changed |= TryClampStartToRange(beat, startDate);
+            changed |= TryClampEndToRange(beat, endDate);
         }
 
         for (var i = 1; i < beats.Count; i++)
         {
             var previous = beats[i - 1];
             var beat = beats[i];
-            var minStart = previous.EndDate.Date.AddDays(1);
-            if (beat.StartDate.Date < minStart && (minStart - beat.StartDate.Date).Days <= 1)
-            {
-                beat.StartDate = minStart;
-                changed = true;
-            }
-
-            if (beat.EndDate.Date < beat.StartDate.Date && (beat.StartDate.Date - beat.EndDate.Date).Days <= 1)
-            {
-                beat.EndDate = beat.StartDate.Date;
-                changed = true;
-            }
+            changed |= TryAlignStartAfterPrevious(beat, previous.EndDate.Date);
+            changed |= TryEnsureEndNotBeforeStart(beat);
         }
 
         return changed;
+    }
+
+    private static bool TryAlignBeatStart(StoryBeat beat, DateTime targetStart)
+    {
+        var current = beat.StartDate.Date;
+        if (Math.Abs((current - targetStart).Days) > 1 || current == targetStart)
+            return false;
+
+        beat.StartDate = targetStart;
+        return true;
+    }
+
+    private static bool TryAlignBeatEnd(StoryBeat beat, DateTime targetEnd)
+    {
+        var current = beat.EndDate.Date;
+        if (Math.Abs((current - targetEnd).Days) > 1 || current == targetEnd)
+            return false;
+
+        beat.EndDate = targetEnd;
+        return true;
+    }
+
+    private static bool TryClampStartToRange(StoryBeat beat, DateTime minStart)
+    {
+        var current = beat.StartDate.Date;
+        if (current >= minStart || (minStart - current).Days > 1)
+            return false;
+
+        beat.StartDate = minStart;
+        return true;
+    }
+
+    private static bool TryClampEndToRange(StoryBeat beat, DateTime maxEnd)
+    {
+        var current = beat.EndDate.Date;
+        if (current <= maxEnd || (current - maxEnd).Days > 1)
+            return false;
+
+        beat.EndDate = maxEnd;
+        return true;
+    }
+
+    private static bool TryAlignStartAfterPrevious(StoryBeat beat, DateTime previousEndDate)
+    {
+        var minStart = previousEndDate.AddDays(1);
+        var current = beat.StartDate.Date;
+        if (current >= minStart || (minStart - current).Days > 1)
+            return false;
+
+        beat.StartDate = minStart;
+        return true;
+    }
+
+    private static bool TryEnsureEndNotBeforeStart(StoryBeat beat)
+    {
+        var start = beat.StartDate.Date;
+        var end = beat.EndDate.Date;
+        if (end >= start || (start - end).Days > 1)
+            return false;
+
+        beat.EndDate = start;
+        return true;
     }
 
     internal static DateTime NormalizeFoundedDate(DateTime? founded, DateTime storylineStartDate)

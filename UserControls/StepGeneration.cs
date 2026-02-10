@@ -151,99 +151,19 @@ public class StepGeneration : UserControl, IWizardStep
 
     private async Task StartGenerationAsync()
     {
-        _isGenerating = true;
-        _generationComplete = false;
-        _cts = new CancellationTokenSource();
-
-        // Note: We don't reset usage tracker here - it accumulates across all steps
-        // (storyline generation, character generation, email generation)
-
-        // Start timer to update token usage display
-        _usageUpdateTimer = new System.Windows.Forms.Timer { Interval = 500 };
-        _usageUpdateTimer.Tick += (s, e) => UpdateTokenUsageLabel();
-        _usageUpdateTimer.Start();
-
-        _progressBar.Style = ProgressBarStyle.Marquee;
-        _btnCancel.Enabled = true;
-        _txtLog.Clear();
-        _lastStorylineLogged = null;
-
-        AppendLog("Starting email generation...", Color.Cyan);
-        AppendLog($"Topic: {_state.TopicDisplayName}");
-        var storyline = _state.Storyline;
-        AppendLog($"Storyline: {storyline?.Title ?? "(none)"}");
-        AppendLog($"Characters: {_state.Characters.Count}");
-        AppendLog($"Target emails: {storyline?.EmailCount ?? 0}");
-        AppendLog($"Attachment percentage: {_state.Config.AttachmentPercentage}%");
-        AppendLog("");
+        InitializeGenerationState();
+        LogGenerationStart();
 
         try
         {
             var openAI = _state.CreateOpenAIService();
             var generator = new EmailGenerator(openAI);
 
-            var progress = new Progress<GenerationProgress>(p =>
-            {
-                if (InvokeRequired)
-                {
-                    Invoke(() => UpdateProgress(p));
-                }
-                else
-                {
-                    UpdateProgress(p);
-                }
-            });
+            var progress = BuildProgressReporter();
 
-            var result = await generator.GenerateEmailsAsync(_state, progress, _cts.Token);
-
-            if (result.WasCancelled)
-            {
-                AppendLog("Generation cancelled by user.", Color.Yellow);
-                _lblProgress.Text = "Generation cancelled.";
-            }
-            else if (result.Errors.Count > 0)
-            {
-                AppendLog("Generation completed with errors:", Color.Orange);
-                foreach (var error in result.Errors)
-                {
-                    AppendLog($"  - {error}", Color.Red);
-                }
-                _lblProgress.Text = "Generation completed with errors.";
-                _generationComplete = true;
-            }
-            else
-            {
-                AppendLog("", Color.White);
-                AppendLog("========================================", Color.Green);
-                AppendLog("GENERATION COMPLETE!", Color.Green);
-                AppendLog("========================================", Color.Green);
-                AppendLog($"Emails generated: {result.TotalEmailsGenerated}");
-                AppendLog($"Threads created: {result.TotalThreadsGenerated}");
-                AppendLog($"Attachments created: {result.TotalAttachmentsGenerated}");
-                AppendLog($"  - Word documents: {result.WordDocumentsGenerated}");
-                AppendLog($"  - Excel spreadsheets: {result.ExcelDocumentsGenerated}");
-                AppendLog($"  - PowerPoint presentations: {result.PowerPointDocumentsGenerated}");
-                AppendLog($"Time elapsed: {result.ElapsedTime:mm\\:ss}");
-                AppendLog($"Output folder: {result.OutputFolder}");
-                AppendLog("");
-                AppendLog("--- Token Usage ---", Color.Cyan);
-                AppendLog($"Input tokens: {_state.UsageTracker.TotalInputTokens:N0}");
-                AppendLog($"Output tokens: {_state.UsageTracker.TotalOutputTokens:N0}");
-                AppendLog($"Estimated cost: ${_state.UsageTracker.TotalCost:F4}");
-
-                _lblProgress.Text = $"Generation complete! {result.TotalEmailsGenerated} emails created.";
-                _generationComplete = true;
-
-                // Verify files were created
-                if (Directory.Exists(result.OutputFolder))
-                {
-                    var searchOption = _state.Config.OrganizeBySender
-                        ? SearchOption.AllDirectories
-                        : SearchOption.TopDirectoryOnly;
-                    var emlFiles = Directory.GetFiles(result.OutputFolder, "*.eml", searchOption).Length;
-                    AppendLog($"Verified: {emlFiles} .eml files in output folder", Color.Green);
-                }
-            }
+            var cts = _cts ?? throw new InvalidOperationException("Generation cancellation token is unavailable.");
+            var result = await generator.GenerateEmailsAsync(_state, progress, cts.Token);
+            HandleGenerationResult(result);
         }
         catch (OperationCanceledException)
         {
@@ -257,26 +177,123 @@ public class StepGeneration : UserControl, IWizardStep
         }
         finally
         {
-            _isGenerating = false;
-            _btnCancel.Enabled = false;
-            _progressBar.Style = ProgressBarStyle.Blocks;
-            // Set Maximum before Value to avoid out-of-range exception
-            _progressBar.Maximum = 100;
-            _progressBar.Value = _generationComplete ? 100 : 0;
-
-            // Stop and dispose timer
-            _usageUpdateTimer?.Stop();
-            _usageUpdateTimer?.Dispose();
-            _usageUpdateTimer = null;
-
-            // Final update of token usage
-            UpdateTokenUsageLabel();
-
-            _cts?.Dispose();
-            _cts = null;
-            _lastStorylineLogged = null;
-            StateChanged?.Invoke(this, EventArgs.Empty);
+            FinalizeGeneration();
         }
+    }
+
+    private void InitializeGenerationState()
+    {
+        _isGenerating = true;
+        _generationComplete = false;
+        _cts = new CancellationTokenSource();
+
+        _usageUpdateTimer = new System.Windows.Forms.Timer { Interval = 500 };
+        _usageUpdateTimer.Tick += (s, e) => UpdateTokenUsageLabel();
+        _usageUpdateTimer.Start();
+
+        _progressBar.Style = ProgressBarStyle.Marquee;
+        _btnCancel.Enabled = true;
+        _txtLog.Clear();
+        _lastStorylineLogged = null;
+    }
+
+    private void LogGenerationStart()
+    {
+        AppendLog("Starting email generation...", Color.Cyan);
+        AppendLog($"Topic: {_state.TopicDisplayName}");
+        var storyline = _state.Storyline;
+        AppendLog($"Storyline: {storyline?.Title ?? "(none)"}");
+        AppendLog($"Characters: {_state.Characters.Count}");
+        AppendLog($"Target emails: {storyline?.EmailCount ?? 0}");
+        AppendLog($"Attachment percentage: {_state.Config.AttachmentPercentage}%");
+        AppendLog("");
+    }
+
+    private IProgress<GenerationProgress> BuildProgressReporter()
+    {
+        return new Progress<GenerationProgress>(p =>
+        {
+            if (InvokeRequired)
+            {
+                Invoke(() => UpdateProgress(p));
+            }
+            else
+            {
+                UpdateProgress(p);
+            }
+        });
+    }
+
+    private void HandleGenerationResult(GenerationResult result)
+    {
+        if (result.WasCancelled)
+        {
+            AppendLog("Generation cancelled by user.", Color.Yellow);
+            _lblProgress.Text = "Generation cancelled.";
+            return;
+        }
+
+        if (result.Errors.Count > 0)
+        {
+            AppendLog("Generation completed with errors:", Color.Orange);
+            foreach (var error in result.Errors)
+            {
+                AppendLog($"  - {error}", Color.Red);
+            }
+            _lblProgress.Text = "Generation completed with errors.";
+            _generationComplete = true;
+            return;
+        }
+
+        AppendLog("", Color.White);
+        AppendLog("========================================", Color.Green);
+        AppendLog("GENERATION COMPLETE!", Color.Green);
+        AppendLog("========================================", Color.Green);
+        AppendLog($"Emails generated: {result.TotalEmailsGenerated}");
+        AppendLog($"Threads created: {result.TotalThreadsGenerated}");
+        AppendLog($"Attachments created: {result.TotalAttachmentsGenerated}");
+        AppendLog($"  - Word documents: {result.WordDocumentsGenerated}");
+        AppendLog($"  - Excel spreadsheets: {result.ExcelDocumentsGenerated}");
+        AppendLog($"  - PowerPoint presentations: {result.PowerPointDocumentsGenerated}");
+        AppendLog($"Time elapsed: {result.ElapsedTime:mm\\:ss}");
+        AppendLog($"Output folder: {result.OutputFolder}");
+        AppendLog("");
+        AppendLog("--- Token Usage ---", Color.Cyan);
+        AppendLog($"Input tokens: {_state.UsageTracker.TotalInputTokens:N0}");
+        AppendLog($"Output tokens: {_state.UsageTracker.TotalOutputTokens:N0}");
+        AppendLog($"Estimated cost: ${_state.UsageTracker.TotalCost:F4}");
+
+        _lblProgress.Text = $"Generation complete! {result.TotalEmailsGenerated} emails created.";
+        _generationComplete = true;
+
+        if (Directory.Exists(result.OutputFolder))
+        {
+            var searchOption = _state.Config.OrganizeBySender
+                ? SearchOption.AllDirectories
+                : SearchOption.TopDirectoryOnly;
+            var emlFiles = Directory.GetFiles(result.OutputFolder, "*.eml", searchOption).Length;
+            AppendLog($"Verified: {emlFiles} .eml files in output folder", Color.Green);
+        }
+    }
+
+    private void FinalizeGeneration()
+    {
+        _isGenerating = false;
+        _btnCancel.Enabled = false;
+        _progressBar.Style = ProgressBarStyle.Blocks;
+        _progressBar.Maximum = 100;
+        _progressBar.Value = _generationComplete ? 100 : 0;
+
+        _usageUpdateTimer?.Stop();
+        _usageUpdateTimer?.Dispose();
+        _usageUpdateTimer = null;
+
+        UpdateTokenUsageLabel();
+
+        _cts?.Dispose();
+        _cts = null;
+        _lastStorylineLogged = null;
+        StateChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private void UpdateProgress(GenerationProgress p)

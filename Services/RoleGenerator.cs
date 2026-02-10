@@ -26,56 +26,96 @@ public class RoleGenerator
         if (organization.Departments.Count == 0)
             return;
 
-        var executive = organization.Departments.FirstOrDefault(d => d.Name == DepartmentName.Executive);
-        if (executive == null)
-        {
-            executive = new Department { Name = DepartmentName.Executive };
-            organization.Departments.Insert(0, executive);
-        }
-
+        var executive = GetOrCreateExecutiveDepartment(organization);
         var executiveRoles = executive.Roles.ToDictionary(r => r.Name, r => r);
         var executiveCharacterIds = new HashSet<Guid>(
             executive.Roles.SelectMany(r => r.Characters).Select(c => c.Id));
 
         foreach (var department in organization.Departments.Where(d => d.Name != DepartmentName.Executive))
         {
-            var toMove = department.Roles
-                .Where(r => SingleOccupantRoles.Contains(r.Name))
-                .ToList();
-
-            foreach (var role in toMove)
-            {
-                department.Roles.Remove(role);
-                if (executiveRoles.TryGetValue(role.Name, out var target))
-                {
-                    foreach (var character in role.Characters)
-                    {
-                        if (executiveCharacterIds.Add(character.Id))
-                        {
-                            character.RoleId = target.Id;
-                            character.DepartmentId = executive.Id;
-                            character.OrganizationId = organization.Id;
-                            target.Characters.Add(character);
-                        }
-                    }
-                }
-                else
-                {
-                    role.DepartmentId = executive.Id;
-                    role.OrganizationId = organization.Id;
-                    foreach (var character in role.Characters)
-                    {
-                        character.RoleId = role.Id;
-                        character.DepartmentId = executive.Id;
-                        character.OrganizationId = organization.Id;
-                    }
-                    executive.Roles.Add(role);
-                    executiveRoles[role.Name] = role;
-                    foreach (var character in role.Characters)
-                        executiveCharacterIds.Add(character.Id);
-                }
-            }
+            MoveSingleOccupantRoles(
+                department,
+                executive,
+                executiveRoles,
+                executiveCharacterIds,
+                organization.Id);
         }
+    }
+
+    private static Department GetOrCreateExecutiveDepartment(Organization organization)
+    {
+        var executive = organization.Departments.FirstOrDefault(d => d.Name == DepartmentName.Executive);
+        if (executive != null)
+            return executive;
+
+        executive = new Department { Name = DepartmentName.Executive };
+        organization.Departments.Insert(0, executive);
+        return executive;
+    }
+
+    private static void MoveSingleOccupantRoles(
+        Department department,
+        Department executive,
+        IDictionary<RoleName, Role> executiveRoles,
+        ISet<Guid> executiveCharacterIds,
+        Guid organizationId)
+    {
+        var toMove = department.Roles
+            .Where(r => SingleOccupantRoles.Contains(r.Name))
+            .ToList();
+
+        foreach (var role in toMove)
+        {
+            department.Roles.Remove(role);
+            if (executiveRoles.TryGetValue(role.Name, out var target))
+            {
+                MoveCharactersToRole(role, target, executive, executiveCharacterIds, organizationId);
+                continue;
+            }
+
+            AttachRoleToExecutive(role, executive, executiveRoles, executiveCharacterIds, organizationId);
+        }
+    }
+
+    private static void MoveCharactersToRole(
+        Role sourceRole,
+        Role targetRole,
+        Department executive,
+        ISet<Guid> executiveCharacterIds,
+        Guid organizationId)
+    {
+        foreach (var character in sourceRole.Characters)
+        {
+            if (!executiveCharacterIds.Add(character.Id))
+                continue;
+
+            character.RoleId = targetRole.Id;
+            character.DepartmentId = executive.Id;
+            character.OrganizationId = organizationId;
+            targetRole.Characters.Add(character);
+        }
+    }
+
+    private static void AttachRoleToExecutive(
+        Role role,
+        Department executive,
+        IDictionary<RoleName, Role> executiveRoles,
+        ISet<Guid> executiveCharacterIds,
+        Guid organizationId)
+    {
+        role.DepartmentId = executive.Id;
+        role.OrganizationId = organizationId;
+
+        foreach (var character in role.Characters)
+        {
+            character.RoleId = role.Id;
+            character.DepartmentId = executive.Id;
+            character.OrganizationId = organizationId;
+            executiveCharacterIds.Add(character.Id);
+        }
+
+        executive.Roles.Add(role);
+        executiveRoles[role.Name] = role;
     }
 
     internal static (Role Role, Department Department) SelectRoleAssignment(

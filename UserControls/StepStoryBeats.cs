@@ -369,36 +369,58 @@ public class StepStoryBeats : UserControl, IWizardStep
 
         foreach (Control control in _storyFlow.Controls)
         {
-            if (control is Label label)
+            ApplySizingToControl(control, width);
+        }
+    }
+
+    private static void ApplySizingToControl(Control control, int width)
+    {
+        if (control is Label label)
+        {
+            SetLabelMaxWidth(label, width);
+            return;
+        }
+
+        if (control is Panel panel)
+        {
+            ApplyPanelSizing(panel, width);
+        }
+    }
+
+    private static void ApplyPanelSizing(Panel panel, int width)
+    {
+        panel.Width = width;
+        foreach (Control child in panel.Controls)
+        {
+            if (child is Label childLabel)
             {
-                var maxWidth = Math.Max(120, width - label.Margin.Horizontal);
-                label.MaximumSize = new Size(maxWidth, 0);
+                SetLabelMaxWidth(childLabel, width);
+                continue;
             }
-            else if (control is Panel panel)
+
+            if (child is TableLayoutPanel table)
             {
-                panel.Width = width;
-                foreach (Control child in panel.Controls)
-                {
-                    if (child is Label childLabel)
-                    {
-                        var maxWidth = Math.Max(120, width - childLabel.Margin.Horizontal);
-                        childLabel.MaximumSize = new Size(maxWidth, 0);
-                    }
-                    else if (child is TableLayoutPanel table)
-                    {
-                        table.MaximumSize = new Size(Math.Max(120, width - 24), 0);
-                        foreach (Control tableChild in table.Controls)
-                        {
-                            if (tableChild is Label tableLabel)
-                            {
-                                var maxWidth = Math.Max(120, width - tableLabel.Margin.Horizontal);
-                                tableLabel.MaximumSize = new Size(maxWidth, 0);
-                            }
-                        }
-                    }
-                }
+                ApplyTableSizing(table, width);
             }
         }
+    }
+
+    private static void ApplyTableSizing(TableLayoutPanel table, int width)
+    {
+        table.MaximumSize = new Size(Math.Max(120, width - 24), 0);
+        foreach (Control tableChild in table.Controls)
+        {
+            if (tableChild is Label tableLabel)
+            {
+                SetLabelMaxWidth(tableLabel, width);
+            }
+        }
+    }
+
+    private static void SetLabelMaxWidth(Label label, int width)
+    {
+        var maxWidth = Math.Max(120, width - label.Margin.Horizontal);
+        label.MaximumSize = new Size(maxWidth, 0);
     }
 
     private static IEnumerable<string> SplitParagraphs(string text)

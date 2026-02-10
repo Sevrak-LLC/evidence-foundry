@@ -14,109 +14,7 @@ public class EmlFileService
         string outputFolder,
         CancellationToken ct = default)
     {
-        var message = new MimeMessage();
-
-        // Set Message-ID (required for threading)
-        // If MessageId is empty, generate a new one
-        var messageId = SanitizeHeaderValue(email.MessageId, 200);
-        if (string.IsNullOrEmpty(messageId))
-        {
-            messageId = $"<{Guid.NewGuid():N}.{DateTime.UtcNow.Ticks}@generated.local>";
-        }
-        message.MessageId = SanitizeHeaderValue(messageId, 200).Trim('<', '>');
-
-        // Set date
-        message.Date = new DateTimeOffset(email.SentDate);
-
-        // Set subject
-        message.Subject = SanitizeHeaderValue(email.Subject, 255);
-
-        // From
-        message.From.Add(CreateFromAddress(email.From));
-
-        // To
-        foreach (var to in email.To)
-        {
-            var address = TryCreateMailboxAddress(to.FullName, to.Email);
-            if (address != null)
-            {
-                message.To.Add(address);
-            }
-        }
-
-        // Cc
-        foreach (var cc in email.Cc)
-        {
-            var address = TryCreateMailboxAddress(cc.FullName, cc.Email);
-            if (address != null)
-            {
-                message.Cc.Add(address);
-            }
-        }
-
-        // Threading headers
-        var inReplyTo = SanitizeHeaderValue(email.InReplyTo, 200);
-        if (!string.IsNullOrEmpty(inReplyTo))
-        {
-            message.InReplyTo = inReplyTo.Trim('<', '>');
-        }
-
-        if (email.References.Count > 0)
-        {
-            foreach (var reference in email.References)
-            {
-                var sanitizedReference = SanitizeHeaderValue(reference, 200).Trim('<', '>');
-                if (!string.IsNullOrEmpty(sanitizedReference))
-                {
-                    message.References.Add(sanitizedReference);
-                }
-            }
-        }
-
-        // Build body - always use HTML for consistent rendering across email clients
-        var builder = new BodyBuilder();
-
-        if (!string.IsNullOrEmpty(email.BodyHtml))
-        {
-            builder.HtmlBody = email.BodyHtml;
-        }
-        else
-        {
-            // Fallback only if HTML generation somehow failed
-            builder.HtmlBody = HtmlEmailFormatter.ConvertToHtml(email.BodyPlain);
-        }
-
-        // Add attachments
-        foreach (var attachment in email.Attachments)
-        {
-            if (attachment.Content != null)
-            {
-                // Create the MIME part explicitly to ensure proper content type
-                var mimeType = ContentType.Parse(attachment.MimeType);
-                var mimePart = new MimePart(mimeType)
-                {
-                    Content = new MimeContent(new MemoryStream(attachment.Content)),
-                    ContentTransferEncoding = ContentEncoding.Base64,
-                    FileName = attachment.FileName
-                };
-
-                // Handle inline images vs regular attachments
-                if (attachment.IsInline && !string.IsNullOrEmpty(attachment.ContentId))
-                {
-                    mimePart.ContentDisposition = new ContentDisposition(ContentDisposition.Inline);
-                    mimePart.ContentId = attachment.ContentId;
-                    // Inline images go in LinkedResources so they can be referenced by cid:
-                    builder.LinkedResources.Add(mimePart);
-                }
-                else
-                {
-                    mimePart.ContentDisposition = new ContentDisposition(ContentDisposition.Attachment);
-                    builder.Attachments.Add(mimePart);
-                }
-            }
-        }
-
-        message.Body = builder.ToMessageBody();
+        var message = CreateMessage(email);
 
         // Generate filename and save
         var fileName = GetSafeEmlFileName(email.GeneratedFileName, email);
@@ -152,28 +50,12 @@ public class EmlFileService
             {
                 ct.ThrowIfCancellationRequested();
 
-                var fileName = FileNameHelper.GenerateEmlFileName(email);
-                email.GeneratedFileName = fileName;
-
-                // Determine the target folder
-                var targetFolder = outputFolder;
-                if (organizeBySender && email.From != null && !string.IsNullOrEmpty(email.From.Email))
-                {
-                    // Create subfolder based on sender email address
-                    var senderFolder = SanitizeFolderName(email.From.Email);
-                    targetFolder = Path.Combine(outputFolder, senderFolder);
-                    Directory.CreateDirectory(targetFolder);
-                }
-
-                await SaveEmailAsEmlAsync(email, targetFolder, ct);
-
-                if (releaseAttachmentContent && email.Attachments.Count > 0)
-                {
-                    foreach (var attachment in email.Attachments)
-                    {
-                        attachment.Content = null;
-                    }
-                }
+                var fileName = await ProcessEmailAsync(
+                    email,
+                    outputFolder,
+                    organizeBySender,
+                    releaseAttachmentContent,
+                    ct);
 
                 completed++;
                 progress?.Report((completed, total, fileName));
@@ -187,31 +69,160 @@ public class EmlFileService
                 CancellationToken = ct
             }, async (email, token) =>
             {
-                var fileName = FileNameHelper.GenerateEmlFileName(email);
-                email.GeneratedFileName = fileName;
-
-                // Determine the target folder
-                var targetFolder = outputFolder;
-                if (organizeBySender && email.From != null && !string.IsNullOrEmpty(email.From.Email))
-                {
-                    var senderFolder = SanitizeFolderName(email.From.Email);
-                    targetFolder = Path.Combine(outputFolder, senderFolder);
-                    Directory.CreateDirectory(targetFolder);
-                }
-
-                await SaveEmailAsEmlAsync(email, targetFolder, token);
-
-                if (releaseAttachmentContent && email.Attachments.Count > 0)
-                {
-                    foreach (var attachment in email.Attachments)
-                    {
-                        attachment.Content = null;
-                    }
-                }
+                var fileName = await ProcessEmailAsync(
+                    email,
+                    outputFolder,
+                    organizeBySender,
+                    releaseAttachmentContent,
+                    token);
 
                 var newCompleted = Interlocked.Increment(ref completed);
                 progress?.Report((newCompleted, total, fileName));
             });
+        }
+    }
+
+    private static MimeMessage CreateMessage(EmailMessage email)
+    {
+        var message = new MimeMessage
+        {
+            MessageId = GetMessageId(email),
+            Date = new DateTimeOffset(email.SentDate),
+            Subject = SanitizeHeaderValue(email.Subject, 255)
+        };
+
+        message.From.Add(CreateFromAddress(email.From));
+        AddRecipients(message.To, email.To);
+        AddRecipients(message.Cc, email.Cc);
+        ApplyThreadingHeaders(message, email);
+        message.Body = BuildBody(email);
+
+        return message;
+    }
+
+    private static string GetMessageId(EmailMessage email)
+    {
+        var messageId = SanitizeHeaderValue(email.MessageId, 200);
+        if (string.IsNullOrEmpty(messageId))
+        {
+            messageId = $"<{Guid.NewGuid():N}.{DateTime.UtcNow.Ticks}@generated.local>";
+        }
+
+        return SanitizeHeaderValue(messageId, 200).Trim('<', '>');
+    }
+
+    private static void AddRecipients(InternetAddressList list, IEnumerable<Character> participants)
+    {
+        foreach (var participant in participants)
+        {
+            var address = TryCreateMailboxAddress(participant.FullName, participant.Email);
+            if (address != null)
+            {
+                list.Add(address);
+            }
+        }
+    }
+
+    private static void ApplyThreadingHeaders(MimeMessage message, EmailMessage email)
+    {
+        var inReplyTo = SanitizeHeaderValue(email.InReplyTo, 200);
+        if (!string.IsNullOrEmpty(inReplyTo))
+        {
+            message.InReplyTo = inReplyTo.Trim('<', '>');
+        }
+
+        foreach (var reference in email.References)
+        {
+            var sanitizedReference = SanitizeHeaderValue(reference, 200).Trim('<', '>');
+            if (!string.IsNullOrEmpty(sanitizedReference))
+            {
+                message.References.Add(sanitizedReference);
+            }
+        }
+    }
+
+    private static MimeEntity BuildBody(EmailMessage email)
+    {
+        var builder = new BodyBuilder
+        {
+            HtmlBody = string.IsNullOrEmpty(email.BodyHtml)
+                ? HtmlEmailFormatter.ConvertToHtml(email.BodyPlain)
+                : email.BodyHtml
+        };
+
+        AddAttachments(builder, email.Attachments);
+        return builder.ToMessageBody();
+    }
+
+    private static void AddAttachments(BodyBuilder builder, IEnumerable<EvidenceFoundry.Models.Attachment> attachments)
+    {
+        foreach (var attachment in attachments)
+        {
+            if (attachment.Content == null)
+                continue;
+
+            var mimeType = ContentType.Parse(attachment.MimeType);
+            var mimePart = new MimePart(mimeType)
+            {
+                Content = new MimeContent(new MemoryStream(attachment.Content)),
+                ContentTransferEncoding = ContentEncoding.Base64,
+                FileName = attachment.FileName
+            };
+
+            if (attachment.IsInline && !string.IsNullOrEmpty(attachment.ContentId))
+            {
+                mimePart.ContentDisposition = new ContentDisposition(ContentDisposition.Inline);
+                mimePart.ContentId = attachment.ContentId;
+                builder.LinkedResources.Add(mimePart);
+            }
+            else
+            {
+                mimePart.ContentDisposition = new ContentDisposition(ContentDisposition.Attachment);
+                builder.Attachments.Add(mimePart);
+            }
+        }
+    }
+
+    private async Task<string> ProcessEmailAsync(
+        EmailMessage email,
+        string outputFolder,
+        bool organizeBySender,
+        bool releaseAttachmentContent,
+        CancellationToken ct)
+    {
+        var fileName = FileNameHelper.GenerateEmlFileName(email);
+        email.GeneratedFileName = fileName;
+
+        var targetFolder = GetTargetFolder(email, outputFolder, organizeBySender);
+        await SaveEmailAsEmlAsync(email, targetFolder, ct);
+
+        if (releaseAttachmentContent)
+        {
+            ReleaseAttachmentContent(email);
+        }
+
+        return fileName;
+    }
+
+    private static string GetTargetFolder(EmailMessage email, string outputFolder, bool organizeBySender)
+    {
+        if (!organizeBySender || string.IsNullOrEmpty(email.From?.Email))
+            return outputFolder;
+
+        var senderFolder = SanitizeFolderName(email.From.Email);
+        var targetFolder = Path.Combine(outputFolder, senderFolder);
+        Directory.CreateDirectory(targetFolder);
+        return targetFolder;
+    }
+
+    private static void ReleaseAttachmentContent(EmailMessage email)
+    {
+        if (email.Attachments.Count == 0)
+            return;
+
+        foreach (var attachment in email.Attachments)
+        {
+            attachment.Content = null;
         }
     }
 

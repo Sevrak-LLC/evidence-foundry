@@ -22,21 +22,9 @@ public class StoryBeatGenerator
         IProgress<string>? progress = null,
         CancellationToken ct = default)
     {
-        if (storyline == null)
-            throw new ArgumentNullException(nameof(storyline));
-        if (string.IsNullOrWhiteSpace(storyline.Summary))
-            throw new InvalidOperationException("Storyline summary is required before generating story beats.");
-        if (!storyline.StartDate.HasValue || !storyline.EndDate.HasValue)
-            throw new InvalidOperationException("Storyline must have a start and end date before generating story beats.");
-        if (organizations == null || organizations.Count == 0)
-            throw new InvalidOperationException("At least one organization is required before generating story beats.");
-        if (characters == null || characters.Count < 2)
-            throw new InvalidOperationException("At least two characters are required before generating story beats.");
+        ValidateGenerationInputs(storyline, organizations, characters);
 
-        var startDate = storyline.StartDate.Value.Date;
-        var endDate = storyline.EndDate.Value.Date;
-        if (endDate < startDate)
-            throw new InvalidOperationException("Storyline end date must be on or after the start date.");
+        var (startDate, endDate) = GetStorylineDateRange(storyline);
 
         progress?.Report("Generating story beats...");
 
@@ -93,6 +81,47 @@ Return JSON in this exact format:
             "Story Beat Generation",
             ct);
 
+        var beats = BuildBeatsFromResponse(response);
+        await NormalizeRepairAndValidateBeatsAsync(
+            topic,
+            storyline,
+            beats,
+            startDate,
+            endDate,
+            ct);
+
+        return beats;
+    }
+
+    private static void ValidateGenerationInputs(
+        Storyline storyline,
+        IReadOnlyList<Organization> organizations,
+        IReadOnlyList<Character> characters)
+    {
+        if (storyline == null)
+            throw new ArgumentNullException(nameof(storyline));
+        if (string.IsNullOrWhiteSpace(storyline.Summary))
+            throw new InvalidOperationException("Storyline summary is required before generating story beats.");
+        if (!storyline.StartDate.HasValue || !storyline.EndDate.HasValue)
+            throw new InvalidOperationException("Storyline must have a start and end date before generating story beats.");
+        if (organizations == null || organizations.Count == 0)
+            throw new InvalidOperationException("At least one organization is required before generating story beats.");
+        if (characters == null || characters.Count < 2)
+            throw new InvalidOperationException("At least two characters are required before generating story beats.");
+    }
+
+    private static (DateTime startDate, DateTime endDate) GetStorylineDateRange(Storyline storyline)
+    {
+        var startDate = storyline.StartDate!.Value.Date;
+        var endDate = storyline.EndDate!.Value.Date;
+        if (endDate < startDate)
+            throw new InvalidOperationException("Storyline end date must be on or after the start date.");
+
+        return (startDate, endDate);
+    }
+
+    private static List<StoryBeat> BuildBeatsFromResponse(StoryBeatApiResponse? response)
+    {
         if (response?.Beats == null || response.Beats.Count == 0)
             throw new InvalidOperationException("Failed to generate story beats.");
 
@@ -121,6 +150,17 @@ Return JSON in this exact format:
             });
         }
 
+        return beats;
+    }
+
+    private async Task NormalizeRepairAndValidateBeatsAsync(
+        string topic,
+        Storyline storyline,
+        List<StoryBeat> beats,
+        DateTime startDate,
+        DateTime endDate,
+        CancellationToken ct)
+    {
         DateHelper.NormalizeStoryBeats(beats, startDate, endDate);
         var invalidIndex = FindFirstInvalidBeatIndex(beats, startDate, endDate);
         if (invalidIndex.HasValue)
@@ -149,8 +189,6 @@ Return JSON in this exact format:
             throw new InvalidOperationException(
                 $"{ex.Message} Options: regenerate story beats, allow deterministic redistribution across the date range, or relax strict non-overlap/same-day boundaries.");
         }
-
-        return beats;
     }
 
     internal static void ValidateStoryBeats(IReadOnlyList<StoryBeat> beats, DateTime storylineStart, DateTime storylineEnd)

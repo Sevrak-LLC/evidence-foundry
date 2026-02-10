@@ -176,58 +176,84 @@ public class AIModelConfig
 
         foreach (var config in configs)
         {
-            if (config == null)
+            if (!TryNormalizeConfig(config, seen, out var normalized))
                 continue;
 
-            var modelId = (config.ModelId ?? string.Empty).Trim();
-            if (!IsValidModelId(modelId))
-                continue;
-
-            var displayName = string.IsNullOrWhiteSpace(config.DisplayName)
-                ? modelId
-                : config.DisplayName.Trim();
-
-            if (config.InputTokenPricePerMillion < 0 || config.OutputTokenPricePerMillion < 0)
-                continue;
-
-            if (!seen.Add(modelId))
-                continue;
-
-            var maxOutputTokens = config.MaxOutputTokens > 0
-                ? config.MaxOutputTokens
-                : DefaultMaxOutputTokens;
-            var maxJsonOutputTokens = config.MaxJsonOutputTokens > 0
-                ? config.MaxJsonOutputTokens
-                : DefaultMaxJsonOutputTokens;
-
-            result.Add(new AIModelConfig
-            {
-                ModelId = modelId,
-                DisplayName = displayName,
-                InputTokenPricePerMillion = config.InputTokenPricePerMillion,
-                OutputTokenPricePerMillion = config.OutputTokenPricePerMillion,
-                IsDefault = config.IsDefault,
-                MaxOutputTokens = maxOutputTokens,
-                MaxJsonOutputTokens = maxJsonOutputTokens
-            });
+            result.Add(normalized);
         }
 
         if (result.Count == 0)
             return result;
 
-        var defaultIndex = result.FindIndex(m => m.IsDefault);
-        if (defaultIndex < 0)
-        {
-            result[0].IsDefault = true;
-        }
-        else
-        {
-            for (var i = 0; i < result.Count; i++)
-            {
-                result[i].IsDefault = i == defaultIndex;
-            }
-        }
+        EnsureSingleDefault(result);
 
         return result;
+    }
+
+    private static bool TryNormalizeConfig(
+        AIModelConfig? config,
+        HashSet<string> seen,
+        out AIModelConfig normalized)
+    {
+        normalized = default!;
+        if (config == null)
+            return false;
+
+        var modelId = (config.ModelId ?? string.Empty).Trim();
+        if (!IsValidModelId(modelId))
+            return false;
+
+        if (config.InputTokenPricePerMillion < 0 || config.OutputTokenPricePerMillion < 0)
+            return false;
+
+        if (!seen.Add(modelId))
+            return false;
+
+        var displayName = string.IsNullOrWhiteSpace(config.DisplayName)
+            ? modelId
+            : config.DisplayName.Trim();
+
+        var maxOutputTokens = config.MaxOutputTokens > 0
+            ? config.MaxOutputTokens
+            : DefaultMaxOutputTokens;
+        var maxJsonOutputTokens = config.MaxJsonOutputTokens > 0
+            ? config.MaxJsonOutputTokens
+            : DefaultMaxJsonOutputTokens;
+
+        normalized = new AIModelConfig
+        {
+            ModelId = modelId,
+            DisplayName = displayName,
+            InputTokenPricePerMillion = config.InputTokenPricePerMillion,
+            OutputTokenPricePerMillion = config.OutputTokenPricePerMillion,
+            IsDefault = config.IsDefault,
+            MaxOutputTokens = maxOutputTokens,
+            MaxJsonOutputTokens = maxJsonOutputTokens
+        };
+
+        return true;
+    }
+
+    private static void EnsureSingleDefault(IList<AIModelConfig> configs)
+    {
+        var defaultIndex = -1;
+        for (var i = 0; i < configs.Count; i++)
+        {
+            if (!configs[i].IsDefault)
+                continue;
+
+            defaultIndex = i;
+            break;
+        }
+        if (defaultIndex < 0)
+        {
+            configs[0].IsDefault = true;
+            return;
+        }
+
+        for (var i = 0; i < configs.Count; i++)
+        {
+            configs[i].IsDefault = i == defaultIndex;
+        }
     }
 }
