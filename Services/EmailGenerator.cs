@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using System.Text.Json.Serialization;
 using EvidenceFoundry.Models;
@@ -22,6 +23,24 @@ public class EmailGenerator
     private const int MaxEmailsPerBatch = 15;
     private const int MaxThreadGenerationAttempts = 3;
     private const int MaxAttachmentFileNameLength = 160;
+    private static readonly string[] SignOffPatterns =
+    {
+        "Best,",
+        "Best regards,",
+        "Regards,",
+        "Thanks,",
+        "Thank you,",
+        "Sincerely,",
+        "Cheers,",
+        "Kind regards,",
+        "Warm regards,",
+        "All the best,",
+        "Best wishes,",
+        "Thanks!",
+        "Thank you!",
+        "Respectfully,",
+        "Cordially,"
+    };
 
     public EmailGenerator(OpenAIService openAI)
     {
@@ -383,31 +402,16 @@ public class EmailGenerator
         {
             ct.ThrowIfCancellationRequested();
 
-            if (!beatLookup.TryGetValue(thread.StoryBeatId, out var beat))
+            if (!TryGetSuggestedSearchContext(
+                    thread,
+                    beatLookup,
+                    storylineLookup,
+                    progressLock,
+                    result,
+                    out var beat,
+                    out var storyline,
+                    out var largestEmail))
             {
-                lock (progressLock)
-                {
-                    result.Errors.Add($"Suggested terms skipped: missing story beat for thread {thread.Id}.");
-                }
-                continue;
-            }
-
-            if (!storylineLookup.TryGetValue(thread.StorylineId, out var storyline))
-            {
-                lock (progressLock)
-                {
-                    result.Errors.Add($"Suggested terms skipped: missing storyline for thread {thread.Id}.");
-                }
-                continue;
-            }
-
-            var largestEmail = GetLargestEmailInThread(thread);
-            if (largestEmail == null)
-            {
-                lock (progressLock)
-                {
-                    result.Errors.Add($"Suggested terms skipped: thread {thread.Id} has no emails.");
-                }
                 continue;
             }
 
@@ -417,32 +421,15 @@ public class EmailGenerator
                 p.CurrentOperation = $"Generating suggested search terms: {subject}";
             });
 
-            List<string> terms;
-            try
-            {
-                var exportedEmail = BuildExportedEmailForPrompt(largestEmail);
-                terms = await _searchTermGenerator.GenerateSuggestedSearchTermsAsync(
-                    exportedEmail,
-                    storyline.Summary,
-                    beat.Plot,
-                    thread.IsHot,
-                    ct);
-                if (terms.Count < 2)
-                {
-                    lock (progressLock)
-                    {
-                        result.Errors.Add($"Suggested terms returned fewer than 2 entries for thread '{subject}'.");
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                lock (progressLock)
-                {
-                    result.Errors.Add($"Failed to generate suggested terms for thread '{subject}': {ex.Message}");
-                }
-                terms = new List<string>();
-            }
+            var terms = await GenerateSuggestedSearchTermsForThreadAsync(
+                subject,
+                largestEmail,
+                storyline,
+                beat,
+                thread.IsHot,
+                progressLock,
+                result,
+                ct);
 
             results.Add(new SuggestedSearchTermResult
             {
@@ -474,6 +461,92 @@ public class EmailGenerator
             {
                 result.Errors.Add($"Failed to write suggested search terms markdown: {ex.Message}");
             }
+        }
+    }
+
+    private async Task<List<string>> GenerateSuggestedSearchTermsForThreadAsync(
+        string subject,
+        EmailMessage largestEmail,
+        Storyline storyline,
+        StoryBeat beat,
+        bool isHot,
+        object progressLock,
+        GenerationResult result,
+        CancellationToken ct)
+    {
+        try
+        {
+            var exportedEmail = BuildExportedEmailForPrompt(largestEmail);
+            var terms = await _searchTermGenerator.GenerateSuggestedSearchTermsAsync(
+                exportedEmail,
+                storyline.Summary,
+                beat.Plot,
+                isHot,
+                ct);
+            if (terms.Count < 2)
+            {
+                AddSuggestedTermsError(
+                    progressLock,
+                    result,
+                    $"Suggested terms returned fewer than 2 entries for thread '{subject}'.");
+            }
+
+            return terms;
+        }
+        catch (Exception ex)
+        {
+            AddSuggestedTermsError(
+                progressLock,
+                result,
+                $"Failed to generate suggested terms for thread '{subject}': {ex.Message}");
+            return new List<string>();
+        }
+    }
+
+    private static bool TryGetSuggestedSearchContext(
+        EmailThread thread,
+        IReadOnlyDictionary<Guid, StoryBeat> beatLookup,
+        IReadOnlyDictionary<Guid, Storyline> storylineLookup,
+        object progressLock,
+        GenerationResult result,
+        [NotNullWhen(true)] out StoryBeat? beat,
+        [NotNullWhen(true)] out Storyline? storyline,
+        [NotNullWhen(true)] out EmailMessage? largestEmail)
+    {
+        beat = null;
+        storyline = null;
+        largestEmail = null;
+
+        if (!beatLookup.TryGetValue(thread.StoryBeatId, out var resolvedBeat))
+        {
+            AddSuggestedTermsError(progressLock, result, $"Suggested terms skipped: missing story beat for thread {thread.Id}.");
+            return false;
+        }
+
+        if (!storylineLookup.TryGetValue(thread.StorylineId, out var resolvedStoryline))
+        {
+            AddSuggestedTermsError(progressLock, result, $"Suggested terms skipped: missing storyline for thread {thread.Id}.");
+            return false;
+        }
+
+        var resolvedEmail = GetLargestEmailInThread(thread);
+        if (resolvedEmail == null)
+        {
+            AddSuggestedTermsError(progressLock, result, $"Suggested terms skipped: thread {thread.Id} has no emails.");
+            return false;
+        }
+
+        beat = resolvedBeat;
+        storyline = resolvedStoryline;
+        largestEmail = resolvedEmail;
+        return true;
+    }
+
+    private static void AddSuggestedTermsError(object progressLock, GenerationResult result, string message)
+    {
+        lock (progressLock)
+        {
+            result.Errors.Add(message);
         }
     }
 
@@ -1144,20 +1217,72 @@ public class EmailGenerator
         string characterList,
         CancellationToken ct)
     {
-        if (thread == null) throw new ArgumentNullException(nameof(thread));
-        if (emailCount <= 0)
-            throw new ArgumentOutOfRangeException(nameof(emailCount), "Thread email count must be positive.");
+        ValidateThreadGenerationInputs(thread, emailCount);
 
         _threadGenerator.EnsurePlaceholderMessages(thread, emailCount);
 
         // Break into batches to avoid token limits and timeouts
         var totalBatches = (int)Math.Ceiling((double)emailCount / MaxEmailsPerBatch);
-        var emailsGenerated = 0;
-        var sequence = 0;
 
         var isResponsiveThread = thread.Relevance == EmailThread.ThreadRelevance.Responsive || thread.IsHot;
 
-        // Distribute attachments across batches proportionally
+        var attachmentTotals = CalculateAttachmentTotals(config, emailCount);
+        var attachmentState = new AttachmentDistributionState(
+            attachmentTotals.totalDocAttachments,
+            attachmentTotals.totalImageAttachments,
+            attachmentTotals.totalVoicemailAttachments);
+
+        var batchContext = new ThreadBatchContext(
+            storyline,
+            thread,
+            participants,
+            participantLookup,
+            startDate,
+            endDate,
+            config,
+            domainThemes,
+            systemPrompt,
+            characterList,
+            emailCount);
+
+        var generationState = new ThreadGenerationState(0, string.Empty);
+
+        for (int batch = 0; batch < totalBatches; batch++)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            generationState = await GenerateThreadBatchAsync(
+                batchContext,
+                attachmentState,
+                generationState,
+                batch,
+                totalBatches,
+                isResponsiveThread,
+                ct);
+        }
+
+        if (generationState.EmailsGenerated != emailCount)
+            throw new InvalidOperationException($"Thread generated {generationState.EmailsGenerated} emails but expected {emailCount}.");
+
+        // Setup threading headers
+        ThreadingHelper.SetupThreading(thread, domain);
+
+        return thread;
+    }
+
+    private static void ValidateThreadGenerationInputs(EmailThread thread, int emailCount)
+    {
+        if (thread == null) throw new ArgumentNullException(nameof(thread));
+        if (emailCount <= 0)
+            throw new ArgumentOutOfRangeException(nameof(emailCount), "Thread email count must be positive.");
+    }
+
+    internal static (int totalDocAttachments, int totalImageAttachments, int totalVoicemailAttachments) CalculateAttachmentTotals(
+        GenerationConfig config,
+        int emailCount)
+    {
+        if (config == null) throw new ArgumentNullException(nameof(config));
+
         var totalDocAttachments = config.AttachmentPercentage > 0 && config.EnabledAttachmentTypes.Count > 0
             ? Math.Max(0, (int)Math.Round(emailCount * config.AttachmentPercentage / 100.0))
             : 0;
@@ -1168,96 +1293,188 @@ public class EmailGenerator
             ? Math.Max(0, (int)Math.Round(emailCount * config.VoicemailPercentage / 100.0))
             : 0;
 
-        var docsAssigned = 0;
-        var imagesAssigned = 0;
-        var voicemailsAssigned = 0;
-        var threadSubject = string.Empty;
+        return (totalDocAttachments, totalImageAttachments, totalVoicemailAttachments);
+    }
 
-        for (int batch = 0; batch < totalBatches; batch++)
+    private async Task<ThreadGenerationState> GenerateThreadBatchAsync(
+        ThreadBatchContext context,
+        AttachmentDistributionState attachmentState,
+        ThreadGenerationState state,
+        int batch,
+        int totalBatches,
+        bool isResponsiveThread,
+        CancellationToken ct)
+    {
+        var emailsGenerated = state.EmailsGenerated;
+        var sequence = emailsGenerated;
+        var batchSize = Math.Min(MaxEmailsPerBatch, context.EmailCount - emailsGenerated);
+        var isFirstBatch = batch == 0;
+        var isLastBatch = batch == totalBatches - 1;
+
+        var (batchStartDate, batchEndDate) = GetBatchDateWindow(
+            context.StartDate,
+            context.EndDate,
+            emailsGenerated,
+            batchSize,
+            context.EmailCount);
+
+        var (batchDocs, batchImages, batchVoicemails) = CalculateBatchAttachments(
+            attachmentState,
+            batchSize,
+            context.EmailCount - emailsGenerated,
+            isLastBatch);
+
+        var batchAttachmentInstructions = BuildBatchAttachmentInstructions(
+            context.Config,
+            batchDocs,
+            batchImages,
+            batchVoicemails,
+            isResponsiveThread);
+
+        var narrativeContext = BuildNarrativeContextForBatch(context.Thread, isFirstBatch, emailsGenerated);
+        var narrativePhase = GetNarrativePhase(batch, totalBatches);
+
+        var userPrompt = BuildBatchUserPrompt(
+            context.Storyline,
+            context.Thread,
+            context.CharacterList,
+            batchStartDate,
+            batchEndDate,
+            batchSize,
+            batchAttachmentInstructions,
+            narrativeContext,
+            narrativePhase,
+            isFirstBatch,
+            state.ThreadSubject);
+
+        var response = await GetThreadResponseAsync(
+            context.SystemPrompt,
+            userPrompt,
+            $"Email Thread Generation (batch {batch + 1}/{totalBatches})",
+            ct);
+
+        if (response == null)
+            throw new InvalidOperationException($"Failed to generate batch {batch + 1} for storyline: {context.Storyline.Title}");
+
+        var threadSubject = ResolveThreadSubject(response, state.ThreadSubject, isFirstBatch, context.Storyline);
+        var batchOffset = emailsGenerated;
+        sequence = ApplyBatchEmails(
+            context,
+            response,
+            threadSubject,
+            sequence,
+            batchOffset);
+
+        return new ThreadGenerationState(sequence, threadSubject);
+    }
+
+    private static (DateTime batchStartDate, DateTime batchEndDate) GetBatchDateWindow(
+        DateTime startDate,
+        DateTime endDate,
+        int emailsGenerated,
+        int batchSize,
+        int emailCount)
+    {
+        var batchStartDate = DateHelper.InterpolateDateInRange(startDate, endDate, (double)emailsGenerated / emailCount);
+        var batchEndDate = DateHelper.InterpolateDateInRange(startDate, endDate, (double)(emailsGenerated + batchSize) / emailCount);
+        return (batchStartDate, batchEndDate);
+    }
+
+    private static (int docs, int images, int voicemails) CalculateBatchAttachments(
+        AttachmentDistributionState state,
+        int batchSize,
+        int remainingEmails,
+        bool isLastBatch)
+    {
+        var docs = DistributeAttachmentsForBatch(state.TotalDocAttachments, ref state.DocsAssigned, batchSize, remainingEmails, isLastBatch);
+        var images = DistributeAttachmentsForBatch(state.TotalImageAttachments, ref state.ImagesAssigned, batchSize, remainingEmails, isLastBatch);
+        var voicemails = DistributeAttachmentsForBatch(state.TotalVoicemailAttachments, ref state.VoicemailsAssigned, batchSize, remainingEmails, isLastBatch);
+        return (docs, images, voicemails);
+    }
+
+    private static string BuildNarrativeContextForBatch(EmailThread thread, bool isFirstBatch, int emailsGenerated)
+    {
+        if (isFirstBatch || emailsGenerated <= 0)
+            return string.Empty;
+
+        return BuildNarrativeContext(thread.EmailMessages.Take(emailsGenerated).ToList());
+    }
+
+    private static string ResolveThreadSubject(
+        ThreadApiResponse response,
+        string existingSubject,
+        bool isFirstBatch,
+        Storyline storyline)
+    {
+        if (!isFirstBatch)
+            return existingSubject;
+
+        if (string.IsNullOrWhiteSpace(response.Subject))
+            throw new InvalidOperationException($"Thread subject missing for storyline: {storyline.Title}");
+
+        return response.Subject;
+    }
+
+    private int ApplyBatchEmails(
+        ThreadBatchContext context,
+        ThreadApiResponse response,
+        string threadSubject,
+        int sequence,
+        int batchOffset)
+    {
+        foreach (var email in response.Emails)
         {
-            ct.ThrowIfCancellationRequested();
+            if (sequence >= context.Thread.EmailMessages.Count)
+                throw new InvalidOperationException($"Thread plan expected {context.Thread.EmailMessages.Count} emails but generated more.");
 
-            var batchSize = Math.Min(MaxEmailsPerBatch, emailCount - emailsGenerated);
-            var isFirstBatch = batch == 0;
-            var isLastBatch = batch == totalBatches - 1;
-
-            // Calculate date window for this batch
-            var batchStartDate = DateHelper.InterpolateDateInRange(startDate, endDate, (double)emailsGenerated / emailCount);
-            var batchEndDate = DateHelper.InterpolateDateInRange(startDate, endDate, (double)(emailsGenerated + batchSize) / emailCount);
-
-            // Distribute attachments for this batch proportionally
-            var batchDocs = DistributeAttachmentsForBatch(totalDocAttachments, ref docsAssigned, batchSize, emailCount - emailsGenerated, isLastBatch);
-            var batchImages = DistributeAttachmentsForBatch(totalImageAttachments, ref imagesAssigned, batchSize, emailCount - emailsGenerated, isLastBatch);
-            var batchVoicemails = DistributeAttachmentsForBatch(totalVoicemailAttachments, ref voicemailsAssigned, batchSize, emailCount - emailsGenerated, isLastBatch);
-
-            // Build batch-specific attachment instructions
-            var batchAttachmentInstructions = BuildBatchAttachmentInstructions(
-                config,
-                batchDocs,
-                batchImages,
-                batchVoicemails,
-                isResponsiveThread);
-
-            // Build narrative context from previous batches
-            var narrativeContext = "";
-            if (!isFirstBatch && emailsGenerated > 0)
-            {
-                narrativeContext = BuildNarrativeContext(thread.EmailMessages.Take(emailsGenerated).ToList());
-            }
-
-            // Determine narrative phase
-            var narrativePhase = GetNarrativePhase(batch, totalBatches);
-
-            var userPrompt = BuildBatchUserPrompt(
-                storyline, thread, characterList, batchStartDate, batchEndDate,
-                batchSize, batchAttachmentInstructions, narrativeContext,
-                narrativePhase, isFirstBatch, threadSubject);
-
-            var response = await GetThreadResponseAsync(systemPrompt, userPrompt, $"Email Thread Generation (batch {batch + 1}/{totalBatches})", ct);
-
-            if (response == null)
-                throw new InvalidOperationException($"Failed to generate batch {batch + 1} for storyline: {storyline.Title}");
-
-            // Capture the subject from the first batch
-            if (isFirstBatch)
-            {
-                if (string.IsNullOrWhiteSpace(response.Subject))
-                    throw new InvalidOperationException($"Thread subject missing for storyline: {storyline.Title}");
-                threadSubject = response.Subject;
-            }
-
-            // Process emails from this batch
-            var batchOffset = emailsGenerated;
-            foreach (var e in response.Emails)
-            {
-                if (sequence >= thread.EmailMessages.Count)
-                    throw new InvalidOperationException($"Thread plan expected {thread.EmailMessages.Count} emails but generated more.");
-
-                var target = thread.EmailMessages[sequence];
-                ConvertDtoToEmailMessage(
-                    e,
-                    thread,
-                    threadSubject,
-                    target,
-                    participants,
-                    participantLookup,
-                    domainThemes,
-                    startDate,
-                    endDate,
-                    ref sequence,
-                    batchOffset);
-            }
-
-            emailsGenerated = sequence;
+            var target = context.Thread.EmailMessages[sequence];
+            ConvertDtoToEmailMessage(
+                email,
+                context.Thread,
+                threadSubject,
+                target,
+                context.Participants,
+                context.ParticipantLookup,
+                context.DomainThemes,
+                context.StartDate,
+                context.EndDate,
+                ref sequence,
+                batchOffset);
         }
 
-        if (emailsGenerated != emailCount)
-            throw new InvalidOperationException($"Thread generated {emailsGenerated} emails but expected {emailCount}.");
+        return sequence;
+    }
 
-        // Setup threading headers
-        ThreadingHelper.SetupThreading(thread, domain);
+    private sealed record ThreadGenerationState(int EmailsGenerated, string ThreadSubject);
 
-        return thread;
+    private sealed record ThreadBatchContext(
+        Storyline Storyline,
+        EmailThread Thread,
+        List<Character> Participants,
+        Dictionary<string, Character> ParticipantLookup,
+        DateTime StartDate,
+        DateTime EndDate,
+        GenerationConfig Config,
+        Dictionary<string, OrganizationTheme> DomainThemes,
+        string SystemPrompt,
+        string CharacterList,
+        int EmailCount);
+
+    private sealed class AttachmentDistributionState
+    {
+        public AttachmentDistributionState(int totalDocAttachments, int totalImageAttachments, int totalVoicemailAttachments)
+        {
+            TotalDocAttachments = totalDocAttachments;
+            TotalImageAttachments = totalImageAttachments;
+            TotalVoicemailAttachments = totalVoicemailAttachments;
+        }
+
+        public int TotalDocAttachments { get; }
+        public int TotalImageAttachments { get; }
+        public int TotalVoicemailAttachments { get; }
+        public int DocsAssigned;
+        public int ImagesAssigned;
+        public int VoicemailsAssigned;
     }
 
     internal async Task<EmailThread?> GenerateThreadWithRetriesAsync(
@@ -1889,7 +2106,34 @@ ATTACHMENT REMINDER:
         if (body.Contains(correctSig, StringComparison.OrdinalIgnoreCase))
             return body;
 
-        // Check if any OTHER character's signature is in the body
+        return ApplySignatureCorrections(body, fromChar, allCharacters, correctSig);
+    }
+
+    private static string ApplySignatureCorrections(
+        string body,
+        Character fromChar,
+        List<Character> allCharacters,
+        string correctSig)
+    {
+        if (TryReplaceWrongSignature(body, fromChar, allCharacters, correctSig, out var updatedBody))
+            return updatedBody;
+
+        if (TryReplaceWrongNameWithSignOff(body, fromChar, allCharacters, correctSig, out updatedBody))
+            return updatedBody;
+
+        if (TryReplaceMissingSenderSignature(body, fromChar, correctSig, out updatedBody))
+            return updatedBody;
+
+        return body;
+    }
+
+    private static bool TryReplaceWrongSignature(
+        string body,
+        Character fromChar,
+        List<Character> allCharacters,
+        string correctSig,
+        out string updatedBody)
+    {
         foreach (var otherChar in allCharacters)
         {
             if (otherChar.Id == fromChar.Id || string.IsNullOrWhiteSpace(otherChar.SignatureBlock))
@@ -1902,94 +2146,105 @@ ATTACHMENT REMINDER:
             var sigIndex = body.IndexOf(wrongSig, StringComparison.OrdinalIgnoreCase);
             if (sigIndex >= 0)
             {
-                // Replace the wrong signature with the correct one
-                body = body[..sigIndex] + correctSig + body[(sigIndex + wrongSig.Length)..];
-                return body;
+                updatedBody = body[..sigIndex] + correctSig + body[(sigIndex + wrongSig.Length)..];
+                return true;
             }
         }
 
-        // No exact signature block match found - check for wrong character names in common signature patterns
-        // Look for patterns like "Best,\nWrong Name" or "Thanks,\nWrong Name" or "Regards,\nWrong Name"
+        updatedBody = body;
+        return false;
+    }
+
+    private static bool TryReplaceWrongNameWithSignOff(
+        string body,
+        Character fromChar,
+        List<Character> allCharacters,
+        string correctSig,
+        out string updatedBody)
+    {
         foreach (var otherChar in allCharacters)
         {
             if (otherChar.Id == fromChar.Id)
                 continue;
 
-            // Check for the other character's full name near the end of the email (last 30% of body)
             var searchRegion = body.Length > 100
                 ? body[(int)(body.Length * 0.7)..]
                 : body;
 
             var nameIndex = searchRegion.IndexOf(otherChar.FullName, StringComparison.OrdinalIgnoreCase);
-            if (nameIndex >= 0)
+            if (nameIndex < 0)
+                continue;
+
+            var absoluteIndex = body.Length - searchRegion.Length + nameIndex;
+            var beforeName = body[..absoluteIndex];
+
+            if (TryFindLastSignOff(beforeName, out var signOffStart))
             {
-                // Found another character's name in the signature area
-                // Look backwards for a common sign-off pattern to find where the signature starts
-                var absoluteIndex = body.Length - searchRegion.Length + nameIndex;
-                var beforeName = body[..absoluteIndex];
-
-                // Find the last sign-off line before this name
-                var signOffPatterns = new[] { "Best,", "Best regards,", "Regards,", "Thanks,", "Thank you,",
-                    "Sincerely,", "Cheers,", "Kind regards,", "Warm regards,", "All the best,",
-                    "Best wishes,", "Thanks!", "Thank you!", "Respectfully,", "Cordially," };
-
-                int signOffStart = -1;
-                foreach (var pattern in signOffPatterns)
-                {
-                    var idx = beforeName.LastIndexOf(pattern, StringComparison.OrdinalIgnoreCase);
-                    if (idx >= 0 && idx > signOffStart)
-                    {
-                        signOffStart = idx;
-                    }
-                }
-
-                if (signOffStart >= 0)
-                {
-                    // Replace everything from the sign-off to the end with the correct signature
-                    body = body[..signOffStart].TrimEnd() + "\n\n" + correctSig;
-                    return body;
-                }
-                else
-                {
-                    // No sign-off found, just replace from the wrong name onwards
-                    body = body[..absoluteIndex].TrimEnd() + "\n\n" + correctSig;
-                    return body;
-                }
+                updatedBody = body[..signOffStart].TrimEnd() + "\n\n" + correctSig;
+                return true;
             }
+
+            updatedBody = body[..absoluteIndex].TrimEnd() + "\n\n" + correctSig;
+            return true;
         }
 
-        // Also check if fromChar's own name is missing entirely from the signature area
-        // If so, the AI may have written a signature with a completely different format
+        updatedBody = body;
+        return false;
+    }
+
+    private static bool TryReplaceMissingSenderSignature(
+        string body,
+        Character fromChar,
+        string correctSig,
+        out string updatedBody)
+    {
         var tailRegion = body.Length > 100 ? body[(int)(body.Length * 0.7)..] : body;
-        if (!tailRegion.Contains(fromChar.FullName, StringComparison.OrdinalIgnoreCase) &&
-            !tailRegion.Contains(fromChar.FirstName, StringComparison.OrdinalIgnoreCase))
+        if (tailRegion.Contains(fromChar.FullName, StringComparison.OrdinalIgnoreCase) ||
+            tailRegion.Contains(fromChar.FirstName, StringComparison.OrdinalIgnoreCase))
         {
-            // The correct sender's name doesn't appear at all in the signature area
-            // Try to find and replace any sign-off + name pattern at the end
-            var signOffPatterns = new[] { "Best,", "Best regards,", "Regards,", "Thanks,", "Thank you,",
-                "Sincerely,", "Cheers,", "Kind regards,", "Warm regards,", "All the best,",
-                "Best wishes,", "Thanks!", "Thank you!", "Respectfully,", "Cordially," };
+            updatedBody = body;
+            return false;
+        }
 
-            int lastSignOff = -1;
-            foreach (var pattern in signOffPatterns)
-            {
-                var tailStart = (int)(body.Length * 0.7);
-                var idx = body.IndexOf(pattern, tailStart, StringComparison.OrdinalIgnoreCase);
-                if (idx >= 0 && (lastSignOff == -1 || idx < lastSignOff))
-                {
-                    lastSignOff = idx;
-                }
-            }
+        var tailStart = body.Length > 100 ? (int)(body.Length * 0.7) : 0;
+        if (TryFindFirstSignOffFrom(body, tailStart, out var signOffStart))
+        {
+            updatedBody = body[..signOffStart].TrimEnd() + "\n\n" + correctSig;
+            return true;
+        }
 
-            if (lastSignOff >= 0)
+        updatedBody = body;
+        return false;
+    }
+
+    private static bool TryFindLastSignOff(string text, out int startIndex)
+    {
+        startIndex = -1;
+        foreach (var pattern in SignOffPatterns)
+        {
+            var idx = text.LastIndexOf(pattern, StringComparison.OrdinalIgnoreCase);
+            if (idx >= 0 && idx > startIndex)
             {
-                // Replace from the sign-off to end with correct signature
-                body = body[..lastSignOff].TrimEnd() + "\n\n" + correctSig;
-                return body;
+                startIndex = idx;
             }
         }
 
-        return body;
+        return startIndex >= 0;
+    }
+
+    private static bool TryFindFirstSignOffFrom(string text, int startIndex, out int signOffIndex)
+    {
+        signOffIndex = -1;
+        foreach (var pattern in SignOffPatterns)
+        {
+            var idx = text.IndexOf(pattern, startIndex, StringComparison.OrdinalIgnoreCase);
+            if (idx >= 0 && (signOffIndex == -1 || idx < signOffIndex))
+            {
+                signOffIndex = idx;
+            }
+        }
+
+        return signOffIndex >= 0;
     }
 
     private List<EmailMessage> SelectEmailsForAttachments(List<EmailMessage> emails, int percentage)
@@ -2008,21 +2263,8 @@ ATTACHMENT REMINDER:
         if (!email.PlannedHasDocument || string.IsNullOrEmpty(email.PlannedDocumentType))
             return;
 
-        var attachmentType = email.PlannedDocumentType.ToLowerInvariant() switch
-        {
-            "word" => AttachmentType.Word,
-            "excel" => AttachmentType.Excel,
-            "powerpoint" => AttachmentType.PowerPoint,
-            _ => AttachmentType.Word
-        };
-
-        // Check if this type is enabled in config
-        if (!state.Config.EnabledAttachmentTypes.Contains(attachmentType))
-        {
-            // Fall back to first enabled type
-            if (state.Config.EnabledAttachmentTypes.Count == 0) return;
-            attachmentType = state.Config.EnabledAttachmentTypes[0];
-        }
+        if (!TryResolvePlannedAttachmentType(email.PlannedDocumentType, state.Config, out var attachmentType))
+            return;
 
         var isDetailed = state.Config.AttachmentComplexity == AttachmentComplexity.Detailed;
 
@@ -2031,47 +2273,116 @@ ATTACHMENT REMINDER:
 Document purpose (from email): {email.PlannedDocumentDescription ?? "Supporting document for this email"}
 Email body preview: {email.BodyPlain[..Math.Min(300, email.BodyPlain.Length)]}...";
 
-        // Check if we should continue an existing document chain
-        DocumentChainState? chainState = null;
-        int? reservedVersion = null;
-        if (state.Config.EnableAttachmentChains && _documentChains.Count > 0 && _random.Next(100) < 30)
+        var (chainState, reservedVersion) = TryReserveDocumentChain(state, attachmentType);
+        if (chainState != null)
         {
-            var matchingChains = _documentChains.Values
-                .Where(c => c.Type == attachmentType)
-                .ToList();
-
-            if (matchingChains.Count > 0)
-            {
-                chainState = matchingChains[_random.Next(matchingChains.Count)];
-                lock (chainState.SyncRoot)
-                {
-                    chainState.VersionNumber++;
-                    reservedVersion = chainState.VersionNumber;
-                }
-
-                context += $"\n\nIMPORTANT: This is a REVISION of a document titled '{chainState.BaseTitle}'. ";
-                context += $"This is version {reservedVersion}. ";
-                context += "Make changes/updates to reflect edits, feedback, or revisions.";
-            }
+            context += BuildDocumentChainContext(chainState, reservedVersion);
         }
 
-        Attachment attachment;
-        switch (attachmentType)
+        var attachment = await GeneratePlannedDocumentAttachmentAsync(
+            attachmentType,
+            context,
+            email,
+            isDetailed,
+            state,
+            ct,
+            chainState);
+        if (attachment == null)
+            return;
+
+        ApplyDocumentChainVersioning(attachment, chainState, reservedVersion, state);
+
+        if (string.IsNullOrEmpty(attachment.FileName))
         {
-            case AttachmentType.Word:
-                attachment = await GenerateWordAttachmentAsync(context, email, isDetailed, state, ct, chainState);
-                break;
-            case AttachmentType.Excel:
-                attachment = await GenerateExcelAttachmentAsync(context, email, isDetailed, ct);
-                break;
-            case AttachmentType.PowerPoint:
-                attachment = await GeneratePowerPointAttachmentAsync(context, email, isDetailed, state, ct);
-                break;
-            default:
-                return;
+            attachment.FileName = FileNameHelper.GenerateAttachmentFileName(attachment, email);
         }
 
-        // Handle document chain versioning
+        email.Attachments.Add(attachment);
+    }
+
+    private static bool TryResolvePlannedAttachmentType(
+        string plannedDocumentType,
+        GenerationConfig config,
+        out AttachmentType attachmentType)
+    {
+        attachmentType = ResolvePlannedAttachmentType(plannedDocumentType);
+        if (config.EnabledAttachmentTypes.Contains(attachmentType))
+            return true;
+
+        if (config.EnabledAttachmentTypes.Count == 0)
+            return false;
+
+        attachmentType = config.EnabledAttachmentTypes[0];
+        return true;
+    }
+
+    private static AttachmentType ResolvePlannedAttachmentType(string plannedDocumentType)
+    {
+        return plannedDocumentType.ToLowerInvariant() switch
+        {
+            "word" => AttachmentType.Word,
+            "excel" => AttachmentType.Excel,
+            "powerpoint" => AttachmentType.PowerPoint,
+            _ => AttachmentType.Word
+        };
+    }
+
+    private (DocumentChainState? chainState, int? reservedVersion) TryReserveDocumentChain(
+        WizardState state,
+        AttachmentType attachmentType)
+    {
+        if (!state.Config.EnableAttachmentChains || _documentChains.Count == 0 || _random.Next(100) >= 30)
+            return (null, null);
+
+        var matchingChains = _documentChains.Values
+            .Where(c => c.Type == attachmentType)
+            .ToList();
+        if (matchingChains.Count == 0)
+            return (null, null);
+
+        var chainState = matchingChains[_random.Next(matchingChains.Count)];
+        int reservedVersion;
+        lock (chainState.SyncRoot)
+        {
+            chainState.VersionNumber++;
+            reservedVersion = chainState.VersionNumber;
+        }
+
+        return (chainState, reservedVersion);
+    }
+
+    private static string BuildDocumentChainContext(DocumentChainState chainState, int? reservedVersion)
+    {
+        var versionLabel = reservedVersion ?? chainState.VersionNumber;
+        return $"\n\nIMPORTANT: This is a REVISION of a document titled '{chainState.BaseTitle}'. " +
+               $"This is version {versionLabel}. " +
+               "Make changes/updates to reflect edits, feedback, or revisions.";
+    }
+
+    private async Task<Attachment?> GeneratePlannedDocumentAttachmentAsync(
+        AttachmentType attachmentType,
+        string context,
+        EmailMessage email,
+        bool isDetailed,
+        WizardState state,
+        CancellationToken ct,
+        DocumentChainState? chainState)
+    {
+        return attachmentType switch
+        {
+            AttachmentType.Word => await GenerateWordAttachmentAsync(context, email, isDetailed, state, ct, chainState),
+            AttachmentType.Excel => await GenerateExcelAttachmentAsync(context, email, isDetailed, ct),
+            AttachmentType.PowerPoint => await GeneratePowerPointAttachmentAsync(context, email, isDetailed, state, ct),
+            _ => null
+        };
+    }
+
+    private void ApplyDocumentChainVersioning(
+        Attachment attachment,
+        DocumentChainState? chainState,
+        int? reservedVersion,
+        WizardState state)
+    {
         if (chainState != null && attachment.Content != null)
         {
             attachment.DocumentChainId = chainState.ChainId;
@@ -2081,8 +2392,10 @@ Email body preview: {email.BodyPlain[..Math.Min(300, email.BodyPlain.Length)]}..
                 chainState.BaseTitle,
                 attachment.VersionLabel ?? "v1",
                 attachment.Extension);
+            return;
         }
-        else if (state.Config.EnableAttachmentChains && attachment.Type == AttachmentType.Word && _random.Next(100) < 50)
+
+        if (state.Config.EnableAttachmentChains && attachment.Type == AttachmentType.Word && _random.Next(100) < 50)
         {
             // Start a new chain for Word documents
             var newChain = new DocumentChainState
@@ -2095,13 +2408,6 @@ Email body preview: {email.BodyPlain[..Math.Min(300, email.BodyPlain.Length)]}..
             attachment.DocumentChainId = newChain.ChainId;
             attachment.VersionLabel = "v1";
         }
-
-        if (string.IsNullOrEmpty(attachment.FileName))
-        {
-            attachment.FileName = FileNameHelper.GenerateAttachmentFileName(attachment, email);
-        }
-
-        email.Attachments.Add(attachment);
     }
 
     /// <summary>
@@ -2257,90 +2563,42 @@ Respond with JSON:
         var attachmentType = enabledTypes[_random.Next(enabledTypes.Count)];
         var isDetailed = state.Config.AttachmentComplexity == AttachmentComplexity.Detailed;
 
-        // Check if we should continue an existing document chain (30% chance if enabled)
-        DocumentChainState? chainState = null;
-        int? reservedVersion = null;
-        if (state.Config.EnableAttachmentChains && _documentChains.Count > 0 && _random.Next(100) < 30)
-        {
-            // Pick a random existing chain of the same type
-            var matchingChains = _documentChains.Values
-                .Where(c => c.Type == attachmentType)
-                .ToList();
+        var (chainState, reservedVersion) = TryReserveDocumentChain(state, attachmentType);
+        var context = BuildAttachmentContext(email, chainState, reservedVersion);
 
-            if (matchingChains.Count > 0)
-            {
-                chainState = matchingChains[_random.Next(matchingChains.Count)];
-                lock (chainState.SyncRoot)
-                {
-                    chainState.VersionNumber++;
-                    reservedVersion = chainState.VersionNumber;
-                }
-            }
-        }
+        var attachment = await GeneratePlannedDocumentAttachmentAsync(
+            attachmentType,
+            context,
+            email,
+            isDetailed,
+            state,
+            ct,
+            chainState);
+        if (attachment == null)
+            return;
 
-        var attachment = new Attachment
-        {
-            Type = attachmentType
-        };
-
-        var context = $"Email subject: {email.Subject}\nEmail body preview: {email.BodyPlain[..Math.Min(200, email.BodyPlain.Length)]}...";
-
-        // Add version context if continuing a chain
-        if (chainState != null)
-        {
-            context += $"\n\nIMPORTANT: This is a REVISION of a document titled '{chainState.BaseTitle}'. ";
-            context += $"This is version {reservedVersion ?? chainState.VersionNumber}. ";
-            context += "Make changes/updates to reflect edits, feedback, or revisions - don't create something completely new.";
-        }
-
-        switch (attachmentType)
-        {
-            case AttachmentType.Word:
-                attachment = await GenerateWordAttachmentAsync(context, email, isDetailed, state, ct, chainState);
-                break;
-            case AttachmentType.Excel:
-                attachment = await GenerateExcelAttachmentAsync(context, email, isDetailed, ct);
-                break;
-            case AttachmentType.PowerPoint:
-                attachment = await GeneratePowerPointAttachmentAsync(context, email, isDetailed, state, ct);
-                break;
-        }
-
-        // Handle document chain versioning
-        if (chainState != null && attachment.Content != null)
-        {
-            attachment.DocumentChainId = chainState.ChainId;
-            var versionNumber = reservedVersion ?? chainState.VersionNumber;
-            attachment.VersionLabel = GetVersionLabel(versionNumber);
-
-            // Update filename to include version
-            attachment.FileName = BuildVersionedAttachmentFileName(
-                chainState.BaseTitle,
-                attachment.VersionLabel ?? "v1",
-                attachment.Extension);
-        }
-        else if (state.Config.EnableAttachmentChains && attachment.Type == AttachmentType.Word)
-        {
-            // Start a new chain for Word documents (50% chance)
-            if (_random.Next(100) < 50)
-            {
-                var newChain = new DocumentChainState
-                {
-                    BaseTitle = attachment.ContentDescription,
-                    Type = attachment.Type,
-                    VersionNumber = 1
-                };
-                _documentChains.TryAdd(newChain.ChainId, newChain);
-                attachment.DocumentChainId = newChain.ChainId;
-                attachment.VersionLabel = "v1";
-            }
-        }
+        ApplyDocumentChainVersioning(attachment, chainState, reservedVersion, state);
 
         if (string.IsNullOrEmpty(attachment.FileName))
         {
             attachment.FileName = FileNameHelper.GenerateAttachmentFileName(attachment, email);
         }
         email.Attachments.Add(attachment);
+    }
+
+    private static string BuildAttachmentContext(
+        EmailMessage email,
+        DocumentChainState? chainState,
+        int? reservedVersion)
+    {
+        var context = $"Email subject: {email.Subject}\nEmail body preview: {email.BodyPlain[..Math.Min(200, email.BodyPlain.Length)]}...";
+        if (chainState == null)
+            return context;
+
+        context += $"\n\nIMPORTANT: This is a REVISION of a document titled '{chainState.BaseTitle}'. ";
+        context += $"This is version {reservedVersion ?? chainState.VersionNumber}. ";
+        context += "Make changes/updates to reflect edits, feedback, or revisions - don't create something completely new.";
+        return context;
     }
 
     private static string GetVersionLabel(int version)

@@ -240,120 +240,212 @@ public static class HtmlEmailFormatter
     {
         var lines = content.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
         var html = new System.Text.StringBuilder();
-        var inSignature = false;
-        var signatureBuffer = new System.Text.StringBuilder();
-        var signatureLineIndex = 0;
-        var inBulletList = false;
-        var inNumberedList = false;
-
-        // Get theme for inline styles (email clients often strip <style> blocks)
-        var t = _currentTheme ?? OrganizationTheme.Default;
-        var primaryColor = $"#{t.PrimaryColor}";
-        var secondaryColor = $"#{t.SecondaryColor}";
-        var bodyFontStack = GetFontStack(t.BodyFont);
-        var headingFontStack = GetFontStack(t.HeadingFont);
+        var state = new MainContentState(lines, html, BuildMainContentTheme());
 
         for (int i = 0; i < lines.Length; i++)
         {
-            var rawLine = lines[i];
-
-            // Detect signature start (common patterns)
-            if (!inSignature && IsSignatureStart(lines, i))
-            {
-                // Close any open lists before signature
-                if (inBulletList) { html.AppendLine("</ul>"); inBulletList = false; }
-                if (inNumberedList) { html.AppendLine("</ol>"); inNumberedList = false; }
-
-                inSignature = true;
-                signatureLineIndex = 0;
-                // Add inline styles for signature block (email clients strip <style> blocks)
-                signatureBuffer.AppendLine($"<div class=\"signature\" style=\"margin-top: 20px; padding-top: 10px; border-top: 1px solid {secondaryColor}; color: #444444; font-size: 10pt; font-family: {bodyFontStack};\">");
-            }
-
-            if (inSignature)
-            {
-                var encodedLine = System.Net.WebUtility.HtmlEncode(rawLine);
-                if (string.IsNullOrWhiteSpace(encodedLine))
-                {
-                    signatureBuffer.AppendLine("<div class=\"signature-line\" style=\"margin: 2px 0;\">&nbsp;</div>");
-                }
-                else
-                {
-                    // First non-empty line of signature gets special styling (name)
-                    if (signatureLineIndex == 0)
-                    {
-                        signatureBuffer.AppendLine($"<div class=\"signature-line\" style=\"margin: 2px 0; font-family: {headingFontStack}; font-weight: 600; color: {primaryColor};\">{encodedLine}</div>");
-                    }
-                    else
-                    {
-                        signatureBuffer.AppendLine($"<div class=\"signature-line\" style=\"margin: 2px 0;\">{encodedLine}</div>");
-                    }
-                    signatureLineIndex++;
-                }
-            }
-            else
-            {
-                // Check for list patterns before encoding
-                var isBulletItem = IsBulletListItem(rawLine, out var bulletContent);
-                var isNumberedItem = IsNumberedListItem(rawLine, out var numberedContent);
-
-                if (isBulletItem)
-                {
-                    // Close numbered list if switching
-                    if (inNumberedList) { html.AppendLine("</ol>"); inNumberedList = false; }
-
-                    // Start bullet list if not already in one
-                    if (!inBulletList) { html.AppendLine("<ul>"); inBulletList = true; }
-
-                    var formattedContent = FormatInlineElements(bulletContent);
-                    html.AppendLine($"<li>{formattedContent}</li>");
-                }
-                else if (isNumberedItem)
-                {
-                    // Close bullet list if switching
-                    if (inBulletList) { html.AppendLine("</ul>"); inBulletList = false; }
-
-                    // Start numbered list if not already in one
-                    if (!inNumberedList) { html.AppendLine("<ol>"); inNumberedList = true; }
-
-                    var formattedContent = FormatInlineElements(numberedContent);
-                    html.AppendLine($"<li>{formattedContent}</li>");
-                }
-                else
-                {
-                    // Close any open lists
-                    if (inBulletList) { html.AppendLine("</ul>"); inBulletList = false; }
-                    if (inNumberedList) { html.AppendLine("</ol>"); inNumberedList = false; }
-
-                    if (string.IsNullOrWhiteSpace(rawLine))
-                    {
-                        // Preserve blank lines as paragraph breaks
-                        if (i > 0 && i < lines.Length - 1)
-                        {
-                            html.AppendLine("<p>&nbsp;</p>");
-                        }
-                    }
-                    else
-                    {
-                        var formattedLine = FormatInlineElements(rawLine);
-                        html.AppendLine($"<p>{formattedLine}</p>");
-                    }
-                }
-            }
+            state.LineIndex = i;
+            ProcessMainContentLine(lines[i], state);
         }
 
-        // Close any remaining open lists
-        if (inBulletList) html.AppendLine("</ul>");
-        if (inNumberedList) html.AppendLine("</ol>");
-
-        if (inSignature)
-        {
-            signatureBuffer.AppendLine("</div>");
-            html.Append(signatureBuffer);
-        }
-
-        return html.ToString();
+        FinalizeMainContent(state);
+        return state.Html.ToString();
     }
+
+    private static MainContentTheme BuildMainContentTheme()
+    {
+        var t = _currentTheme ?? OrganizationTheme.Default;
+        return new MainContentTheme(
+            $"#{t.PrimaryColor}",
+            $"#{t.SecondaryColor}",
+            GetFontStack(t.BodyFont),
+            GetFontStack(t.HeadingFont));
+    }
+
+    private static void ProcessMainContentLine(string rawLine, MainContentState state)
+    {
+        if (!state.InSignature && IsSignatureStart(state.Lines, state.LineIndex))
+        {
+            StartSignature(state);
+        }
+
+        if (state.InSignature)
+        {
+            AppendSignatureLine(state, rawLine);
+            return;
+        }
+
+        AppendListOrParagraph(state, rawLine);
+    }
+
+    private static void StartSignature(MainContentState state)
+    {
+        CloseLists(state);
+        state.InSignature = true;
+        state.SignatureLineIndex = 0;
+        var theme = state.Theme;
+        state.SignatureBuffer.AppendLine(
+            $"<div class=\"signature\" style=\"margin-top: 20px; padding-top: 10px; border-top: 1px solid {theme.SecondaryColor}; color: #444444; font-size: 10pt; font-family: {theme.BodyFontStack};\">");
+    }
+
+    private static void AppendSignatureLine(MainContentState state, string rawLine)
+    {
+        var encodedLine = System.Net.WebUtility.HtmlEncode(rawLine);
+        if (string.IsNullOrWhiteSpace(encodedLine))
+        {
+            state.SignatureBuffer.AppendLine("<div class=\"signature-line\" style=\"margin: 2px 0;\">&nbsp;</div>");
+            return;
+        }
+
+        if (state.SignatureLineIndex == 0)
+        {
+            var theme = state.Theme;
+            state.SignatureBuffer.AppendLine(
+                $"<div class=\"signature-line\" style=\"margin: 2px 0; font-family: {theme.HeadingFontStack}; font-weight: 600; color: {theme.PrimaryColor};\">{encodedLine}</div>");
+        }
+        else
+        {
+            state.SignatureBuffer.AppendLine($"<div class=\"signature-line\" style=\"margin: 2px 0;\">{encodedLine}</div>");
+        }
+
+        state.SignatureLineIndex++;
+    }
+
+    private static void AppendListOrParagraph(MainContentState state, string rawLine)
+    {
+        var isBulletItem = IsBulletListItem(rawLine, out var bulletContent);
+        var isNumberedItem = IsNumberedListItem(rawLine, out var numberedContent);
+
+        if (isBulletItem)
+        {
+            EnsureListState(state, listType: ListType.Bullet);
+            var formattedContent = FormatInlineElements(bulletContent);
+            state.Html.AppendLine($"<li>{formattedContent}</li>");
+            return;
+        }
+
+        if (isNumberedItem)
+        {
+            EnsureListState(state, listType: ListType.Numbered);
+            var formattedContent = FormatInlineElements(numberedContent);
+            state.Html.AppendLine($"<li>{formattedContent}</li>");
+            return;
+        }
+
+        CloseLists(state);
+
+        if (string.IsNullOrWhiteSpace(rawLine))
+        {
+            if (state.LineIndex > 0 && state.LineIndex < state.Lines.Length - 1)
+            {
+                state.Html.AppendLine("<p>&nbsp;</p>");
+            }
+            return;
+        }
+
+        var formattedLine = FormatInlineElements(rawLine);
+        state.Html.AppendLine($"<p>{formattedLine}</p>");
+    }
+
+    private static void EnsureListState(MainContentState state, ListType listType)
+    {
+        if (listType == ListType.Bullet)
+        {
+            if (state.InNumberedList)
+            {
+                state.Html.AppendLine("</ol>");
+                state.InNumberedList = false;
+            }
+
+            if (!state.InBulletList)
+            {
+                state.Html.AppendLine("<ul>");
+                state.InBulletList = true;
+            }
+
+            return;
+        }
+
+        if (state.InBulletList)
+        {
+            state.Html.AppendLine("</ul>");
+            state.InBulletList = false;
+        }
+
+        if (!state.InNumberedList)
+        {
+            state.Html.AppendLine("<ol>");
+            state.InNumberedList = true;
+        }
+    }
+
+    private static void CloseLists(MainContentState state)
+    {
+        if (state.InBulletList)
+        {
+            state.Html.AppendLine("</ul>");
+            state.InBulletList = false;
+        }
+
+        if (state.InNumberedList)
+        {
+            state.Html.AppendLine("</ol>");
+            state.InNumberedList = false;
+        }
+    }
+
+    private static void FinalizeMainContent(MainContentState state)
+    {
+        CloseLists(state);
+
+        if (!state.InSignature)
+        {
+            return;
+        }
+
+        state.SignatureBuffer.AppendLine("</div>");
+        state.Html.Append(state.SignatureBuffer);
+    }
+
+    private enum ListType
+    {
+        Bullet,
+        Numbered
+    }
+
+    private sealed class MainContentState
+    {
+        public MainContentState(string[] lines, System.Text.StringBuilder html, MainContentTheme theme)
+        {
+            Lines = lines;
+            Html = html;
+            Theme = theme;
+        }
+
+        public string[] Lines { get; }
+
+        public System.Text.StringBuilder Html { get; }
+
+        public MainContentTheme Theme { get; }
+
+        public System.Text.StringBuilder SignatureBuffer { get; } = new();
+
+        public bool InSignature { get; set; }
+
+        public int SignatureLineIndex { get; set; }
+
+        public bool InBulletList { get; set; }
+
+        public bool InNumberedList { get; set; }
+
+        public int LineIndex { get; set; }
+    }
+
+    private readonly record struct MainContentTheme(
+        string PrimaryColor,
+        string SecondaryColor,
+        string BodyFontStack,
+        string HeadingFontStack);
 
     private static bool IsBulletListItem(string line, out string content)
     {
@@ -531,63 +623,118 @@ public static class HtmlEmailFormatter
         var html = new System.Text.StringBuilder();
         var lines = forwardedText.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
 
-        html.AppendLine("<div class=\"forward-header\">");
-        html.AppendLine("<div class=\"forward-header-title\">---------- Forwarded message ----------</div>");
+        AppendForwardHeaderStart(html);
 
-        bool inHeader = true;
-        var bodyContent = new System.Text.StringBuilder();
-
+        var state = new ForwardedContentState(html);
         foreach (var rawLine in lines)
         {
-            var line = rawLine.Trim();
-
-            // Skip the original marker line
-            if (line.Contains("Forwarded message") || line.Contains("Begin forwarded message"))
-                continue;
-
-            // Header fields end with an empty line
-            if (inHeader)
-            {
-                if (string.IsNullOrEmpty(line))
-                {
-                    inHeader = false;
-                    html.AppendLine("</div>");
-                    html.AppendLine("<div class=\"quoted-content\">");
-                    continue;
-                }
-
-                // Parse header fields (From:, To:, Date:, Subject:)
-                if (line.Contains(":"))
-                {
-                    var colonIndex = line.IndexOf(':');
-                    var label = line[..colonIndex];
-                    var value = line[(colonIndex + 1)..].Trim();
-                    html.AppendLine($"<div class=\"forward-header-field\"><span class=\"forward-header-label\">{System.Net.WebUtility.HtmlEncode(label)}:</span> {System.Net.WebUtility.HtmlEncode(value)}</div>");
-                }
-            }
-            else
-            {
-                if (string.IsNullOrWhiteSpace(line))
-                {
-                    bodyContent.AppendLine("<p>&nbsp;</p>");
-                }
-                else
-                {
-                    bodyContent.AppendLine($"<p>{System.Net.WebUtility.HtmlEncode(line)}</p>");
-                }
-            }
+            ProcessForwardedLine(rawLine.Trim(), state);
         }
 
-        if (inHeader)
+        if (state.InHeader)
         {
-            html.AppendLine("</div>");
-            html.AppendLine("<div class=\"quoted-content\">");
+            CloseForwardHeader(state);
         }
 
-        html.Append(bodyContent);
+        html.Append(state.BodyContent);
         html.AppendLine("</div>");
 
         return html.ToString();
+    }
+
+    private static void AppendForwardHeaderStart(System.Text.StringBuilder html)
+    {
+        html.AppendLine("<div class=\"forward-header\">");
+        html.AppendLine("<div class=\"forward-header-title\">---------- Forwarded message ----------</div>");
+    }
+
+    private static void ProcessForwardedLine(string line, ForwardedContentState state)
+    {
+        if (IsForwardedMarker(line))
+        {
+            return;
+        }
+
+        if (state.InHeader)
+        {
+            if (IsHeaderTerminator(line))
+            {
+                CloseForwardHeader(state);
+                return;
+            }
+
+            if (TryParseHeaderField(line, out var label, out var value))
+            {
+                AppendForwardHeaderField(state.Html, label, value);
+            }
+
+            return;
+        }
+
+        AppendBodyLine(state.BodyContent, line);
+    }
+
+    private static bool IsForwardedMarker(string line)
+    {
+        return line.Contains("Forwarded message") || line.Contains("Begin forwarded message");
+    }
+
+    private static bool IsHeaderTerminator(string line)
+    {
+        return string.IsNullOrEmpty(line);
+    }
+
+    private static bool TryParseHeaderField(string line, out string label, out string value)
+    {
+        var colonIndex = line.IndexOf(':');
+        if (colonIndex <= 0)
+        {
+            label = string.Empty;
+            value = string.Empty;
+            return false;
+        }
+
+        label = line[..colonIndex];
+        value = line[(colonIndex + 1)..].Trim();
+        return true;
+    }
+
+    private static void AppendForwardHeaderField(System.Text.StringBuilder html, string label, string value)
+    {
+        html.AppendLine(
+            $"<div class=\"forward-header-field\"><span class=\"forward-header-label\">{System.Net.WebUtility.HtmlEncode(label)}:</span> {System.Net.WebUtility.HtmlEncode(value)}</div>");
+    }
+
+    private static void AppendBodyLine(System.Text.StringBuilder bodyContent, string line)
+    {
+        if (string.IsNullOrWhiteSpace(line))
+        {
+            bodyContent.AppendLine("<p>&nbsp;</p>");
+            return;
+        }
+
+        bodyContent.AppendLine($"<p>{System.Net.WebUtility.HtmlEncode(line)}</p>");
+    }
+
+    private static void CloseForwardHeader(ForwardedContentState state)
+    {
+        state.InHeader = false;
+        state.Html.AppendLine("</div>");
+        state.Html.AppendLine("<div class=\"quoted-content\">");
+    }
+
+    private sealed class ForwardedContentState
+    {
+        public ForwardedContentState(System.Text.StringBuilder html)
+        {
+            Html = html;
+        }
+
+        public bool InHeader { get; set; } = true;
+
+        public System.Text.StringBuilder Html { get; }
+
+        public System.Text.StringBuilder BodyContent { get; } = new();
     }
 
     private static string WrapInTemplate(string content, OrganizationTheme? theme)

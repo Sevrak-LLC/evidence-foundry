@@ -545,43 +545,15 @@ public class OfficeDocumentService
     private static P.Shape CreateContentTextShape(uint id, string name, string text, long x, long y, long width, long height, int fontSize, string textColorHex, string fontName)
     {
         text = SanitizeXmlText(text);
-        var runProps = new A.RunProperties
-        {
-            Language = "en-US",
-            FontSize = fontSize,
-            Dirty = false
-        };
-        runProps.AppendChild(new A.SolidFill(new A.RgbColorModelHex { Val = textColorHex }));
-        runProps.AppendChild(new A.LatinFont { Typeface = fontName });
-
-        // Split content into paragraphs for better formatting
-        var paragraphs = text.Split(new[] { "\n\n", "\r\n\r\n" }, StringSplitOptions.RemoveEmptyEntries);
-
         var textBody = new P.TextBody(
             new A.BodyProperties { Wrap = A.TextWrappingValues.Square, Anchor = A.TextAnchoringTypeValues.Top },
             new A.ListStyle());
 
-        foreach (var para in paragraphs)
+        // Split content into paragraphs for better formatting
+        var paragraphs = text.Split(new[] { "\n\n", "\r\n\r\n" }, StringSplitOptions.RemoveEmptyEntries);
+        foreach (var paragraph in paragraphs)
         {
-            var lines = para.Split(new[] { "\n", "\r\n" }, StringSplitOptions.None);
-            foreach (var line in lines)
-            {
-                var lineRunProps = new A.RunProperties
-                {
-                    Language = "en-US",
-                    FontSize = fontSize,
-                    Dirty = false
-                };
-                lineRunProps.AppendChild(new A.SolidFill(new A.RgbColorModelHex { Val = textColorHex }));
-                lineRunProps.AppendChild(new A.LatinFont { Typeface = fontName });
-
-                textBody.AppendChild(new A.Paragraph(
-                    new A.ParagraphProperties { Alignment = A.TextAlignmentTypeValues.Left },
-                    new A.Run(lineRunProps, new A.Text(line.Trim())),
-                    new A.EndParagraphRunProperties { Language = "en-US" }));
-            }
-            // Add spacing between paragraphs
-            textBody.AppendChild(new A.Paragraph(new A.EndParagraphRunProperties { Language = "en-US" }));
+            AppendParagraphLines(textBody, paragraph, fontSize, textColorHex, fontName);
         }
 
         return new P.Shape(
@@ -596,6 +568,34 @@ public class OfficeDocumentService
                 new A.PresetGeometry(new A.AdjustValueList()) { Preset = A.ShapeTypeValues.Rectangle },
                 new A.NoFill()),
             textBody);
+    }
+
+    private static void AppendParagraphLines(P.TextBody textBody, string paragraph, int fontSize, string textColorHex, string fontName)
+    {
+        var lines = paragraph.Split(new[] { "\n", "\r\n" }, StringSplitOptions.None);
+        foreach (var line in lines)
+        {
+            textBody.AppendChild(new A.Paragraph(
+                new A.ParagraphProperties { Alignment = A.TextAlignmentTypeValues.Left },
+                new A.Run(BuildRunProperties(fontSize, textColorHex, fontName), new A.Text(line.Trim())),
+                new A.EndParagraphRunProperties { Language = "en-US" }));
+        }
+
+        // Add spacing between paragraphs
+        textBody.AppendChild(new A.Paragraph(new A.EndParagraphRunProperties { Language = "en-US" }));
+    }
+
+    private static A.RunProperties BuildRunProperties(int fontSize, string textColorHex, string fontName)
+    {
+        var runProps = new A.RunProperties
+        {
+            Language = "en-US",
+            FontSize = fontSize,
+            Dirty = false
+        };
+        runProps.AppendChild(new A.SolidFill(new A.RgbColorModelHex { Val = textColorHex }));
+        runProps.AppendChild(new A.LatinFont { Typeface = fontName });
+        return runProps;
     }
 
     private static string SanitizeXmlText(string? value)
