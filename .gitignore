@@ -3,9 +3,6 @@ bin/
 obj/
 publish/
 
-# Ignore Code Scanner
-scan/
-
 # User-specific files
 *.user
 *.suo

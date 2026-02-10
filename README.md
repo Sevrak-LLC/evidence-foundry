@@ -132,7 +132,7 @@ dotnet run
 
 ### Model configuration
 
-Default model IDs and pricing live in `Resources/model-configs.json` and are copied alongside the app at build time. When you edit models in the UI, your changes are saved to your user profile and override the defaults for future sessions.
+Default model IDs and pricing live in `EvidenceFoundry.Core/Resources/model-configs.json` (embedded in the app). When you edit models in the UI, your changes are saved to your user profile and override the defaults for future sessions.
 
 ## Output Format
 

@@ -42,5 +42,5 @@ jobs:
         run: |
           ${{ runner.temp }}\scanner\dotnet-sonarscanner begin /k:"Sevrak-LLC_evidence-foundry" /o:"sevrak-llc" /d:sonar.token="${{ secrets.SONAR_TOKEN }}" /d:sonar.cs.opencover.reportsPaths="TestResults/**/coverage.opencover.xml"
           dotnet build
-          dotnet test EvidenceFoundry.Tests/EvidenceFoundry.Tests.csproj --no-build --collect:"XPlat Code Coverage" --settings coverlet.runsettings --results-directory TestResults
+          dotnet test EvidenceFoundry.Tests/EvidenceFoundry.Tests.csproj --no-build --collect:"XPlat Code Coverage" --settings EvidenceFoundry.Tests/coverlet.runsettings --results-directory TestResults
           ${{ runner.temp }}\scanner\dotnet-sonarscanner end /d:sonar.token="${{ secrets.SONAR_TOKEN }}"

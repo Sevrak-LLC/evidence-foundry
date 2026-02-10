@@ -1,7 +1,7 @@
 {
   "version": 1,
   "dependencies": {
-    "net10.0-windows7.0": {
+    "net10.0": {
       "coverlet.collector": {
         "type": "Direct",
         "requested": "[6.0.4, )",
@@ -201,6 +201,11 @@
           "System.Memory.Data": "6.0.0"
         }
       },
+      "System.IO.Packaging": {
+        "type": "Transitive",
+        "resolved": "9.0.0",
+        "contentHash": "9OT/DurX/4rW4UA6SaWsYfmfYddykKZaG9aQmzg19qoiDYbEDTrziSwhgp00KDBmRA+FRbb2u5c7cxnLm4klKw=="
+      },
       "System.Memory.Data": {
         "type": "Transitive",
         "resolved": "6.0.0",
@@ -259,14 +264,15 @@
           "xunit.extensibility.core": "[2.9.3]"
         }
       },
-      "evidencefoundry": {
+      "evidencefoundry.core": {
         "type": "Project",
         "dependencies": {
           "DocumentFormat.OpenXml": "[3.0.2, )",
           "Microsoft.AspNetCore.DataProtection": "[8.0.2, )",
           "Microsoft.Extensions.DependencyInjection": "[9.0.0, )",
           "MimeKit": "[4.8.0, )",
-          "OpenAI": "[2.1.0, )"
+          "OpenAI": "[2.1.0, )",
+          "System.IO.Packaging": "[9.0.0, )"
         }
       }
     }
