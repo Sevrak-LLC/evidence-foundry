@@ -2263,21 +2263,8 @@ ATTACHMENT REMINDER:
         if (!email.PlannedHasDocument || string.IsNullOrEmpty(email.PlannedDocumentType))
             return;
 
-        var attachmentType = email.PlannedDocumentType.ToLowerInvariant() switch
-        {
-            "word" => AttachmentType.Word,
-            "excel" => AttachmentType.Excel,
-            "powerpoint" => AttachmentType.PowerPoint,
-            _ => AttachmentType.Word
-        };
-
-        // Check if this type is enabled in config
-        if (!state.Config.EnabledAttachmentTypes.Contains(attachmentType))
-        {
-            // Fall back to first enabled type
-            if (state.Config.EnabledAttachmentTypes.Count == 0) return;
-            attachmentType = state.Config.EnabledAttachmentTypes[0];
-        }
+        if (!TryResolvePlannedAttachmentType(email.PlannedDocumentType, state.Config, out var attachmentType))
+            return;
 
         var isDetailed = state.Config.AttachmentComplexity == AttachmentComplexity.Detailed;
 
@@ -2286,47 +2273,116 @@ ATTACHMENT REMINDER:
 Document purpose (from email): {email.PlannedDocumentDescription ?? "Supporting document for this email"}
 Email body preview: {email.BodyPlain[..Math.Min(300, email.BodyPlain.Length)]}...";
 
-        // Check if we should continue an existing document chain
-        DocumentChainState? chainState = null;
-        int? reservedVersion = null;
-        if (state.Config.EnableAttachmentChains && _documentChains.Count > 0 && _random.Next(100) < 30)
+        var (chainState, reservedVersion) = TryReserveDocumentChain(state, attachmentType);
+        if (chainState != null)
         {
-            var matchingChains = _documentChains.Values
-                .Where(c => c.Type == attachmentType)
-                .ToList();
-
-            if (matchingChains.Count > 0)
-            {
-                chainState = matchingChains[_random.Next(matchingChains.Count)];
-                lock (chainState.SyncRoot)
-                {
-                    chainState.VersionNumber++;
-                    reservedVersion = chainState.VersionNumber;
-                }
-
-                context += $"\n\nIMPORTANT: This is a REVISION of a document titled '{chainState.BaseTitle}'. ";
-                context += $"This is version {reservedVersion}. ";
-                context += "Make changes/updates to reflect edits, feedback, or revisions.";
-            }
+            context += BuildDocumentChainContext(chainState, reservedVersion);
         }
 
-        Attachment attachment;
-        switch (attachmentType)
+        var attachment = await GeneratePlannedDocumentAttachmentAsync(
+            attachmentType,
+            context,
+            email,
+            isDetailed,
+            state,
+            ct,
+            chainState);
+        if (attachment == null)
+            return;
+
+        ApplyDocumentChainVersioning(attachment, chainState, reservedVersion, state);
+
+        if (string.IsNullOrEmpty(attachment.FileName))
         {
-            case AttachmentType.Word:
-                attachment = await GenerateWordAttachmentAsync(context, email, isDetailed, state, ct, chainState);
-                break;
-            case AttachmentType.Excel:
-                attachment = await GenerateExcelAttachmentAsync(context, email, isDetailed, ct);
-                break;
-            case AttachmentType.PowerPoint:
-                attachment = await GeneratePowerPointAttachmentAsync(context, email, isDetailed, state, ct);
-                break;
-            default:
-                return;
+            attachment.FileName = FileNameHelper.GenerateAttachmentFileName(attachment, email);
         }
 
-        // Handle document chain versioning
+        email.Attachments.Add(attachment);
+    }
+
+    private static bool TryResolvePlannedAttachmentType(
+        string plannedDocumentType,
+        GenerationConfig config,
+        out AttachmentType attachmentType)
+    {
+        attachmentType = ResolvePlannedAttachmentType(plannedDocumentType);
+        if (config.EnabledAttachmentTypes.Contains(attachmentType))
+            return true;
+
+        if (config.EnabledAttachmentTypes.Count == 0)
+            return false;
+
+        attachmentType = config.EnabledAttachmentTypes[0];
+        return true;
+    }
+
+    private static AttachmentType ResolvePlannedAttachmentType(string plannedDocumentType)
+    {
+        return plannedDocumentType.ToLowerInvariant() switch
+        {
+            "word" => AttachmentType.Word,
+            "excel" => AttachmentType.Excel,
+            "powerpoint" => AttachmentType.PowerPoint,
+            _ => AttachmentType.Word
+        };
+    }
+
+    private (DocumentChainState? chainState, int? reservedVersion) TryReserveDocumentChain(
+        WizardState state,
+        AttachmentType attachmentType)
+    {
+        if (!state.Config.EnableAttachmentChains || _documentChains.Count == 0 || _random.Next(100) >= 30)
+            return (null, null);
+
+        var matchingChains = _documentChains.Values
+            .Where(c => c.Type == attachmentType)
+            .ToList();
+        if (matchingChains.Count == 0)
+            return (null, null);
+
+        var chainState = matchingChains[_random.Next(matchingChains.Count)];
+        int reservedVersion;
+        lock (chainState.SyncRoot)
+        {
+            chainState.VersionNumber++;
+            reservedVersion = chainState.VersionNumber;
+        }
+
+        return (chainState, reservedVersion);
+    }
+
+    private static string BuildDocumentChainContext(DocumentChainState chainState, int? reservedVersion)
+    {
+        var versionLabel = reservedVersion ?? chainState.VersionNumber;
+        return $"\n\nIMPORTANT: This is a REVISION of a document titled '{chainState.BaseTitle}'. " +
+               $"This is version {versionLabel}. " +
+               "Make changes/updates to reflect edits, feedback, or revisions.";
+    }
+
+    private async Task<Attachment?> GeneratePlannedDocumentAttachmentAsync(
+        AttachmentType attachmentType,
+        string context,
+        EmailMessage email,
+        bool isDetailed,
+        WizardState state,
+        CancellationToken ct,
+        DocumentChainState? chainState)
+    {
+        return attachmentType switch
+        {
+            AttachmentType.Word => await GenerateWordAttachmentAsync(context, email, isDetailed, state, ct, chainState),
+            AttachmentType.Excel => await GenerateExcelAttachmentAsync(context, email, isDetailed, ct),
+            AttachmentType.PowerPoint => await GeneratePowerPointAttachmentAsync(context, email, isDetailed, state, ct),
+            _ => null
+        };
+    }
+
+    private void ApplyDocumentChainVersioning(
+        Attachment attachment,
+        DocumentChainState? chainState,
+        int? reservedVersion,
+        WizardState state)
+    {
         if (chainState != null && attachment.Content != null)
         {
             attachment.DocumentChainId = chainState.ChainId;
@@ -2336,8 +2392,10 @@ Email body preview: {email.BodyPlain[..Math.Min(300, email.BodyPlain.Length)]}..
                 chainState.BaseTitle,
                 attachment.VersionLabel ?? "v1",
                 attachment.Extension);
+            return;
         }
-        else if (state.Config.EnableAttachmentChains && attachment.Type == AttachmentType.Word && _random.Next(100) < 50)
+
+        if (state.Config.EnableAttachmentChains && attachment.Type == AttachmentType.Word && _random.Next(100) < 50)
         {
             // Start a new chain for Word documents
             var newChain = new DocumentChainState
@@ -2350,13 +2408,6 @@ Email body preview: {email.BodyPlain[..Math.Min(300, email.BodyPlain.Length)]}..
             attachment.DocumentChainId = newChain.ChainId;
             attachment.VersionLabel = "v1";
         }
-
-        if (string.IsNullOrEmpty(attachment.FileName))
-        {
-            attachment.FileName = FileNameHelper.GenerateAttachmentFileName(attachment, email);
-        }
-
-        email.Attachments.Add(attachment);
     }
 
     /// <summary>
