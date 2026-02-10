@@ -22,7 +22,6 @@
     <Company>EvidenceFoundry</Company>
     <Product>EvidenceFoundry - E-Discovery Dataset Generator</Product>
     <Description>Generate realistic email datasets for e-discovery training and testing</Description>
-    <NoWarn>$(NoWarn);NU1510</NoWarn>
 
     <!-- Generate the lock file -->
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
