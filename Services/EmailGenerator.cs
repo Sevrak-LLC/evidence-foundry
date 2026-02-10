@@ -2563,90 +2563,42 @@ Respond with JSON:
         var attachmentType = enabledTypes[_random.Next(enabledTypes.Count)];
         var isDetailed = state.Config.AttachmentComplexity == AttachmentComplexity.Detailed;
 
-        // Check if we should continue an existing document chain (30% chance if enabled)
-        DocumentChainState? chainState = null;
-        int? reservedVersion = null;
-        if (state.Config.EnableAttachmentChains && _documentChains.Count > 0 && _random.Next(100) < 30)
-        {
-            // Pick a random existing chain of the same type
-            var matchingChains = _documentChains.Values
-                .Where(c => c.Type == attachmentType)
-                .ToList();
+        var (chainState, reservedVersion) = TryReserveDocumentChain(state, attachmentType);
+        var context = BuildAttachmentContext(email, chainState, reservedVersion);
 
-            if (matchingChains.Count > 0)
-            {
-                chainState = matchingChains[_random.Next(matchingChains.Count)];
-                lock (chainState.SyncRoot)
-                {
-                    chainState.VersionNumber++;
-                    reservedVersion = chainState.VersionNumber;
-                }
-            }
-        }
+        var attachment = await GeneratePlannedDocumentAttachmentAsync(
+            attachmentType,
+            context,
+            email,
+            isDetailed,
+            state,
+            ct,
+            chainState);
+        if (attachment == null)
+            return;
 
-        var attachment = new Attachment
-        {
-            Type = attachmentType
-        };
-
-        var context = $"Email subject: {email.Subject}\nEmail body preview: {email.BodyPlain[..Math.Min(200, email.BodyPlain.Length)]}...";
-
-        // Add version context if continuing a chain
-        if (chainState != null)
-        {
-            context += $"\n\nIMPORTANT: This is a REVISION of a document titled '{chainState.BaseTitle}'. ";
-            context += $"This is version {reservedVersion ?? chainState.VersionNumber}. ";
-            context += "Make changes/updates to reflect edits, feedback, or revisions - don't create something completely new.";
-        }
-
-        switch (attachmentType)
-        {
-            case AttachmentType.Word:
-                attachment = await GenerateWordAttachmentAsync(context, email, isDetailed, state, ct, chainState);
-                break;
-            case AttachmentType.Excel:
-                attachment = await GenerateExcelAttachmentAsync(context, email, isDetailed, ct);
-                break;
-            case AttachmentType.PowerPoint:
-                attachment = await GeneratePowerPointAttachmentAsync(context, email, isDetailed, state, ct);
-                break;
-        }
-
-        // Handle document chain versioning
-        if (chainState != null && attachment.Content != null)
-        {
-            attachment.DocumentChainId = chainState.ChainId;
-            var versionNumber = reservedVersion ?? chainState.VersionNumber;
-            attachment.VersionLabel = GetVersionLabel(versionNumber);
-
-            // Update filename to include version
-            attachment.FileName = BuildVersionedAttachmentFileName(
-                chainState.BaseTitle,
-                attachment.VersionLabel ?? "v1",
-                attachment.Extension);
-        }
-        else if (state.Config.EnableAttachmentChains && attachment.Type == AttachmentType.Word)
-        {
-            // Start a new chain for Word documents (50% chance)
-            if (_random.Next(100) < 50)
-            {
-                var newChain = new DocumentChainState
-                {
-                    BaseTitle = attachment.ContentDescription,
-                    Type = attachment.Type,
-                    VersionNumber = 1
-                };
-                _documentChains.TryAdd(newChain.ChainId, newChain);
-                attachment.DocumentChainId = newChain.ChainId;
-                attachment.VersionLabel = "v1";
-            }
-        }
+        ApplyDocumentChainVersioning(attachment, chainState, reservedVersion, state);
 
         if (string.IsNullOrEmpty(attachment.FileName))
         {
             attachment.FileName = FileNameHelper.GenerateAttachmentFileName(attachment, email);
         }
         email.Attachments.Add(attachment);
+    }
+
+    private static string BuildAttachmentContext(
+        EmailMessage email,
+        DocumentChainState? chainState,
+        int? reservedVersion)
+    {
+        var context = $"Email subject: {email.Subject}\nEmail body preview: {email.BodyPlain[..Math.Min(200, email.BodyPlain.Length)]}...";
+        if (chainState == null)
+            return context;
+
+        context += $"\n\nIMPORTANT: This is a REVISION of a document titled '{chainState.BaseTitle}'. ";
+        context += $"This is version {reservedVersion ?? chainState.VersionNumber}. ";
+        context += "Make changes/updates to reflect edits, feedback, or revisions - don't create something completely new.";
+        return context;
     }
 
     private static string GetVersionLabel(int version)
