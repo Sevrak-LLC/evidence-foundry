@@ -115,61 +115,8 @@ Respond with JSON in this exact format:
 
         foreach (var entity in response.Organizations)
         {
-            if (!string.Equals(entity.Type, "Organization", StringComparison.OrdinalIgnoreCase))
+            if (!TryBuildSeedOrganization(entity, out var org))
                 continue;
-            if (string.IsNullOrWhiteSpace(entity.Name))
-                continue;
-            if (entity.Plaintiff && entity.Defendant)
-                throw new InvalidOperationException($"Organization '{entity.Name}' cannot be both plaintiff and defendant.");
-
-            var org = new Organization
-            {
-                Name = entity.Name.Trim(),
-                Domain = entity.Domain?.Trim() ?? string.Empty,
-                Description = entity.Description?.Trim() ?? string.Empty,
-                OrganizationType = EnumHelper.TryParseEnum(entity.OrganizationType, out OrganizationType orgType)
-                    ? orgType
-                    : OrganizationType.Unknown,
-                Industry = EnumHelper.TryParseEnum(entity.Industry, out Industry industry)
-                    ? industry
-                    : Industry.Other,
-                State = EnumHelper.TryParseEnum(entity.State, out UsState state)
-                    ? state
-                    : UsState.Unknown,
-                IsPlaintiff = entity.Plaintiff,
-                IsDefendant = entity.Defendant
-            };
-
-            if (entity.Departments != null)
-            {
-                foreach (var deptDto in entity.Departments)
-                {
-                    if (!EnumHelper.TryParseEnum(deptDto.Name, out DepartmentName deptName))
-                        continue;
-
-                    var department = new Department { Name = deptName };
-
-                    if (deptDto.Roles != null)
-                    {
-                        foreach (var roleDto in deptDto.Roles)
-                        {
-                            if (!EnumHelper.TryParseEnum(roleDto.Name, out RoleName roleName))
-                                continue;
-
-                            var role = new Role
-                            {
-                                Name = roleName,
-                                ReportsToRole = EnumHelper.TryParseEnum(roleDto.ReportsToRole, out RoleName reportsTo)
-                                    ? reportsTo
-                                    : null
-                            };
-                            department.Roles.Add(role);
-                        }
-                    }
-
-                    org.Departments.Add(department);
-                }
-            }
 
             organizations.Add(org);
         }
@@ -225,7 +172,42 @@ Rules:
             })
         }, new JsonSerializerOptions { WriteIndented = true });
 
-        var userPrompt = $@"Storyline title: {storyline.Title}
+        var userPrompt = BuildOrganizationPrompt(
+            storyline,
+            seed,
+            orgJson,
+            departments,
+            roles,
+            includeScopedMaps,
+            allowedDepartmentsJson,
+            allowedDepartmentRoleMapJson,
+            orgTypes,
+            industries,
+            states);
+
+        var response = await _openAI.GetJsonCompletionAsync<OrganizationDto>(
+            systemPrompt,
+            userPrompt,
+            $"Organization Build: {seed.Name}",
+            ct);
+
+        return BuildOrganizationFromResponse(seed, response);
+    }
+
+    private static string BuildOrganizationPrompt(
+        Storyline storyline,
+        Organization seed,
+        string orgJson,
+        string departments,
+        string roles,
+        bool includeScopedMaps,
+        string allowedDepartmentsJson,
+        string allowedDepartmentRoleMapJson,
+        string orgTypes,
+        string industries,
+        string states)
+    {
+        return $@"Storyline title: {storyline.Title}
 Storyline summary:
 {storyline.Summary}
 Storyline start date: {storyline.StartDate:yyyy-MM-dd}
@@ -282,13 +264,10 @@ Respond with JSON in this exact format:
     }}
   ]
 }}";
+    }
 
-        var response = await _openAI.GetJsonCompletionAsync<OrganizationDto>(
-            systemPrompt,
-            userPrompt,
-            $"Organization Build: {seed.Name}",
-            ct);
-
+    private static Organization BuildOrganizationFromResponse(Organization seed, OrganizationDto? response)
+    {
         if (response == null)
             throw new InvalidOperationException($"Failed to build organization details for '{seed.Name}'.");
 
@@ -319,38 +298,82 @@ Respond with JSON in this exact format:
             organization.Founded = founded;
         }
 
-        if (response.Departments != null)
-        {
-            foreach (var deptDto in response.Departments)
-            {
-                if (!EnumHelper.TryParseEnum(deptDto.Name, out DepartmentName deptName))
-                    continue;
-
-                var department = new Department { Name = deptName };
-
-                if (deptDto.Roles != null)
-                {
-                    foreach (var roleDto in deptDto.Roles)
-                    {
-                        if (!EnumHelper.TryParseEnum(roleDto.Name, out RoleName roleName))
-                            continue;
-
-                        var role = new Role
-                        {
-                            Name = roleName,
-                            ReportsToRole = EnumHelper.TryParseEnum(roleDto.ReportsToRole, out RoleName reportsTo)
-                                ? reportsTo
-                                : null
-                        };
-                        department.Roles.Add(role);
-                    }
-                }
-
-                organization.Departments.Add(department);
-            }
-        }
+        PopulateDepartments(organization.Departments, response.Departments);
 
         return organization;
+    }
+
+    private static bool TryBuildSeedOrganization(OrganizationSeedDto entity, out Organization organization)
+    {
+        organization = default!;
+        if (!string.Equals(entity.Type, "Organization", StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (string.IsNullOrWhiteSpace(entity.Name))
+            return false;
+        if (entity.Plaintiff && entity.Defendant)
+            throw new InvalidOperationException($"Organization '{entity.Name}' cannot be both plaintiff and defendant.");
+
+        organization = new Organization
+        {
+            Name = entity.Name.Trim(),
+            Domain = entity.Domain?.Trim() ?? string.Empty,
+            Description = entity.Description?.Trim() ?? string.Empty,
+            OrganizationType = EnumHelper.TryParseEnum(entity.OrganizationType, out OrganizationType orgType)
+                ? orgType
+                : OrganizationType.Unknown,
+            Industry = EnumHelper.TryParseEnum(entity.Industry, out Industry industry)
+                ? industry
+                : Industry.Other,
+            State = EnumHelper.TryParseEnum(entity.State, out UsState state)
+                ? state
+                : UsState.Unknown,
+            IsPlaintiff = entity.Plaintiff,
+            IsDefendant = entity.Defendant
+        };
+
+        PopulateDepartments(organization.Departments, entity.Departments);
+        return true;
+    }
+
+    private static void PopulateDepartments(
+        ICollection<Department> target,
+        IEnumerable<DepartmentDto>? departments)
+    {
+        if (departments == null)
+            return;
+
+        foreach (var deptDto in departments)
+        {
+            if (!EnumHelper.TryParseEnum(deptDto.Name, out DepartmentName deptName))
+                continue;
+
+            var department = new Department { Name = deptName };
+            PopulateRoles(department.Roles, deptDto.Roles);
+            target.Add(department);
+        }
+    }
+
+    private static void PopulateRoles(
+        ICollection<Role> target,
+        IEnumerable<RoleDto>? roles)
+    {
+        if (roles == null)
+            return;
+
+        foreach (var roleDto in roles)
+        {
+            if (!EnumHelper.TryParseEnum(roleDto.Name, out RoleName roleName))
+                continue;
+
+            var role = new Role
+            {
+                Name = roleName,
+                ReportsToRole = EnumHelper.TryParseEnum(roleDto.ReportsToRole, out RoleName reportsTo)
+                    ? reportsTo
+                    : null
+            };
+            target.Add(role);
+        }
     }
 
     internal void NormalizeOrganization(Organization organization, DateTime storylineStartDate, HashSet<string> usedDomains)
@@ -530,7 +553,6 @@ Respond with JSON in this exact format:
     {
         if (string.IsNullOrWhiteSpace(domain))
             return false;
-
         if (domain.Length > 253 || !domain.Contains('.') || domain.Contains('@'))
             return false;
 
@@ -538,23 +560,24 @@ Respond with JSON in this exact format:
         if (labels.Length < 2)
             return false;
 
-        foreach (var label in labels)
+        return labels.All(IsValidDomainLabel);
+    }
+
+    private static bool IsValidDomainLabel(string label)
+    {
+        if (label.Length == 0 || label.Length > 63)
+            return false;
+        if (label.StartsWith('-') || label.EndsWith('-'))
+            return false;
+
+        foreach (var ch in label)
         {
-            if (label.Length == 0 || label.Length > 63)
+            if (ch > 0x7F)
                 return false;
 
-            if (label.StartsWith('-') || label.EndsWith('-'))
+            var lower = char.ToLowerInvariant(ch);
+            if (!((lower >= 'a' && lower <= 'z') || (lower >= '0' && lower <= '9') || lower == '-'))
                 return false;
-
-            foreach (var ch in label)
-            {
-                if (ch > 0x7F)
-                    return false;
-
-                var lower = char.ToLowerInvariant(ch);
-                if (!((lower >= 'a' && lower <= 'z') || (lower >= '0' && lower <= '9') || lower == '-'))
-                    return false;
-            }
         }
 
         return true;

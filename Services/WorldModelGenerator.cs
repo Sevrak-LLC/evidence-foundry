@@ -290,46 +290,7 @@ OUTPUT JSON SCHEMA (respond with JSON that matches this exactly)
             if (dto == null)
                 continue;
 
-            var name = dto.Name?.Trim() ?? string.Empty;
-            if (string.IsNullOrWhiteSpace(name))
-                throw new InvalidOperationException($"{label} organization name is required.");
-
-            if (!EnumHelper.TryParseEnum(dto.OrganizationType, out OrganizationType organizationType))
-                throw new InvalidOperationException($"Invalid organizationType '{dto.OrganizationType}' for organization '{name}'.");
-
-            if (!EnumHelper.TryParseEnum(dto.Industry, out Industry industry))
-                throw new InvalidOperationException($"Invalid industry '{dto.Industry}' for organization '{name}'.");
-
-            if (!EnumHelper.TryParseEnum(dto.State, out UsState state))
-                throw new InvalidOperationException($"Invalid state '{dto.State}' for organization '{name}'.");
-
-            var domain = (dto.Domain ?? string.Empty).Trim();
-            if (string.IsNullOrWhiteSpace(domain))
-                throw new InvalidOperationException($"Organization '{name}' is missing a domain.");
-            if (domain.Contains('@'))
-                throw new InvalidOperationException($"Organization '{name}' domain should not contain '@': '{domain}'.");
-
-            var foundedYear = dto.Founded;
-            if (foundedYear <= 0)
-                throw new InvalidOperationException($"Organization '{name}' must include a founded year.");
-
-            var maxYear = DateTime.UtcNow.Year;
-            if (foundedYear < 1980 || foundedYear > maxYear)
-                throw new InvalidOperationException($"Organization '{name}' founded year must be between 1980 and {maxYear}.");
-
-            var organization = new Organization
-            {
-                Name = name,
-                Domain = domain,
-                Description = dto.Description?.Trim() ?? string.Empty,
-                OrganizationType = organizationType,
-                Industry = industry,
-                State = state,
-                Founded = new DateTime(foundedYear, 1, 1),
-                IsPlaintiff = isPlaintiff,
-                IsDefendant = isDefendant
-            };
-
+            var organization = BuildOrganization(dto, isPlaintiff, isDefendant, label);
             AddKeyPeople(organization, dto.KeyPeople);
             results.Add(organization);
         }
@@ -344,96 +305,199 @@ OUTPUT JSON SCHEMA (respond with JSON that matches this exactly)
 
         foreach (var person in keyPeople)
         {
-            var firstName = person.FirstName?.Trim() ?? string.Empty;
-            var lastName = person.LastName?.Trim() ?? string.Empty;
-            var email = person.Email?.Trim() ?? string.Empty;
-
-            if (string.IsNullOrWhiteSpace(firstName) || string.IsNullOrWhiteSpace(lastName))
-                throw new InvalidOperationException($"Key person in '{organization.Name}' must include first and last name.");
-
-            if (!EnumHelper.TryParseEnum(person.Department, out DepartmentName departmentName))
-                throw new InvalidOperationException($"Invalid department '{person.Department}' for key person '{firstName} {lastName}' in '{organization.Name}'.");
-
-            if (!EnumHelper.TryParseEnum(person.Role, out RoleName roleName))
-                throw new InvalidOperationException($"Invalid role '{person.Role}' for key person '{firstName} {lastName}' in '{organization.Name}'.");
-
-            if (string.IsNullOrWhiteSpace(email))
-                throw new InvalidOperationException($"Key person '{firstName} {lastName}' in '{organization.Name}' is missing an email.");
-
-            var expectedEmail = $"{firstName}.{lastName}@{organization.Domain}".ToLowerInvariant();
-            if (!string.Equals(email, expectedEmail, StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException($"Key person '{firstName} {lastName}' email must be '{expectedEmail}'.");
-
-            var involvement = person.Involvement?.Trim() ?? string.Empty;
-            if (!IsValidInvolvement(involvement))
-                throw new InvalidOperationException($"Key person '{firstName} {lastName}' in '{organization.Name}' has invalid involvement '{person.Involvement}'.");
-
-            var department = organization.Departments.FirstOrDefault(d => d.Name == departmentName);
-            if (department == null)
-            {
-                department = new Department
-                {
-                    Name = departmentName,
-                    OrganizationId = organization.Id
-                };
-                organization.Departments.Add(department);
-            }
-
-            var role = department.Roles.FirstOrDefault(r => r.Name == roleName);
-            if (role == null)
-            {
-                role = new Role
-                {
-                    Name = roleName,
-                    DepartmentId = department.Id,
-                    OrganizationId = organization.Id
-                };
-                department.Roles.Add(role);
-            }
-
-            var character = new Character
-            {
-                RoleId = role.Id,
-                DepartmentId = department.Id,
-                OrganizationId = organization.Id,
-                FirstName = firstName,
-                LastName = lastName,
-                Email = email,
-                Personality = person.Personality?.Trim() ?? string.Empty,
-                CommunicationStyle = person.CommunicationStyle?.Trim() ?? string.Empty,
-                IsKeyCharacter = true,
-                StorylineRelevance = string.Empty,
-                Involvement = involvement,
-                InvolvementSummary = person.InvolvementSummary?.Trim() ?? string.Empty
-            };
-
-            role.Characters.Add(character);
+            AddKeyPerson(organization, person);
         }
+    }
+
+    private static Organization BuildOrganization(
+        OrganizationDto dto,
+        bool isPlaintiff,
+        bool isDefendant,
+        string label)
+    {
+        var name = dto.Name?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(name))
+            throw new InvalidOperationException($"{label} organization name is required.");
+
+        var organizationType = ParseRequiredEnum<OrganizationType>(
+            dto.OrganizationType,
+            $"Invalid organizationType '{dto.OrganizationType}' for organization '{name}'.");
+        var industry = ParseRequiredEnum<Industry>(
+            dto.Industry,
+            $"Invalid industry '{dto.Industry}' for organization '{name}'.");
+        var state = ParseRequiredEnum<UsState>(
+            dto.State,
+            $"Invalid state '{dto.State}' for organization '{name}'.");
+
+        var domain = (dto.Domain ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(domain))
+            throw new InvalidOperationException($"Organization '{name}' is missing a domain.");
+        if (domain.Contains('@'))
+            throw new InvalidOperationException($"Organization '{name}' domain should not contain '@': '{domain}'.");
+
+        var foundedYear = ValidateFoundedYear(dto.Founded, name);
+
+        return new Organization
+        {
+            Name = name,
+            Domain = domain,
+            Description = dto.Description?.Trim() ?? string.Empty,
+            OrganizationType = organizationType,
+            Industry = industry,
+            State = state,
+            Founded = new DateTime(foundedYear, 1, 1),
+            IsPlaintiff = isPlaintiff,
+            IsDefendant = isDefendant
+        };
+    }
+
+    private static TEnum ParseRequiredEnum<TEnum>(string? value, string errorMessage)
+        where TEnum : struct, Enum
+    {
+        if (!EnumHelper.TryParseEnum(value, out TEnum parsed))
+            throw new InvalidOperationException(errorMessage);
+
+        return parsed;
+    }
+
+    private static int ValidateFoundedYear(int foundedYear, string organizationName)
+    {
+        if (foundedYear <= 0)
+            throw new InvalidOperationException($"Organization '{organizationName}' must include a founded year.");
+
+        var maxYear = DateTime.UtcNow.Year;
+        if (foundedYear < 1980 || foundedYear > maxYear)
+            throw new InvalidOperationException($"Organization '{organizationName}' founded year must be between 1980 and {maxYear}.");
+
+        return foundedYear;
+    }
+
+    private static void AddKeyPerson(Organization organization, KeyPersonDto person)
+    {
+        var (firstName, lastName, email) = NormalizeKeyPersonNames(person);
+        var departmentName = ParseRequiredEnum<DepartmentName>(
+            person.Department,
+            $"Invalid department '{person.Department}' for key person '{firstName} {lastName}' in '{organization.Name}'.");
+        var roleName = ParseRequiredEnum<RoleName>(
+            person.Role,
+            $"Invalid role '{person.Role}' for key person '{firstName} {lastName}' in '{organization.Name}'.");
+        var involvement = ValidateKeyPersonInvolvement(person, organization.Name, organization.Domain, firstName, lastName);
+
+        var department = GetOrCreateDepartment(organization, departmentName);
+        var role = GetOrCreateRole(organization, department, roleName);
+
+        var character = new Character
+        {
+            RoleId = role.Id,
+            DepartmentId = department.Id,
+            OrganizationId = organization.Id,
+            FirstName = firstName,
+            LastName = lastName,
+            Email = email,
+            Personality = person.Personality?.Trim() ?? string.Empty,
+            CommunicationStyle = person.CommunicationStyle?.Trim() ?? string.Empty,
+            IsKeyCharacter = true,
+            StorylineRelevance = string.Empty,
+            Involvement = involvement,
+            InvolvementSummary = person.InvolvementSummary?.Trim() ?? string.Empty
+        };
+
+        role.Characters.Add(character);
+    }
+
+    private static (string firstName, string lastName, string email) NormalizeKeyPersonNames(KeyPersonDto person)
+    {
+        var firstName = person.FirstName?.Trim() ?? string.Empty;
+        var lastName = person.LastName?.Trim() ?? string.Empty;
+        var email = person.Email?.Trim() ?? string.Empty;
+
+        if (string.IsNullOrWhiteSpace(firstName) || string.IsNullOrWhiteSpace(lastName))
+            throw new InvalidOperationException("Key person must include first and last name.");
+        if (string.IsNullOrWhiteSpace(email))
+            throw new InvalidOperationException($"Key person '{firstName} {lastName}' is missing an email.");
+
+        return (firstName, lastName, email);
+    }
+
+    private static string ValidateKeyPersonInvolvement(
+        KeyPersonDto person,
+        string organizationName,
+        string organizationDomain,
+        string firstName,
+        string lastName)
+    {
+        var expectedEmail = $"{firstName}.{lastName}@{organizationDomain}".ToLowerInvariant();
+        if (!string.Equals(person.Email?.Trim(), expectedEmail, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"Key person '{firstName} {lastName}' email must be '{expectedEmail}'.");
+
+        var involvement = person.Involvement?.Trim() ?? string.Empty;
+        if (!IsValidInvolvement(involvement))
+            throw new InvalidOperationException($"Key person '{firstName} {lastName}' in '{organizationName}' has invalid involvement '{person.Involvement}'.");
+
+        return involvement;
+    }
+
+    private static Department GetOrCreateDepartment(Organization organization, DepartmentName departmentName)
+    {
+        var department = organization.Departments.FirstOrDefault(d => d.Name == departmentName);
+        if (department != null)
+            return department;
+
+        department = new Department
+        {
+            Name = departmentName,
+            OrganizationId = organization.Id
+        };
+        organization.Departments.Add(department);
+        return department;
+    }
+
+    private static Role GetOrCreateRole(Organization organization, Department department, RoleName roleName)
+    {
+        var role = department.Roles.FirstOrDefault(r => r.Name == roleName);
+        if (role != null)
+            return role;
+
+        role = new Role
+        {
+            Name = roleName,
+            DepartmentId = department.Id,
+            OrganizationId = organization.Id
+        };
+        department.Roles.Add(role);
+        return role;
     }
 
     internal static List<Industry> ResolveIndustriesForPrompt(string plaintiffIndustry, string defendantIndustry)
     {
         var industries = new List<Industry>();
-        var allowAll = false;
+        var rng = Random.Shared;
 
-        if (IsRandomIndustry(plaintiffIndustry) || IsRandomIndustry(defendantIndustry))
+        if (IsRandomIndustry(plaintiffIndustry))
         {
-            allowAll = true;
+            industries.Add(GetRandomIndustry(rng));
         }
-        else
+        else if (EnumHelper.TryParseEnum(plaintiffIndustry, out Industry plaintiff))
         {
-            if (EnumHelper.TryParseEnum(plaintiffIndustry, out Industry plaintiff))
-                industries.Add(plaintiff);
-            if (EnumHelper.TryParseEnum(defendantIndustry, out Industry defendant))
-                industries.Add(defendant);
+            industries.Add(plaintiff);
         }
 
-        if (allowAll)
+        if (IsRandomIndustry(defendantIndustry))
         {
-            industries = Enum.GetValues<Industry>().ToList();
+            industries.Add(GetRandomIndustry(rng));
+        }
+        else if (EnumHelper.TryParseEnum(defendantIndustry, out Industry defendant))
+        {
+            industries.Add(defendant);
         }
 
         return industries.Distinct().ToList();
+    }
+
+    private static Industry GetRandomIndustry(Random rng)
+    {
+        var values = Enum.GetValues<Industry>();
+        return values[rng.Next(values.Length)];
     }
 
     private static bool IsValidInvolvement(string involvement)
