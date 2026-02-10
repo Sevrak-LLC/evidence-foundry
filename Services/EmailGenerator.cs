@@ -2106,6 +2106,15 @@ ATTACHMENT REMINDER:
         if (body.Contains(correctSig, StringComparison.OrdinalIgnoreCase))
             return body;
 
+        return ApplySignatureCorrections(body, fromChar, allCharacters, correctSig);
+    }
+
+    private static string ApplySignatureCorrections(
+        string body,
+        Character fromChar,
+        List<Character> allCharacters,
+        string correctSig)
+    {
         if (TryReplaceWrongSignature(body, fromChar, allCharacters, correctSig, out var updatedBody))
             return updatedBody;
 
