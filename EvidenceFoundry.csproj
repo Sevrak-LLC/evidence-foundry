@@ -9,6 +9,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>EvidenceFoundry</RootNamespace>
     <AssemblyName>EvidenceFoundry</AssemblyName>
+    <NoWarn>NU1510</NoWarn>
 
     <!-- Publishing settings for single-file deployment -->
     <PublishSingleFile>true</PublishSingleFile>
