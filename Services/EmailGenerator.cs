@@ -421,32 +421,15 @@ public class EmailGenerator
                 p.CurrentOperation = $"Generating suggested search terms: {subject}";
             });
 
-            List<string> terms;
-            try
-            {
-                var exportedEmail = BuildExportedEmailForPrompt(largestEmail);
-                terms = await _searchTermGenerator.GenerateSuggestedSearchTermsAsync(
-                    exportedEmail,
-                    storyline.Summary,
-                    beat.Plot,
-                    thread.IsHot,
-                    ct);
-                if (terms.Count < 2)
-                {
-                    lock (progressLock)
-                    {
-                        result.Errors.Add($"Suggested terms returned fewer than 2 entries for thread '{subject}'.");
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                lock (progressLock)
-                {
-                    result.Errors.Add($"Failed to generate suggested terms for thread '{subject}': {ex.Message}");
-                }
-                terms = new List<string>();
-            }
+            var terms = await GenerateSuggestedSearchTermsForThreadAsync(
+                subject,
+                largestEmail,
+                storyline,
+                beat,
+                thread.IsHot,
+                progressLock,
+                result,
+                ct);
 
             results.Add(new SuggestedSearchTermResult
             {
@@ -478,6 +461,45 @@ public class EmailGenerator
             {
                 result.Errors.Add($"Failed to write suggested search terms markdown: {ex.Message}");
             }
+        }
+    }
+
+    private async Task<List<string>> GenerateSuggestedSearchTermsForThreadAsync(
+        string subject,
+        EmailMessage largestEmail,
+        Storyline storyline,
+        StoryBeat beat,
+        bool isHot,
+        object progressLock,
+        GenerationResult result,
+        CancellationToken ct)
+    {
+        try
+        {
+            var exportedEmail = BuildExportedEmailForPrompt(largestEmail);
+            var terms = await _searchTermGenerator.GenerateSuggestedSearchTermsAsync(
+                exportedEmail,
+                storyline.Summary,
+                beat.Plot,
+                isHot,
+                ct);
+            if (terms.Count < 2)
+            {
+                AddSuggestedTermsError(
+                    progressLock,
+                    result,
+                    $"Suggested terms returned fewer than 2 entries for thread '{subject}'.");
+            }
+
+            return terms;
+        }
+        catch (Exception ex)
+        {
+            AddSuggestedTermsError(
+                progressLock,
+                result,
+                $"Failed to generate suggested terms for thread '{subject}': {ex.Message}");
+            return new List<string>();
         }
     }
 
