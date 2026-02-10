@@ -23,6 +23,24 @@ public class EmailGenerator
     private const int MaxEmailsPerBatch = 15;
     private const int MaxThreadGenerationAttempts = 3;
     private const int MaxAttachmentFileNameLength = 160;
+    private static readonly string[] SignOffPatterns =
+    {
+        "Best,",
+        "Best regards,",
+        "Regards,",
+        "Thanks,",
+        "Thank you,",
+        "Sincerely,",
+        "Cheers,",
+        "Kind regards,",
+        "Warm regards,",
+        "All the best,",
+        "Best wishes,",
+        "Thanks!",
+        "Thank you!",
+        "Respectfully,",
+        "Cordially,"
+    };
 
     public EmailGenerator(OpenAIService openAI)
     {
@@ -1922,7 +1940,25 @@ ATTACHMENT REMINDER:
         if (body.Contains(correctSig, StringComparison.OrdinalIgnoreCase))
             return body;
 
-        // Check if any OTHER character's signature is in the body
+        if (TryReplaceWrongSignature(body, fromChar, allCharacters, correctSig, out var updatedBody))
+            return updatedBody;
+
+        if (TryReplaceWrongNameWithSignOff(body, fromChar, allCharacters, correctSig, out updatedBody))
+            return updatedBody;
+
+        if (TryReplaceMissingSenderSignature(body, fromChar, correctSig, out updatedBody))
+            return updatedBody;
+
+        return body;
+    }
+
+    private static bool TryReplaceWrongSignature(
+        string body,
+        Character fromChar,
+        List<Character> allCharacters,
+        string correctSig,
+        out string updatedBody)
+    {
         foreach (var otherChar in allCharacters)
         {
             if (otherChar.Id == fromChar.Id || string.IsNullOrWhiteSpace(otherChar.SignatureBlock))
@@ -1935,94 +1971,105 @@ ATTACHMENT REMINDER:
             var sigIndex = body.IndexOf(wrongSig, StringComparison.OrdinalIgnoreCase);
             if (sigIndex >= 0)
             {
-                // Replace the wrong signature with the correct one
-                body = body[..sigIndex] + correctSig + body[(sigIndex + wrongSig.Length)..];
-                return body;
+                updatedBody = body[..sigIndex] + correctSig + body[(sigIndex + wrongSig.Length)..];
+                return true;
             }
         }
 
-        // No exact signature block match found - check for wrong character names in common signature patterns
-        // Look for patterns like "Best,\nWrong Name" or "Thanks,\nWrong Name" or "Regards,\nWrong Name"
+        updatedBody = body;
+        return false;
+    }
+
+    private static bool TryReplaceWrongNameWithSignOff(
+        string body,
+        Character fromChar,
+        List<Character> allCharacters,
+        string correctSig,
+        out string updatedBody)
+    {
         foreach (var otherChar in allCharacters)
         {
             if (otherChar.Id == fromChar.Id)
                 continue;
 
-            // Check for the other character's full name near the end of the email (last 30% of body)
             var searchRegion = body.Length > 100
                 ? body[(int)(body.Length * 0.7)..]
                 : body;
 
             var nameIndex = searchRegion.IndexOf(otherChar.FullName, StringComparison.OrdinalIgnoreCase);
-            if (nameIndex >= 0)
+            if (nameIndex < 0)
+                continue;
+
+            var absoluteIndex = body.Length - searchRegion.Length + nameIndex;
+            var beforeName = body[..absoluteIndex];
+
+            if (TryFindLastSignOff(beforeName, out var signOffStart))
             {
-                // Found another character's name in the signature area
-                // Look backwards for a common sign-off pattern to find where the signature starts
-                var absoluteIndex = body.Length - searchRegion.Length + nameIndex;
-                var beforeName = body[..absoluteIndex];
-
-                // Find the last sign-off line before this name
-                var signOffPatterns = new[] { "Best,", "Best regards,", "Regards,", "Thanks,", "Thank you,",
-                    "Sincerely,", "Cheers,", "Kind regards,", "Warm regards,", "All the best,",
-                    "Best wishes,", "Thanks!", "Thank you!", "Respectfully,", "Cordially," };
-
-                int signOffStart = -1;
-                foreach (var pattern in signOffPatterns)
-                {
-                    var idx = beforeName.LastIndexOf(pattern, StringComparison.OrdinalIgnoreCase);
-                    if (idx >= 0 && idx > signOffStart)
-                    {
-                        signOffStart = idx;
-                    }
-                }
-
-                if (signOffStart >= 0)
-                {
-                    // Replace everything from the sign-off to the end with the correct signature
-                    body = body[..signOffStart].TrimEnd() + "\n\n" + correctSig;
-                    return body;
-                }
-                else
-                {
-                    // No sign-off found, just replace from the wrong name onwards
-                    body = body[..absoluteIndex].TrimEnd() + "\n\n" + correctSig;
-                    return body;
-                }
+                updatedBody = body[..signOffStart].TrimEnd() + "\n\n" + correctSig;
+                return true;
             }
+
+            updatedBody = body[..absoluteIndex].TrimEnd() + "\n\n" + correctSig;
+            return true;
         }
 
-        // Also check if fromChar's own name is missing entirely from the signature area
-        // If so, the AI may have written a signature with a completely different format
+        updatedBody = body;
+        return false;
+    }
+
+    private static bool TryReplaceMissingSenderSignature(
+        string body,
+        Character fromChar,
+        string correctSig,
+        out string updatedBody)
+    {
         var tailRegion = body.Length > 100 ? body[(int)(body.Length * 0.7)..] : body;
-        if (!tailRegion.Contains(fromChar.FullName, StringComparison.OrdinalIgnoreCase) &&
-            !tailRegion.Contains(fromChar.FirstName, StringComparison.OrdinalIgnoreCase))
+        if (tailRegion.Contains(fromChar.FullName, StringComparison.OrdinalIgnoreCase) ||
+            tailRegion.Contains(fromChar.FirstName, StringComparison.OrdinalIgnoreCase))
         {
-            // The correct sender's name doesn't appear at all in the signature area
-            // Try to find and replace any sign-off + name pattern at the end
-            var signOffPatterns = new[] { "Best,", "Best regards,", "Regards,", "Thanks,", "Thank you,",
-                "Sincerely,", "Cheers,", "Kind regards,", "Warm regards,", "All the best,",
-                "Best wishes,", "Thanks!", "Thank you!", "Respectfully,", "Cordially," };
+            updatedBody = body;
+            return false;
+        }
 
-            int lastSignOff = -1;
-            foreach (var pattern in signOffPatterns)
-            {
-                var tailStart = (int)(body.Length * 0.7);
-                var idx = body.IndexOf(pattern, tailStart, StringComparison.OrdinalIgnoreCase);
-                if (idx >= 0 && (lastSignOff == -1 || idx < lastSignOff))
-                {
-                    lastSignOff = idx;
-                }
-            }
+        var tailStart = body.Length > 100 ? (int)(body.Length * 0.7) : 0;
+        if (TryFindFirstSignOffFrom(body, tailStart, out var signOffStart))
+        {
+            updatedBody = body[..signOffStart].TrimEnd() + "\n\n" + correctSig;
+            return true;
+        }
 
-            if (lastSignOff >= 0)
+        updatedBody = body;
+        return false;
+    }
+
+    private static bool TryFindLastSignOff(string text, out int startIndex)
+    {
+        startIndex = -1;
+        foreach (var pattern in SignOffPatterns)
+        {
+            var idx = text.LastIndexOf(pattern, StringComparison.OrdinalIgnoreCase);
+            if (idx >= 0 && idx > startIndex)
             {
-                // Replace from the sign-off to end with correct signature
-                body = body[..lastSignOff].TrimEnd() + "\n\n" + correctSig;
-                return body;
+                startIndex = idx;
             }
         }
 
-        return body;
+        return startIndex >= 0;
+    }
+
+    private static bool TryFindFirstSignOffFrom(string text, int startIndex, out int signOffIndex)
+    {
+        signOffIndex = -1;
+        foreach (var pattern in SignOffPatterns)
+        {
+            var idx = text.IndexOf(pattern, startIndex, StringComparison.OrdinalIgnoreCase);
+            if (idx >= 0 && (signOffIndex == -1 || idx < signOffIndex))
+            {
+                signOffIndex = idx;
+            }
+        }
+
+        return signOffIndex >= 0;
     }
 
     private List<EmailMessage> SelectEmailsForAttachments(List<EmailMessage> emails, int percentage)
