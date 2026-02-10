@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using System.Text.Json.Serialization;
 using EvidenceFoundry.Models;
@@ -383,31 +384,16 @@ public class EmailGenerator
         {
             ct.ThrowIfCancellationRequested();
 
-            if (!beatLookup.TryGetValue(thread.StoryBeatId, out var beat))
+            if (!TryGetSuggestedSearchContext(
+                    thread,
+                    beatLookup,
+                    storylineLookup,
+                    progressLock,
+                    result,
+                    out var beat,
+                    out var storyline,
+                    out var largestEmail))
             {
-                lock (progressLock)
-                {
-                    result.Errors.Add($"Suggested terms skipped: missing story beat for thread {thread.Id}.");
-                }
-                continue;
-            }
-
-            if (!storylineLookup.TryGetValue(thread.StorylineId, out var storyline))
-            {
-                lock (progressLock)
-                {
-                    result.Errors.Add($"Suggested terms skipped: missing storyline for thread {thread.Id}.");
-                }
-                continue;
-            }
-
-            var largestEmail = GetLargestEmailInThread(thread);
-            if (largestEmail == null)
-            {
-                lock (progressLock)
-                {
-                    result.Errors.Add($"Suggested terms skipped: thread {thread.Id} has no emails.");
-                }
                 continue;
             }
 
@@ -474,6 +460,53 @@ public class EmailGenerator
             {
                 result.Errors.Add($"Failed to write suggested search terms markdown: {ex.Message}");
             }
+        }
+    }
+
+    private static bool TryGetSuggestedSearchContext(
+        EmailThread thread,
+        IReadOnlyDictionary<Guid, StoryBeat> beatLookup,
+        IReadOnlyDictionary<Guid, Storyline> storylineLookup,
+        object progressLock,
+        GenerationResult result,
+        [NotNullWhen(true)] out StoryBeat? beat,
+        [NotNullWhen(true)] out Storyline? storyline,
+        [NotNullWhen(true)] out EmailMessage? largestEmail)
+    {
+        beat = null;
+        storyline = null;
+        largestEmail = null;
+
+        if (!beatLookup.TryGetValue(thread.StoryBeatId, out var resolvedBeat))
+        {
+            AddSuggestedTermsError(progressLock, result, $"Suggested terms skipped: missing story beat for thread {thread.Id}.");
+            return false;
+        }
+
+        if (!storylineLookup.TryGetValue(thread.StorylineId, out var resolvedStoryline))
+        {
+            AddSuggestedTermsError(progressLock, result, $"Suggested terms skipped: missing storyline for thread {thread.Id}.");
+            return false;
+        }
+
+        var resolvedEmail = GetLargestEmailInThread(thread);
+        if (resolvedEmail == null)
+        {
+            AddSuggestedTermsError(progressLock, result, $"Suggested terms skipped: thread {thread.Id} has no emails.");
+            return false;
+        }
+
+        beat = resolvedBeat;
+        storyline = resolvedStoryline;
+        largestEmail = resolvedEmail;
+        return true;
+    }
+
+    private static void AddSuggestedTermsError(object progressLock, GenerationResult result, string message)
+    {
+        lock (progressLock)
+        {
+            result.Errors.Add(message);
         }
     }
 
