@@ -188,28 +188,47 @@ public class ModelConfigurationDialog : Form
     private void GridModels_CellValueChanged(object? sender, DataGridViewCellEventArgs e)
     {
         // Handle default checkbox - only one can be default
-        if (e.ColumnIndex == 0 && e.RowIndex >= 0)
+        if (!IsDefaultCheckboxChange(e))
         {
-            var currentRow = _gridModels.Rows[e.RowIndex];
-            var isDefault = (bool?)currentRow.Cells["IsDefault"].Value ?? false;
+            return;
+        }
 
-            if (isDefault)
+        if (!IsDefaultRowChecked(e.RowIndex))
+        {
+            return;
+        }
+
+        ClearDefaultFromOtherRows(e.RowIndex);
+    }
+
+    private bool IsDefaultCheckboxChange(DataGridViewCellEventArgs e)
+    {
+        return e.ColumnIndex == 0 && e.RowIndex >= 0;
+    }
+
+    private bool IsDefaultRowChecked(int rowIndex)
+    {
+        var currentRow = _gridModels.Rows[rowIndex];
+        return (bool?)currentRow.Cells["IsDefault"].Value ?? false;
+    }
+
+    private void ClearDefaultFromOtherRows(int rowIndex)
+    {
+        // Uncheck all other rows
+        foreach (DataGridViewRow row in _gridModels.Rows)
+        {
+            if (row.Index == rowIndex)
             {
-                // Uncheck all other rows
-                foreach (DataGridViewRow row in _gridModels.Rows)
-                {
-                    if (row.Index != e.RowIndex)
-                    {
-                        var model = row.DataBoundItem as AIModelConfig;
-                        if (model != null)
-                        {
-                            model.IsDefault = false;
-                        }
-                    }
-                }
-                _gridModels.Refresh();
+                continue;
+            }
+
+            if (row.DataBoundItem is AIModelConfig model)
+            {
+                model.IsDefault = false;
             }
         }
+
+        _gridModels.Refresh();
     }
 
     private void BtnAdd_Click(object? sender, EventArgs e)
