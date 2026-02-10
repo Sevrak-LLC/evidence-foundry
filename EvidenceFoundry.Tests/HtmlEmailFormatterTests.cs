@@ -30,4 +30,31 @@ Alice
         Assert.Contains("<p>The build is green.</p>", html);
         Assert.Contains("<p>Thanks,</p>", html);
     }
+
+    [Fact]
+    public void ConvertToHtml_WithListsAndSignature_RendersListsAndSignatureBlock()
+    {
+        var input = """
+Hello team,
+
+- First item
+- Second item
+
+1. One
+2) Two
+
+Best regards,
+Jane Doe
+Senior Analyst
+""";
+
+        var html = HtmlEmailFormatter.ConvertToHtml(input);
+
+        Assert.Contains("<ul>", html);
+        Assert.Contains("<li>First item</li>", html);
+        Assert.Contains("<ol>", html);
+        Assert.Contains("<li>One</li>", html);
+        Assert.Contains("<div class=\"signature\"", html);
+        Assert.Contains("Jane Doe", html);
+    }
 }
