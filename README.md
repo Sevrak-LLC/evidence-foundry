@@ -73,6 +73,7 @@ Evidence Foundry generates realistic, fictional ESI corpora for E-Discovery trai
 ## Requirements
 
 - Windows 10/11 (64-bit)
+- .NET 10.0 SDK
 - OpenAI API key with access to:
   - GPT-4o or GPT-4o-mini (for text generation)
   - DALL-E 3 (optional, for image generation)
