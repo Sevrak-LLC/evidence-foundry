@@ -1,30 +1,31 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
-using ReelDiscovery.Models;
+using EvidenceFoundry.Helpers;
+using EvidenceFoundry.Models;
 
-namespace ReelDiscovery.Services;
+namespace EvidenceFoundry.Services;
 
 public class CharacterGenerator
 {
     private readonly OpenAIService _openAI;
-    private readonly Random _random = new();
+    private static readonly Random _random = Random.Shared;
 
     // Available TTS voices with characteristics
     private static readonly string[] MaleVoices = ["echo", "onyx", "fable"];
     private static readonly string[] FemaleVoices = ["nova", "shimmer", "alloy"];
+
+    private const int MaxCharactersPerOrganization = 15;
 
     public CharacterGenerator(OpenAIService openAI)
     {
         _openAI = openAI;
     }
 
-    private const int MaxCharactersPerBatch = 25;
-
     /// <summary>
     /// Assigns a TTS voice based on character gender (from AI) or inferred from name/personality.
     /// </summary>
     private string AssignVoice(string gender, string firstName, string personalityNotes)
     {
-        // First, check if AI provided explicit gender
         var lowerGender = gender?.ToLowerInvariant() ?? "";
         if (lowerGender == "female" || lowerGender == "f")
         {
@@ -35,350 +36,529 @@ public class CharacterGenerator
             return MaleVoices[_random.Next(MaleVoices.Length)];
         }
 
-        // Fallback: use heuristics based on name and personality notes
         var lowerName = firstName.ToLowerInvariant();
         var lowerNotes = personalityNotes?.ToLowerInvariant() ?? "";
 
-        // Check personality notes for gender hints
-        bool likelyFemale = lowerNotes.Contains("she ") || lowerNotes.Contains("her ") ||
+        var likelyFemale = lowerNotes.Contains("she ") || lowerNotes.Contains("her ") ||
                            lowerNotes.Contains("woman") || lowerNotes.Contains("female");
-        bool likelyMale = lowerNotes.Contains("he ") || lowerNotes.Contains("his ") ||
+        var likelyMale = lowerNotes.Contains("he ") || lowerNotes.Contains("his ") ||
                          lowerNotes.Contains(" man") || lowerNotes.Contains("male");
 
-        // Common female name endings/patterns
         var femalePatterns = new[] { "a", "ie", "y", "elle", "ine", "ette", "lyn", "een", "is" };
         var malePatterns = new[] { "ew", "ck", "on", "er", "rd", "ld", "ke" };
 
         if (!likelyMale && !likelyFemale)
         {
-            // Guess based on name patterns
             likelyFemale = femalePatterns.Any(p => lowerName.EndsWith(p));
             likelyMale = malePatterns.Any(p => lowerName.EndsWith(p));
         }
 
-        // Pick a random voice from the appropriate set
         if (likelyFemale && !likelyMale)
         {
             return FemaleVoices[_random.Next(FemaleVoices.Length)];
         }
-        else if (likelyMale && !likelyFemale)
+        if (likelyMale && !likelyFemale)
         {
             return MaleVoices[_random.Next(MaleVoices.Length)];
         }
-        else
-        {
-            // Unknown or ambiguous - pick randomly from all
-            var allVoices = MaleVoices.Concat(FemaleVoices).ToArray();
-            return allVoices[_random.Next(allVoices.Length)];
-        }
+
+        var allVoices = MaleVoices.Concat(FemaleVoices).ToArray();
+        return allVoices[_random.Next(allVoices.Length)];
     }
 
-    public async Task<CharacterGenerationResult> GenerateCharactersAsync(
+    internal async Task MapKnownCharactersAsync(
         string topic,
-        List<Storyline> storylines,
-        IProgress<string>? progress = null,
-        CancellationToken ct = default)
-    {
-        // Calculate character count based on storylines (2 per storyline, minimum 10)
-        var targetCharacterCount = Math.Max(storylines.Count * 2, 10);
-        var internalCount = (int)Math.Ceiling(targetCharacterCount * 0.65); // ~65% internal
-        var externalCount = targetCharacterCount - internalCount; // ~35% external
-
-        // For large character counts, generate in batches to avoid API timeouts
-        if (targetCharacterCount > MaxCharactersPerBatch)
-        {
-            return await GenerateCharactersInBatchesAsync(topic, storylines, targetCharacterCount, internalCount, externalCount, progress, ct);
-        }
-
-        progress?.Report($"Generating {targetCharacterCount} characters...");
-        return await GenerateSingleBatchAsync(topic, storylines, targetCharacterCount, internalCount, externalCount, null, null, null, null, ct);
-    }
-
-    private async Task<CharacterGenerationResult> GenerateCharactersInBatchesAsync(
-        string topic,
-        List<Storyline> storylines,
-        int totalCount,
-        int totalInternal,
-        int totalExternal,
-        IProgress<string>? progress,
+        Storyline storyline,
+        Organization organization,
+        HashSet<string> usedNames,
+        HashSet<string> usedEmails,
         CancellationToken ct)
     {
-        var result = new CharacterGenerationResult();
-        var existingNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var remainingInternal = totalInternal;
-        var remainingExternal = totalExternal;
+        var systemPrompt = @"You are the EvidenceFoundry Character Mapper.
+Identify explicitly named people in the storyline who belong to the given organization and map them to roles.
 
-        // Calculate number of batches needed
-        var batchCount = (int)Math.Ceiling((double)totalCount / MaxCharactersPerBatch);
+Rules:
+- Only include characters explicitly named in the storyline description.
+- Use ONLY roles present in the organization.
+- Do NOT invent new people.
+- Use the organization's domain for email addresses.";
 
-        for (int batch = 0; batch < batchCount; batch++)
-        {
-            ct.ThrowIfCancellationRequested();
-
-            // Calculate how many characters for this batch
-            var remainingTotal = remainingInternal + remainingExternal;
-            var batchSize = Math.Min(MaxCharactersPerBatch, remainingTotal);
-            var batchInternal = (int)Math.Ceiling(batchSize * 0.65);
-            batchInternal = Math.Min(batchInternal, remainingInternal);
-            var batchExternal = Math.Min(batchSize - batchInternal, remainingExternal);
-
-            // Determine which storylines this batch should cover
-            var storylinesPerBatch = (int)Math.Ceiling((double)storylines.Count / batchCount);
-            var startIdx = batch * storylinesPerBatch;
-            var endIdx = Math.Min(startIdx + storylinesPerBatch, storylines.Count);
-            var batchStorylineIndices = Enumerable.Range(startIdx, endIdx - startIdx).ToList();
-
-            // Report progress
-            progress?.Report($"Generating characters (batch {batch + 1} of {batchCount})...");
-
-            var batchResult = await GenerateSingleBatchAsync(
-                topic,
-                storylines,
-                batchInternal + batchExternal,
-                batchInternal,
-                batchExternal,
-                existingNames,
-                batchStorylineIndices,
-                batch == 0 ? null : result.CompanyDomain, // Pass company domain from first batch
-                batch == 0 ? null : result.CompanyName,   // Pass company name from first batch
-                ct);
-
-            // First batch sets company info
-            if (batch == 0)
-            {
-                result.CompanyDomain = batchResult.CompanyDomain;
-                result.CompanyName = batchResult.CompanyName;
-            }
-
-            // Add characters and track names to avoid duplicates
-            foreach (var character in batchResult.Characters)
-            {
-                var fullName = $"{character.FirstName} {character.LastName}";
-                // Skip if we already have this character (extra safety check)
-                if (existingNames.Contains(fullName))
-                    continue;
-
-                result.Characters.Add(character);
-                existingNames.Add(fullName);
-            }
-
-            // Report completion of batch
-            progress?.Report($"Generated {result.Characters.Count} of {totalCount} characters...");
-
-            remainingInternal -= batchInternal;
-            remainingExternal -= batchExternal;
-        }
-
-        return result;
-    }
-
-    private async Task<CharacterGenerationResult> GenerateSingleBatchAsync(
-        string topic,
-        List<Storyline> storylines,
-        int characterCount,
-        int internalCount,
-        int externalCount,
-        HashSet<string>? existingNames,
-        List<int>? focusStorylineIndices,
-        string? establishedCompanyDomain,
-        string? establishedCompanyName,
-        CancellationToken ct)
-    {
-        var systemPrompt = @"You are creating characters for a realistic email dataset that will be used for e-discovery demonstrations.
-Generate characters with believable names, email addresses, and roles that fit the given topic.
-
-CRITICAL RULE - STAY ON TOPIC:
-If the topic is a specific movie, TV show, book, or other media property:
-- You MUST ONLY use characters from THAT SPECIFIC property
-- NEVER mix characters from different shows/movies (e.g., NO Parks and Rec characters in an Office dataset)
-- Use the ACTUAL organization/company name from that source material
-- Use the ACTUAL character names from that source material
-- The email domain MUST match the canonical organization
-
-Examples of CORRECT behavior:
-- Topic 'The Office' → ONLY Dunder Mifflin characters (Michael Scott, Jim Halpert, Pam Beesly, Dwight Schrute, etc.) with dundermifflin.com
-- Topic 'Parks and Recreation' → ONLY Pawnee Parks Dept characters (Leslie Knope, Ron Swanson, etc.) with pawnee.gov
-- Topic 'Mad Men' → ONLY Sterling Cooper characters with sterlingcooper.com
-
-Examples of WRONG behavior:
-- Topic 'The Office' → Including Leslie Knope or Ron Swanson (WRONG - those are Parks and Rec characters!)
-- Mixing ANY characters between different TV shows, movies, or books
-
-For original/custom topics, create fitting fictional characters and company domain.
-
-IMPORTANT: Create a realistic mix of internal and external contacts:
-- Internal employees at the primary organization (from the source material)
-- External contacts (customers, vendors, lawyers, consultants) with their OWN separate email domains
-- External characters can be fictional, but internal characters MUST be from the source material
-
-CHARACTER RELATIONSHIPS AND EMOTIONAL DYNAMICS - CRITICAL:
-The personalityNotes field MUST include relationship dynamics with other characters:
-- Who are their ALLIES? (friends, mentors, collaborators they genuinely like)
-- Who are their RIVALS or ENEMIES? (competitors, adversaries, people they distrust or despise)
-- What TENSIONS exist? (grudges, jealousy, resentment, power struggles, old wounds)
-- What makes them ANGRY? What triggers emotional reactions?
-- How do they TRULY feel about the people they work with?
-
-Examples of GOOD personalityNotes (emotionally rich):
-- 'Sarcastic and deadpan. Close friends with Pam - they share inside jokes. Openly mocks and pranks Dwight, viewing him as insufferable. Resents Michael's incompetence but feels guilty about it. Secretly ambitious but hides it behind irony.'
-- 'Intensely loyal to Michael, sees Jim as a direct threat to everything he's worked for. Aggressive and condescending with subordinates, submissive with authority figures. Holds grudges for years. Seethes with resentment when overlooked.'
-- 'Calculating and ruthless behind a polished exterior. Views colleagues as pawns to be used. Despises weakness and sentimentality. Will sabotage rivals while maintaining plausible deniability. Enjoys watching others fail.'
-- 'Warm but with a temper when pushed. Protective of friends, hostile to outsiders. Still bitter about being passed over for promotion. Distrusts management. Will get passive-aggressive when feeling disrespected.'
-
-Examples of BAD personalityNotes (too bland - DO NOT DO THIS):
-- 'Professional and organized. Good communicator.'
-- 'Friendly and helpful team player.'
-- 'Experienced manager with strong leadership skills.'
-
-Always respond with valid JSON matching the specified schema exactly.";
-
-        // Build storyline summary with indices for character assignment
-        var storylinesSummary = string.Join("\n", storylines.Select((s, i) =>
-            $"[{i}] {s.Title}: {s.Description}"));
-
-        var existingNamesNote = existingNames != null && existingNames.Count > 0
-            ? $"\n\nCRITICAL - DO NOT DUPLICATE: The following characters have already been created. You MUST create DIFFERENT characters - do NOT use any of these names again:\n{string.Join(", ", existingNames)}\n"
-            : "";
-
-        var focusNote = focusStorylineIndices != null
-            ? $"\n\nFocus primarily on storylines {string.Join(", ", focusStorylineIndices)} but characters may be involved in others too.\n"
-            : "";
-
-        var companyNote = !string.IsNullOrEmpty(establishedCompanyDomain) && !string.IsNullOrEmpty(establishedCompanyName)
-            ? $"\n\nIMPORTANT - USE ESTABLISHED COMPANY: The primary company has already been established as:\n- Company Name: {establishedCompanyName}\n- Domain: {establishedCompanyDomain}\nYou MUST use this exact company name and domain for all internal characters.\n"
-            : "";
+        var orgJson = SerializeOrganizationForPrompt(organization, includeCharacters: false);
 
         var userPrompt = $@"Topic: {topic}
+Storyline title: {storyline.Title}
+Storyline summary:
+{storyline.Summary}
 
-Storylines that need characters (use the index numbers to assign characters):
-{storylinesSummary}
-{existingNamesNote}{companyNote}{focusNote}
-Generate exactly {characterCount} NEW characters who would be involved in these storylines. Include:
+Organization (JSON):
+{orgJson}
 
-INTERNAL CHARACTERS ({internalCount}):
-- A mix of management and staff levels at the primary organization
-- Different departments as appropriate
-- Use the primary company domain for all internal employees
+Organization type/state (Raw -> Humanized):
+{organization.OrganizationType} -> {EnumHelper.HumanizeEnumName(organization.OrganizationType.ToString())}
+{organization.Industry} -> {EnumHelper.HumanizeEnumName(organization.Industry.ToString())}
+{organization.State} -> {EnumHelper.HumanizeEnumName(organization.State.ToString())}
 
-EXTERNAL CHARACTERS ({externalCount}):
-- Each external character should have a UNIQUE email domain from a DIFFERENT organization
-- Use diverse, realistic external domains such as:
-  * Law firms: harrisonlegal.com, whitfieldlaw.com, kmattorneys.com
-  * Consulting: strategypartners.com, deloitte.com, mckinsey.com
-  * Vendors/suppliers: officesupplyco.com, techsolutions.net, globalshipping.com
-  * Customers/clients: acmecorp.com, horizonmedia.com, nationalretail.com
-  * Banks/finance: firstnational.com, capitalinvest.com
-  * Government/regulatory: state.gov, compliance-board.org
-  * Personal emails for informal contacts: gmail.com, yahoo.com, outlook.com
-- IMPORTANT: External characters should NOT all share the same domain - each external company/person should have their own unique domain
-- Create realistic company names that match the domains
-
-For each character, specify which storyline indices (0-based) they are involved in.
-
-CRITICAL - STAY ON TOPIC:
-- If this is a known TV show, movie, book, or other media, you MUST use ONLY characters from THAT SPECIFIC source
-- DO NOT mix characters from different properties (e.g., NO Parks and Rec characters in The Office dataset!)
-- For 'The Office': ONLY use Dunder Mifflin characters (Michael Scott, Jim Halpert, Pam Beesly, Dwight Schrute, Angela Martin, Kevin Malone, Oscar Martinez, Stanley Hudson, Phyllis Vance, etc.)
-- Use the REAL company/organization domain (e.g., for 'The Office': dundermifflin.com)
-- External contacts can be fictional (customers, vendors, corporate contacts from other companies)
-
-SIGNATURE BLOCKS:
-- All characters from corporate/organizational domains MUST have a professional email signature block
-- Signature blocks should be consistent for all employees of the same organization
-- Include: name, title, organization, phone (fictional), and optionally address or tagline
-- Personal email domains (gmail.com, yahoo.com, etc.) may have simple or no signatures
-
-PERSONALITY NOTES - MAKE THEM EMOTIONALLY RICH:
-- DO NOT write bland descriptions like 'professional and organized'
-- INCLUDE who they like, who they dislike, who they resent
-- INCLUDE what triggers them emotionally
-- INCLUDE their real attitudes toward colleagues (not just job function)
-- Think about the SOURCE MATERIAL - how do these characters ACTUALLY interact?
+Role/Department legend (Raw -> Humanized):
+{RoleGenerator.BuildRoleDepartmentLegend(organization)}
 
 Respond with JSON in this exact format:
 {{
-  ""primaryCompanyDomain"": ""string (e.g., dundermifflin.com)"",
-  ""primaryCompanyName"": ""string (e.g., Dunder Mifflin Paper Company)"",
-  ""characters"": [
+  ""roles"": [
     {{
-      ""firstName"": ""string"",
-      ""lastName"": ""string"",
-      ""gender"": ""male"" | ""female"" (for TTS voice selection),
-      ""role"": ""string (job title)"",
-      ""department"": ""string"",
-      ""organization"": ""string (company name)"",
-      ""domain"": ""string (email domain for this character)"",
-      ""isExternal"": boolean (true if not part of primary company),
-      ""personalityNotes"": ""string (2-3 sentences about personality, relationships, who they like/dislike, what triggers them)"",
-      ""signatureBlock"": ""string (professional email signature with name, title, company, phone - use \\n for line breaks)"",
-      ""storylineIndices"": [0, 1, 2] (array of storyline indices this character is involved in)
+      ""name"": ""RoleName enum value (must exist in org)"",
+      ""characters"": [
+        {{
+          ""firstName"": ""string"",
+          ""lastName"": ""string"",
+          ""email"": ""string""
+        }}
+      ]
     }}
   ]
 }}";
 
-        var response = await _openAI.GetJsonCompletionAsync<CharacterApiResponse>(systemPrompt, userPrompt, "Character Generation", ct);
+        var response = await _openAI.GetJsonCompletionAsync<RoleCharactersResponse>(
+            systemPrompt,
+            userPrompt,
+            $"Known Character Mapping: {organization.Name}",
+            ct);
 
-        if (response == null)
-            throw new InvalidOperationException("Failed to generate characters");
+        if (response?.Roles == null)
+            return;
 
-        var result = new CharacterGenerationResult
+        AddCharactersToRole(organization, response.Roles, usedNames, usedEmails, allowSingleOccupant: true);
+    }
+
+    internal async Task GenerateAdditionalCharactersAsync(
+        string topic,
+        Storyline storyline,
+        Organization organization,
+        HashSet<string> usedNames,
+        HashSet<string> usedEmails,
+        CancellationToken ct)
+    {
+        var existingCount = organization.EnumerateCharacters().Count();
+        if (existingCount >= MaxCharactersPerOrganization)
+            return;
+
+        var systemPrompt = @"You are the EvidenceFoundry Character Generator.
+Generate additional key characters for the organization.
+
+Rules:
+- Use ONLY roles that exist in the organization.
+- Do NOT create characters for single-occupant roles if already filled.
+- Avoid duplicate names or emails.
+- Return up to the requested number of characters.";
+
+        var orgJson = SerializeOrganizationForPrompt(organization, includeCharacters: true);
+        var existingNames = string.Join(", ", usedNames.OrderBy(n => n));
+        var singletonRoles = string.Join(", ", RoleGenerator.SingleOccupantRoles.Select(r =>
+            $"{r} ({EnumHelper.HumanizeEnumName(r.ToString())})"));
+        var remaining = MaxCharactersPerOrganization - existingCount;
+
+        var userPrompt = $@"Topic: {topic}
+Storyline title: {storyline.Title}
+Storyline summary:
+{storyline.Summary}
+
+Organization (JSON):
+{orgJson}
+
+Organization type/state (Raw -> Humanized):
+{organization.OrganizationType} -> {EnumHelper.HumanizeEnumName(organization.OrganizationType.ToString())}
+{organization.Industry} -> {EnumHelper.HumanizeEnumName(organization.Industry.ToString())}
+{organization.State} -> {EnumHelper.HumanizeEnumName(organization.State.ToString())}
+
+Role/Department legend (Raw -> Humanized):
+{RoleGenerator.BuildRoleDepartmentLegend(organization)}
+
+Single-occupant roles (do not add if already filled):
+{singletonRoles}
+
+Existing character names (do not reuse):
+{existingNames}
+
+Generate up to {remaining} additional characters for this organization.
+Respond with JSON in this exact format:
+{{
+  ""roles"": [
+    {{
+      ""name"": ""RoleName enum value (must exist in org)"",
+      ""characters"": [
+        {{
+          ""firstName"": ""string"",
+          ""lastName"": ""string"",
+          ""email"": ""string""
+        }}
+      ]
+    }}
+  ]
+}}";
+
+        var response = await _openAI.GetJsonCompletionAsync<RoleCharactersResponse>(
+            systemPrompt,
+            userPrompt,
+            $"Additional Characters: {organization.Name}",
+            ct);
+
+        if (response?.Roles == null)
+            return;
+
+        AddCharactersToRole(organization, response.Roles, usedNames, usedEmails, allowSingleOccupant: false, maxTotalCharacters: MaxCharactersPerOrganization);
+    }
+
+    internal async Task EnrichCharactersAsync(
+        string topic,
+        Storyline storyline,
+        Organization organization,
+        CancellationToken ct)
+    {
+        var assignments = organization.EnumerateCharacters().ToList();
+        if (assignments.Count == 0)
+            return;
+
+        var systemPrompt = @"You are the EvidenceFoundry Character Detailer.
+Fill in personality notes, communication style, and signature blocks for each character.
+
+Rules:
+- Keep it workplace-appropriate and fictional.
+- Personality notes must be EXACTLY 3 sentences about the individual only (no relationships/tensions or other characters).
+- Communication style should align with the personality notes and role; describe how they write emails.
+- Signature blocks should be consistent with organization name and role.
+- Return JSON matching the schema exactly.";
+
+        var characterJson = JsonSerializer.Serialize(assignments.Select(a => new
         {
-            CompanyDomain = response.PrimaryCompanyDomain,
-            CompanyName = response.PrimaryCompanyName
+            firstName = a.Character.FirstName,
+            lastName = a.Character.LastName,
+            email = a.Character.Email,
+            role = EnumHelper.HumanizeEnumName(a.Role.Name.ToString()),
+            department = EnumHelper.HumanizeEnumName(a.Department.Name.ToString()),
+            organization = organization.Name
+        }), new JsonSerializerOptions { WriteIndented = true });
+
+        var userPrompt = $@"Topic: {topic}
+Storyline title: {storyline.Title}
+Storyline summary:
+{storyline.Summary}
+
+Organization: {organization.Name} ({organization.Domain})
+
+Characters (JSON):
+{characterJson}
+
+Respond with JSON in this exact format:
+{{
+  ""characters"": [
+    {{
+      ""email"": ""string"",
+      ""gender"": ""male|female|unspecified"",
+      ""personalityNotes"": ""string (exactly 3 sentences about the character's personality with a mix of positive and negative traits to varying degrees.)"",
+      ""communicationStyle"": ""string (1-2 sentences describing their email communication style aligned with personality)"",
+      ""signatureBlock"": ""string (use \\n for line breaks)""
+    }}
+  ]
+}}";
+
+        var response = await _openAI.GetJsonCompletionAsync<CharacterDetailResponse>(
+            systemPrompt,
+            userPrompt,
+            $"Character Details: {organization.Name}",
+            ct);
+
+        if (response?.Characters == null)
+            return;
+
+        var lookup = assignments.ToDictionary(a => a.Character.Email, a => a.Character, StringComparer.OrdinalIgnoreCase);
+        foreach (var detail in response.Characters)
+        {
+            if (string.IsNullOrWhiteSpace(detail.Email))
+                continue;
+            if (!lookup.TryGetValue(detail.Email, out var character))
+                continue;
+
+            character.Personality = detail.PersonalityNotes?.Trim() ?? character.Personality;
+            character.CommunicationStyle = detail.CommunicationStyle?.Trim() ?? character.CommunicationStyle;
+            character.SignatureBlock = detail.SignatureBlock?.Trim() ?? character.SignatureBlock;
+            character.VoiceId = AssignVoice(detail.Gender ?? string.Empty, character.FirstName, character.Personality);
+        }
+    }
+
+    public async Task AnnotateStorylineRelevanceAsync(
+        string topic,
+        Storyline storyline,
+        IReadOnlyList<Organization> organizations,
+        IReadOnlyList<Character> characters,
+        IProgress<string>? progress = null,
+        CancellationToken ct = default)
+    {
+        if (storyline == null)
+            throw new ArgumentNullException(nameof(storyline));
+        if (string.IsNullOrWhiteSpace(storyline.Summary))
+            throw new InvalidOperationException("Storyline summary is required before evaluating character relevance.");
+        if (storyline.Beats == null || storyline.Beats.Count == 0)
+            throw new InvalidOperationException("Storyline beats are required before evaluating character relevance.");
+        if (organizations == null || organizations.Count == 0)
+            throw new InvalidOperationException("At least one organization is required before evaluating character relevance.");
+        if (characters == null || characters.Count == 0)
+            throw new InvalidOperationException("At least one character is required before evaluating character relevance.");
+
+        progress?.Report("Assessing character relevance...");
+
+        var systemPrompt = @"You are the EvidenceFoundry Character Relevance Analyst.
+Determine whether each character is likely to communicate in email threads relevant to the storyline overall.
+
+Rules:
+- Use ONLY the provided characters and organizations.
+- Consider the storyline summary and all story beats.
+- Mark isKeyCharacter true only if the character would likely generate relevant communications for the overall storyline.
+- storylineRelevance must be exactly two concise sentences.
+- plotRelevance must include an entry for EVERY story beat ID, each with exactly two concise sentences (even if tangential).";
+
+        var assignments = organizations
+            .SelectMany(o => o.EnumerateCharacters())
+            .GroupBy(a => a.Character.Email, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.First())
+            .Select(a => new
+            {
+                firstName = a.Character.FirstName,
+                lastName = a.Character.LastName,
+                email = a.Character.Email,
+                role = EnumHelper.HumanizeEnumName(a.Role.Name.ToString()),
+                department = EnumHelper.HumanizeEnumName(a.Department.Name.ToString()),
+                organization = a.Organization.Name,
+                organizationDescription = a.Organization.Description,
+                organizationType = a.Organization.OrganizationType.ToString(),
+                isPlaintiff = a.Organization.IsPlaintiff,
+                isDefendant = a.Organization.IsDefendant
+            })
+            .ToList();
+
+        var characterJson = JsonSerializer.Serialize(assignments, new JsonSerializerOptions { WriteIndented = true });
+        var beatsJson = JsonSerializer.Serialize(storyline.Beats.Select(b => new
+        {
+            id = b.Id,
+            name = b.Name,
+            plot = b.Plot
+        }), new JsonSerializerOptions { WriteIndented = true });
+
+        var userPrompt = $@"Topic: {topic}
+
+Storyline title: {storyline.Title}
+Storyline summary:
+{storyline.Summary}
+
+Story beats (JSON):
+{beatsJson}
+
+Characters (JSON):
+{characterJson}
+
+Respond with JSON in this exact format:
+{{
+  ""characters"": [
+    {{
+      ""email"": ""string"",
+      ""isKeyCharacter"": true|false,
+      ""storylineRelevance"": ""string (exactly two concise sentences)"",
+      ""plotRelevance"": {{
+        ""beatId"": ""string (exactly two concise sentences)""
+      }}
+    }}
+  ]
+}}";
+
+        var response = await _openAI.GetJsonCompletionAsync<CharacterRelevanceResponse>(
+            systemPrompt,
+            userPrompt,
+            "Character Relevance",
+            ct);
+
+        if (response?.Characters == null)
+            return;
+
+        ApplyStorylineRelevance(characters, storyline.Beats, response.Characters);
+    }
+
+    internal static void AddCharactersToRole(
+        Organization organization,
+        List<RoleCharactersDto> roles,
+        HashSet<string> usedNames,
+        HashSet<string> usedEmails,
+        bool allowSingleOccupant,
+        int? maxTotalCharacters = null)
+    {
+        var roleLookup = organization.Departments
+            .SelectMany(d => d.Roles.Select(r => (Role: r, Department: d)))
+            .GroupBy(r => r.Role.Name)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        var totalCount = organization.EnumerateCharacters().Count();
+
+        foreach (var roleDto in roles)
+        {
+            if (!EnumHelper.TryParseEnum(roleDto.Name, out RoleName roleName))
+                continue;
+            if (!roleLookup.TryGetValue(roleName, out var roleAssignments))
+                continue;
+
+            if (!allowSingleOccupant &&
+                RoleGenerator.SingleOccupantRoles.Contains(roleName) &&
+                roleAssignments.Any(r => r.Role.Characters.Count > 0))
+                continue;
+
+            var assignment = RoleGenerator.SelectRoleAssignment(roleName, roleAssignments);
+            var targetRole = assignment.Role;
+            var targetDepartment = assignment.Department;
+
+            foreach (var c in roleDto.Characters ?? new())
+            {
+                if (maxTotalCharacters.HasValue && totalCount >= maxTotalCharacters.Value)
+                    return;
+                if (string.IsNullOrWhiteSpace(c.FirstName) || string.IsNullOrWhiteSpace(c.LastName))
+                    continue;
+
+                var fullName = $"{c.FirstName.Trim()} {c.LastName.Trim()}".Trim();
+                if (usedNames.Contains(fullName))
+                    continue;
+
+                var email = EmailAddressHelper.GenerateUniqueEmail(
+                    c.FirstName,
+                    c.LastName,
+                    organization.Domain,
+                    usedEmails,
+                    c.Email);
+                if (string.IsNullOrWhiteSpace(email))
+                    continue;
+                var character = new Character
+                {
+                    FirstName = c.FirstName.Trim(),
+                    LastName = c.LastName.Trim(),
+                    Email = email,
+                    RoleId = targetRole.Id,
+                    DepartmentId = targetDepartment.Id,
+                    OrganizationId = organization.Id,
+                    Personality = string.Empty,
+                    CommunicationStyle = string.Empty,
+                    SignatureBlock = string.Empty
+                };
+
+                targetRole.Characters.Add(character);
+                usedNames.Add(fullName);
+                usedEmails.Add(email);
+                totalCount++;
+            }
+        }
+    }
+
+    internal static void ApplyStorylineRelevance(
+        IReadOnlyList<Character> characters,
+        IReadOnlyList<StoryBeat> beats,
+        List<CharacterRelevanceDto> relevance)
+    {
+        if (characters == null) throw new ArgumentNullException(nameof(characters));
+        if (beats == null) throw new ArgumentNullException(nameof(beats));
+        if (relevance == null) throw new ArgumentNullException(nameof(relevance));
+
+        var beatIds = new HashSet<Guid>(beats.Select(b => b.Id));
+        var characterLookup = characters
+            .Where(c => !string.IsNullOrWhiteSpace(c.Email))
+            .ToDictionary(c => c.Email, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var entry in relevance)
+        {
+            if (string.IsNullOrWhiteSpace(entry.Email))
+                continue;
+            if (!characterLookup.TryGetValue(entry.Email, out var character))
+                continue;
+
+            character.IsKeyCharacter = entry.IsKeyCharacter;
+            character.StorylineRelevance = entry.StorylineRelevance?.Trim() ?? character.StorylineRelevance;
+
+            if (entry.PlotRelevance == null)
+                continue;
+
+            var plotRelevance = new Dictionary<Guid, string>();
+            foreach (var kvp in entry.PlotRelevance)
+            {
+                if (!Guid.TryParse(kvp.Key, out var beatId))
+                    continue;
+                if (!beatIds.Contains(beatId))
+                    continue;
+                if (string.IsNullOrWhiteSpace(kvp.Value))
+                    continue;
+
+                plotRelevance[beatId] = kvp.Value.Trim();
+            }
+
+            if (plotRelevance.Count > 0)
+            {
+                character.PlotRelevance = plotRelevance;
+            }
+        }
+    }
+
+    private static string SerializeOrganizationForPrompt(Organization organization, bool includeCharacters)
+    {
+        var org = new
+        {
+            name = organization.Name,
+            domain = organization.Domain,
+            description = organization.Description,
+            organizationType = organization.OrganizationType.ToString(),
+            industry = organization.Industry.ToString(),
+            state = organization.State.ToString(),
+            plaintiff = organization.IsPlaintiff,
+            defendant = organization.IsDefendant,
+            departments = organization.Departments.Select(d => new
+            {
+                name = d.Name.ToString(),
+                roles = d.Roles.Select(r => new
+                {
+                    name = r.Name.ToString(),
+                    reportsToRole = r.ReportsToRole?.ToString(),
+                    characters = includeCharacters
+                        ? r.Characters.Select(c => new { firstName = c.FirstName, lastName = c.LastName, email = c.Email })
+                        : null
+                })
+            })
         };
 
-        foreach (var c in response.Characters)
+        return JsonSerializer.Serialize(org, new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    internal static List<Character> FlattenCharacters(IEnumerable<Organization> organizations)
+    {
+        var results = new List<Character>();
+        var seen = new HashSet<Guid>();
+
+        foreach (var assignment in organizations.SelectMany(o => o.EnumerateCharacters()))
         {
-            var emailLocal = $"{c.FirstName.ToLower()}.{c.LastName.ToLower()}"
-                .Replace(" ", "")
-                .Replace("'", "");
-
-            var character = new Character
+            if (seen.Add(assignment.Character.Id))
             {
-                FirstName = c.FirstName,
-                LastName = c.LastName,
-                Email = $"{emailLocal}@{c.Domain}",
-                Role = c.Role,
-                Department = c.Department,
-                Organization = c.Organization,
-                PersonalityNotes = c.PersonalityNotes,
-                SignatureBlock = c.SignatureBlock ?? string.Empty,
-                IsExternal = c.IsExternal,
-                VoiceId = AssignVoice(c.Gender, c.FirstName, c.PersonalityNotes)
-            };
-
-            result.Characters.Add(character);
-
-            // Assign character to storylines
-            if (c.StorylineIndices != null)
-            {
-                foreach (var idx in c.StorylineIndices)
-                {
-                    if (idx >= 0 && idx < storylines.Count)
-                    {
-                        storylines[idx].InvolvedCharacterIds.Add(character.Id);
-                    }
-                }
+                results.Add(assignment.Character);
             }
         }
 
-        return result;
+        return results;
     }
 
-    // API Response DTOs
-    private class CharacterApiResponse
+    private class RoleCharactersResponse
     {
-        [JsonPropertyName("primaryCompanyDomain")]
-        public string PrimaryCompanyDomain { get; set; } = string.Empty;
+        [JsonPropertyName("roles")]
+        public List<RoleCharactersDto>? Roles { get; set; }
+    }
 
-        [JsonPropertyName("primaryCompanyName")]
-        public string PrimaryCompanyName { get; set; } = string.Empty;
+    internal class RoleCharactersDto
+    {
+        [JsonPropertyName("name")]
+        public string Name { get; set; } = string.Empty;
 
         [JsonPropertyName("characters")]
-        public List<CharacterDto> Characters { get; set; } = new();
+        public List<SimpleCharacterDto>? Characters { get; set; }
     }
 
-    private class CharacterDto
+    internal class SimpleCharacterDto
     {
         [JsonPropertyName("firstName")]
         public string FirstName { get; set; } = string.Empty;
@@ -386,38 +566,59 @@ Respond with JSON in this exact format:
         [JsonPropertyName("lastName")]
         public string LastName { get; set; } = string.Empty;
 
-        [JsonPropertyName("role")]
-        public string Role { get; set; } = string.Empty;
+        [JsonPropertyName("email")]
+        public string? Email { get; set; }
+    }
 
-        [JsonPropertyName("department")]
-        public string Department { get; set; } = string.Empty;
+    private class CharacterDetailResponse
+    {
+        [JsonPropertyName("characters")]
+        public List<CharacterDetailDto>? Characters { get; set; }
+    }
 
-        [JsonPropertyName("organization")]
-        public string Organization { get; set; } = string.Empty;
-
-        [JsonPropertyName("domain")]
-        public string Domain { get; set; } = string.Empty;
-
-        [JsonPropertyName("isExternal")]
-        public bool IsExternal { get; set; }
-
-        [JsonPropertyName("personalityNotes")]
-        public string PersonalityNotes { get; set; } = string.Empty;
-
-        [JsonPropertyName("signatureBlock")]
-        public string SignatureBlock { get; set; } = string.Empty;
-
-        [JsonPropertyName("storylineIndices")]
-        public List<int> StorylineIndices { get; set; } = new();
+    private class CharacterDetailDto
+    {
+        [JsonPropertyName("email")]
+        public string Email { get; set; } = string.Empty;
 
         [JsonPropertyName("gender")]
-        public string Gender { get; set; } = string.Empty;
+        public string? Gender { get; set; }
+
+        [JsonPropertyName("personalityNotes")]
+        public string? PersonalityNotes { get; set; }
+
+        [JsonPropertyName("communicationStyle")]
+        public string? CommunicationStyle { get; set; }
+
+        [JsonPropertyName("signatureBlock")]
+        public string? SignatureBlock { get; set; }
+    }
+
+    private class CharacterRelevanceResponse
+    {
+        [JsonPropertyName("characters")]
+        public List<CharacterRelevanceDto>? Characters { get; set; }
+    }
+
+    internal class CharacterRelevanceDto
+    {
+        [JsonPropertyName("email")]
+        public string Email { get; set; } = string.Empty;
+
+        [JsonPropertyName("isKeyCharacter")]
+        public bool IsKeyCharacter { get; set; }
+
+        [JsonPropertyName("storylineRelevance")]
+        public string? StorylineRelevance { get; set; }
+
+        [JsonPropertyName("plotRelevance")]
+        public Dictionary<string, string>? PlotRelevance { get; set; }
     }
 }
 
 public class CharacterGenerationResult
 {
-    public string CompanyDomain { get; set; } = string.Empty;
-    public string CompanyName { get; set; } = string.Empty;
+    public string PrimaryDomain { get; set; } = string.Empty;
+    public List<Organization> Organizations { get; set; } = new();
     public List<Character> Characters { get; set; } = new();
 }

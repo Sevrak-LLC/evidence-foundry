@@ -1,4 +1,4 @@
-namespace ReelDiscovery.Helpers;
+namespace EvidenceFoundry.Helpers;
 
 /// <summary>
 /// A semi-transparent overlay panel with rotating fun loading messages.
@@ -14,7 +14,7 @@ public class LoadingOverlay : Panel
     private readonly string[] _messages;
     private string _currentBaseMessage = "";
 
-    private static readonly string[] StorylineMessages = new[]
+    private static readonly string[] StorylineMessageOptions = new[]
     {
         "Gathering lore",
         "Weaving plot threads",
@@ -22,7 +22,7 @@ public class LoadingOverlay : Panel
         "Brewing drama",
         "Spinning tales",
         "Crafting intrigue",
-        "Summoning storylines",
+        "Summoning storyline",
         "Mining for narrative gold",
         "Connecting the dots",
         "Building tension",
@@ -46,15 +46,46 @@ public class LoadingOverlay : Panel
         "Breathing life into names"
     };
 
+    private static readonly string[] StoryBeatMessages = new[]
+    {
+        "Outlining beats",
+        "Sequencing events",
+        "Charting the arc",
+        "Tightening timelines",
+        "Layering twists",
+        "Balancing motives",
+        "Refining the narrative",
+        "Mapping the fallout",
+        "Connecting the dots",
+        "Sculpting the climax"
+    };
+
+    private static readonly string[] WorldModelMessages = new[]
+    {
+        "Sketching the world",
+        "Inventing organizations",
+        "Mapping key people",
+        "Detailing the landscape"
+    };
+
     public enum LoadingType
     {
-        Storylines,
-        Characters
+        Storyline,
+        Characters,
+        StoryBeats,
+        WorldModel
     }
 
     public LoadingOverlay(LoadingType type)
     {
-        _messages = type == LoadingType.Storylines ? StorylineMessages : CharacterMessages;
+        _messages = type switch
+        {
+            LoadingType.Storyline => StorylineMessageOptions,
+            LoadingType.Characters => CharacterMessages,
+            LoadingType.StoryBeats => StoryBeatMessages,
+            LoadingType.WorldModel => WorldModelMessages,
+            _ => StorylineMessageOptions
+        };
 
         // Enable double buffering to prevent flickering
         this.SetStyle(ControlStyles.OptimizedDoubleBuffer |

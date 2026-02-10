@@ -1,7 +1,7 @@
-using ReelDiscovery.Helpers;
-using ReelDiscovery.Models;
+using EvidenceFoundry.Helpers;
+using EvidenceFoundry.Models;
 
-namespace ReelDiscovery.UserControls;
+namespace EvidenceFoundry.UserControls;
 
 public class ModelConfigurationDialog : Form
 {
@@ -24,7 +24,9 @@ public class ModelConfigurationDialog : Form
             DisplayName = m.DisplayName,
             InputTokenPricePerMillion = m.InputTokenPricePerMillion,
             OutputTokenPricePerMillion = m.OutputTokenPricePerMillion,
-            IsDefault = m.IsDefault
+            IsDefault = m.IsDefault,
+            MaxOutputTokens = m.MaxOutputTokens,
+            MaxJsonOutputTokens = m.MaxJsonOutputTokens
         }).ToList();
 
         InitializeUI();
@@ -271,6 +273,7 @@ public class ModelConfigurationDialog : Form
     private void BtnOk_Click(object? sender, EventArgs e)
     {
         // Validate
+        var modelIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var model in Models)
         {
             if (string.IsNullOrWhiteSpace(model.ModelId))
@@ -279,9 +282,27 @@ public class ModelConfigurationDialog : Form
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
+            if (!AIModelConfig.IsValidModelId(model.ModelId))
+            {
+                MessageBox.Show("Model ID contains invalid characters. Use letters, numbers, dots, hyphens, underscores, or colons.",
+                    "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            if (!modelIds.Add(model.ModelId.Trim()))
+            {
+                MessageBox.Show("Model IDs must be unique.", "Validation Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
             if (string.IsNullOrWhiteSpace(model.DisplayName))
             {
                 MessageBox.Show("All models must have a Display Name.", "Validation Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            if (model.InputTokenPricePerMillion < 0 || model.OutputTokenPricePerMillion < 0)
+            {
+                MessageBox.Show("Token pricing must be zero or greater.", "Validation Error",
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }

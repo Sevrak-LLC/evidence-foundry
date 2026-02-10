@@ -1,6 +1,6 @@
-using ReelDiscovery.Models;
+using EvidenceFoundry.Models;
 
-namespace ReelDiscovery.Helpers;
+namespace EvidenceFoundry.Helpers;
 
 public static class ThreadingHelper
 {
@@ -15,7 +15,7 @@ public static class ThreadingHelper
         string? previousMessageId = null;
         var references = new List<string>();
 
-        foreach (var email in thread.Messages.OrderBy(m => m.SequenceInThread))
+        foreach (var email in thread.EmailMessages.OrderBy(m => m.SequenceInThread))
         {
             // Generate unique Message-ID
             email.MessageId = GenerateMessageId(domain);

@@ -1,0 +1,212 @@
+{
+  "caseAreas": [
+    {
+      "name": "Commercial",
+      "matterTypes": [
+        {
+          "name": "Contracts",
+          "issues": [
+            {
+              "name": "Breach",
+              "description": "A dispute where one business claims the other failed to perform a material obligation under a commercial agreement (deliverables, service levels, warranties, exclusivity, etc.), resulting in damages or specific performance demands."
+            },
+            {
+              "name": "Payment",
+              "description": "A dispute focused on unpaid or disputed amounts under a commercial relationship (invoices, pricing, credits, offsets, chargebacks), often turning on contract terms, performance, and accounting."
+            },
+            {
+              "name": "Termination",
+              "description": "A dispute over whether a contract was properly terminated (cause, cure, notice, renewal) and what consequences follow (fees owed, transition duties, return of materials, survival clauses)."
+            }
+          ]
+        },
+        {
+          "name": "Business Torts",
+          "issues": [
+            {
+              "name": "Fraud",
+              "description": "A dispute alleging one business intentionally misrepresented or concealed key facts to induce a deal or obtain money/advantage (capabilities, pricing, financial condition, compliance, or intent), causing reliance-based harm."
+            },
+            {
+              "name": "Interference",
+              "description": "A dispute where a business claims another intentionally disrupted an existing contract or a near-certain prospective deal (poaching a customer, pressuring a supplier, spreading false claims to derail performance)."
+            },
+            {
+              "name": "Unfair Competition",
+              "description": "A dispute alleging improper competitive conduct between businesses (misuse of confidential info, false comparative claims, passing off, deceptive tactics aimed at business customers or channel partners)."
+            }
+          ]
+        },
+        {
+          "name": "Intellectual Property",
+          "issues": [
+            {
+              "name": "Patent",
+              "description": "A dispute alleging a business product or process infringes a patent, often involving technical operation, product development history, and damages/royalty theories."
+            },
+            {
+              "name": "Trademark",
+              "description": "A dispute about confusingly similar branding or use of marks in commerce that harms another business's brand identity, goodwill, or channel relationships."
+            },
+            {
+              "name": "Copyright",
+              "description": "A dispute alleging unauthorized copying or use of protected works in a commercial context (software, documentation, marketing assets, images, training materials)."
+            },
+            {
+              "name": "Trade Secret",
+              "description": "A dispute alleging misappropriation of protected confidential business information (code, methods, pricing, customer data, product plans) used to compete unfairly."
+            }
+          ]
+        },
+        {
+          "name": "Antitrust",
+          "issues": [
+            {
+              "name": "Collusion",
+              "description": "A dispute alleging competitors coordinated conduct that restrains competition (price-fixing, bid-rigging, market allocation), often tied to pricing, bids, and market behavior."
+            },
+            {
+              "name": "Monopolization",
+              "description": "A dispute alleging a dominant firm used exclusionary conduct to maintain or gain market power (foreclosure, tying, predatory tactics, restrictive contracting, refusal to deal)."
+            }
+          ]
+        },
+        {
+          "name": "Trade Practices",
+          "issues": [
+            {
+              "name": "Deceptive",
+              "description": "A dispute alleging misleading commercial representations made by one business to another (performance claims, pricing representations, comparatives, contractual terms, compliance claims) that affected purchasing or partnering decisions."
+            },
+            {
+              "name": "Class/Rep",
+              "description": "A representative proceeding alleging a standardized business practice caused common harm across many similarly situated business counterparties (e.g., franchisees, distributors, resellers, merchants, or other commercial customers), typically challenging uniform terms, policies, fees, or representations."
+            }
+          ]
+        },
+        {
+          "name": "Insurance",
+          "issues": [
+            {
+              "name": "Coverage",
+              "description": "A dispute over whether a commercial policy applies to a loss or claim and the scope of defense/indemnity obligations, often involving notice, exclusions, and policy interpretation."
+            },
+            {
+              "name": "Bad Faith",
+              "description": "A dispute alleging an insurer unreasonably handled or evaluated the claim (delay, inadequate investigation, improper denial, lowball valuation), causing additional harm beyond the coverage dispute itself."
+            }
+          ]
+        },
+        {
+          "name": "Insolvency",
+          "issues": [
+            {
+              "name": "Bankruptcy",
+              "description": "A business insolvency matter involving disputes over claims, contracts, asset disposition, or adversary proceedings arising in the bankruptcy case."
+            },
+            {
+              "name": "Restructuring",
+              "description": "A dispute tied to renegotiating debt or obligations (workouts, forbearance, recapitalization), often involving lender/creditor negotiations and governance decisions."
+            },
+            {
+              "name": "Creditor Rights",
+              "description": "A dispute where a creditor seeks to enforce contractual or statutory rights (priority, liens, guaranties, claims objections, collateral disputes) against a business counterparty."
+            },
+            {
+              "name": "Avoidance Actions",
+              "description": "A bankruptcy-related claim seeking to unwind certain transfers to recover value for the estate (e.g., preference or fraudulent transfer theories)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Employment",
+      "matterTypes": [
+        {
+          "name": "Restrictive Covenants",
+          "issues": [
+            {
+              "name": "Non-Compete",
+              "description": "A dispute between businesses (often involving a competitor as a defendant) over whether post-employment restrictions are being violated through competitive work, competitive hiring, or use of a former employee to gain an unfair market advantage."
+            },
+            {
+              "name": "Non-Solicit",
+              "description": "A dispute between businesses over alleged solicitation of customers, prospects, vendors, or employees, typically involving a competitor accused of leveraging a departing employee or coordinated outreach to move relationships."
+            }
+          ]
+        },
+        {
+          "name": "Employee Departure",
+          "issues": [
+            {
+              "name": "Confidentiality",
+              "description": "A dispute alleging a departing employee improperly disclosed or used confidential business information, with the competitor accused of receiving, using, or benefiting from that information."
+            },
+            {
+              "name": "Trade Secrets",
+              "description": "A dispute alleging misappropriation of trade secrets through employee movement or collaboration between companies, focusing on whether protected information was taken, used, or incorporated into competing offerings."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Technology",
+      "matterTypes": [
+        {
+          "name": "Software & Services",
+          "issues": [
+            {
+              "name": "SaaS",
+              "description": "A dispute about a hosted software service relationship (availability, performance, data access, usage limits, renewals, support commitments) and resulting damages or termination rights."
+            },
+            {
+              "name": "License",
+              "description": "A dispute about software licensing terms (scope, seats, audit rights, royalties, sublicensing, compliance) and whether use exceeded the grant or triggered payment obligations."
+            },
+            {
+              "name": "Implementation",
+              "description": "A dispute about delivery of technology services (missed milestones, failed go-live, defects, change orders, acceptance, integration issues) and who bears the cost of remediation."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Real Estate & Construction",
+      "matterTypes": [
+        {
+          "name": "Commercial Real Estate",
+          "issues": [
+            {
+              "name": "Lease",
+              "description": "A dispute between businesses over a commercial lease (rent/CAM, maintenance, default, renewal, assignment, buildout obligations) and the consequences of alleged noncompliance."
+            },
+            {
+              "name": "Title/Ownership",
+              "description": "A dispute over ownership interests or transaction defects in commercial property (encumbrances, closing issues, allocation of risk, indemnities) affecting control or value."
+            }
+          ]
+        },
+        {
+          "name": "Construction",
+          "issues": [
+            {
+              "name": "Defect",
+              "description": "A dispute alleging nonconforming or defective construction work on a commercial project, often involving responsibility among GC/subs/design professionals and the cost of repair."
+            },
+            {
+              "name": "Delay",
+              "description": "A dispute about schedule impacts, acceleration, disruption, or critical-path delays on a project, including entitlement to time extensions or delay damages."
+            },
+            {
+              "name": "Payment",
+              "description": "A dispute over progress payments, retainage, change order compensation, lien-related issues, or pay-when-paid/pay-if-paid disputes in a commercial project."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

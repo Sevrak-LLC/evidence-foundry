@@ -1,8 +1,13 @@
-namespace ReelDiscovery.Helpers;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.RegularExpressions;
+using EvidenceFoundry.Models;
+
+namespace EvidenceFoundry.Helpers;
 
 public static class DateHelper
 {
-    private static readonly Random _random = new();
+    private static readonly Random _random = Random.Shared;
 
     public static List<DateTime> DistributeDatesForThread(
         int emailCount,
@@ -74,28 +79,6 @@ public static class DateHelper
         return dt;
     }
 
-    public static (DateTime start, DateTime end) AllocateDateWindow(
-        DateTime overallStart,
-        DateTime overallEnd,
-        int storylineIndex,
-        int totalStorylines)
-    {
-        var totalDays = (overallEnd - overallStart).TotalDays;
-        var daysPerStoryline = totalDays / totalStorylines;
-
-        // Allow some overlap between storylines
-        var overlapDays = daysPerStoryline * 0.2;
-
-        var start = overallStart.AddDays(storylineIndex * daysPerStoryline - overlapDays);
-        var end = overallStart.AddDays((storylineIndex + 1) * daysPerStoryline + overlapDays);
-
-        // Clamp to overall range
-        if (start < overallStart) start = overallStart;
-        if (end > overallEnd) end = overallEnd;
-
-        return (start, end);
-    }
-
     public static DateTime RandomDateInRange(DateTime start, DateTime end)
     {
         var range = (end - start).TotalMinutes;
@@ -113,8 +96,460 @@ public static class DateHelper
         return start.AddMinutes(totalMinutes * fraction);
     }
 
+    internal static (DateTime start, DateTime end, string? note) NormalizeStorylineDateRange(
+        Storyline storyline,
+        DateTime start,
+        DateTime end)
+    {
+        if (storyline == null) throw new ArgumentNullException(nameof(storyline));
+
+        var normalizedStart = start.Date;
+        var normalizedEnd = end.Date;
+        if (normalizedEnd < normalizedStart)
+            normalizedEnd = normalizedStart;
+
+        var notes = new List<string>();
+        var rng = CreateDeterministicRandom(storyline.Title, storyline.Summary);
+        var allowBoundary = HasExplicitBoundaryLanguage(storyline.Title, storyline.Summary);
+
+        if (!allowBoundary)
+        {
+            normalizedStart = NudgeOffMonthStart(normalizedStart, normalizedEnd, rng, notes);
+            normalizedEnd = NudgeOffMonthEnd(normalizedStart, normalizedEnd, rng, notes);
+        }
+
+        var startShift = rng.Next(1, 4);
+        normalizedStart = ShiftByBusinessDays(ClampToWeekday(normalizedStart, forward: true), startShift, direction: 1);
+        notes.Add($"Shifted start forward by {startShift} business day(s).");
+
+        var endShift = rng.Next(1, 8);
+        normalizedEnd = ShiftByBusinessDays(ClampToWeekday(normalizedEnd, forward: false), endShift, direction: -1);
+        notes.Add($"Shifted end earlier by {endShift} business day(s).");
+
+        var maxEnd = normalizedStart.AddMonths(6);
+        if (normalizedEnd > maxEnd)
+        {
+            normalizedEnd = maxEnd;
+            notes.Add("Capped to 6 months after the start date.");
+        }
+
+        if (normalizedEnd < normalizedStart)
+        {
+            normalizedEnd = normalizedStart;
+            notes.Add("Adjusted end date to be on or after the start date.");
+        }
+
+        var note = notes.Count > 0 ? string.Join(" ", notes) : null;
+        return (normalizedStart, normalizedEnd, note);
+    }
+
+    private static DateTime ClampToWeekday(DateTime date, bool forward)
+    {
+        var current = date.Date;
+        if (IsWeekday(current))
+            return current;
+
+        var step = forward ? 1 : -1;
+        while (!IsWeekday(current))
+        {
+            current = current.AddDays(step);
+        }
+
+        return current;
+    }
+
+    private static DateTime ShiftByBusinessDays(DateTime date, int businessDays, int direction)
+    {
+        if (businessDays <= 0)
+            return date.Date;
+
+        var current = date.Date;
+        var remaining = businessDays;
+        var step = direction >= 0 ? 1 : -1;
+
+        while (remaining > 0)
+        {
+            current = current.AddDays(step);
+            if (IsWeekday(current))
+            {
+                remaining--;
+            }
+        }
+
+        return current;
+    }
+
+    private static bool IsWeekday(DateTime date)
+    {
+        return date.DayOfWeek != DayOfWeek.Saturday && date.DayOfWeek != DayOfWeek.Sunday;
+    }
+
+    private static DateTime NudgeOffMonthStart(
+        DateTime start,
+        DateTime end,
+        Random rng,
+        ICollection<string> notes)
+    {
+        if (start.Day != 1)
+            return start;
+
+        var available = (end - start).Days;
+        if (available < 2)
+            return start;
+
+        var maxShift = Math.Min(5, available - 1);
+        if (maxShift <= 0)
+            return start;
+
+        var shift = rng.Next(1, maxShift + 1);
+        notes.Add($"Shifted start off month boundary by {shift} day(s).");
+        return start.AddDays(shift);
+    }
+
+    private static DateTime NudgeOffMonthEnd(
+        DateTime start,
+        DateTime end,
+        Random rng,
+        ICollection<string> notes)
+    {
+        var monthEnd = DateTime.DaysInMonth(end.Year, end.Month);
+        if (end.Day != monthEnd)
+            return end;
+
+        var available = (end - start).Days;
+        if (available < 2)
+            return end;
+
+        var maxShift = Math.Min(5, available - 1);
+        if (maxShift <= 0)
+            return end;
+
+        var shift = rng.Next(1, maxShift + 1);
+        notes.Add($"Shifted end off month boundary by {shift} day(s).");
+        return end.AddDays(-shift);
+    }
+
+    private static bool HasExplicitBoundaryLanguage(string title, string summary)
+    {
+        var text = $"{title} {summary}".ToLowerInvariant();
+
+        if (Regex.IsMatch(text, @"\b(q[1-4]|h[12]|fy\d{2,4})\b"))
+            return true;
+
+        return Regex.IsMatch(text,
+            @"\b(quarter|quarterly|fiscal year|fiscal-year|year-end|year end|month-end|month end|annual|annually|calendar year|half-year|half year)\b");
+    }
+
+    private static Random CreateDeterministicRandom(string title, string summary)
+    {
+        var seedBytes = SHA256.HashData(Encoding.UTF8.GetBytes($"{title}|{summary}"));
+        var seed = BitConverter.ToInt32(seedBytes, 0);
+        return new Random(seed);
+    }
+
+    internal static bool NormalizeStoryBeats(IList<StoryBeat> beats, DateTime storylineStart, DateTime storylineEnd)
+    {
+        if (beats.Count == 0)
+            return false;
+
+        var changed = false;
+        var startDate = storylineStart.Date;
+        var endDate = storylineEnd.Date;
+
+        if (Math.Abs((beats[0].StartDate.Date - startDate).Days) <= 1)
+        {
+            if (beats[0].StartDate.Date != startDate)
+            {
+                beats[0].StartDate = startDate;
+                changed = true;
+            }
+        }
+
+        if (Math.Abs((beats[^1].EndDate.Date - endDate).Days) <= 1)
+        {
+            if (beats[^1].EndDate.Date != endDate)
+            {
+                beats[^1].EndDate = endDate;
+                changed = true;
+            }
+        }
+
+        for (var i = 0; i < beats.Count; i++)
+        {
+            var beat = beats[i];
+            if (beat.StartDate.Date < startDate && (startDate - beat.StartDate.Date).Days <= 1)
+            {
+                beat.StartDate = startDate;
+                changed = true;
+            }
+
+            if (beat.EndDate.Date > endDate && (beat.EndDate.Date - endDate).Days <= 1)
+            {
+                beat.EndDate = endDate;
+                changed = true;
+            }
+        }
+
+        for (var i = 1; i < beats.Count; i++)
+        {
+            var previous = beats[i - 1];
+            var beat = beats[i];
+            var minStart = previous.EndDate.Date.AddDays(1);
+            if (beat.StartDate.Date < minStart && (minStart - beat.StartDate.Date).Days <= 1)
+            {
+                beat.StartDate = minStart;
+                changed = true;
+            }
+
+            if (beat.EndDate.Date < beat.StartDate.Date && (beat.StartDate.Date - beat.EndDate.Date).Days <= 1)
+            {
+                beat.EndDate = beat.StartDate.Date;
+                changed = true;
+            }
+        }
+
+        return changed;
+    }
+
+    internal static DateTime NormalizeFoundedDate(DateTime? founded, DateTime storylineStartDate)
+    {
+        var minDate = storylineStartDate.AddYears(-1).Date;
+        var normalized = founded?.Date ?? storylineStartDate.AddYears(-5).Date;
+        return normalized > minDate ? minDate : normalized;
+    }
+
     public static string FormatForFileName(DateTime date)
     {
         return date.ToString("yyyyMMdd_HHmmss");
+    }
+
+    public static (int businessDays, int saturdays, int sundays) CountDayTypesInclusive(DateTime start, DateTime end)
+    {
+        var startDate = start.Date;
+        var endDate = end.Date;
+        if (endDate < startDate)
+            throw new ArgumentException("End date must be on or after start date.", nameof(end));
+
+        var businessDays = 0;
+        var saturdays = 0;
+        var sundays = 0;
+
+        for (var current = startDate; current <= endDate; current = current.AddDays(1))
+        {
+            switch (current.DayOfWeek)
+            {
+                case DayOfWeek.Saturday:
+                    saturdays++;
+                    break;
+                case DayOfWeek.Sunday:
+                    sundays++;
+                    break;
+                default:
+                    businessDays++;
+                    break;
+            }
+        }
+
+        return (businessDays, saturdays, sundays);
+    }
+
+    public static (int low, int high) GetBusinessDayEmailRange(int keyRoleCount)
+    {
+        if (keyRoleCount <= 0)
+            throw new ArgumentOutOfRangeException(nameof(keyRoleCount), "Key role count must be positive.");
+
+        const double s = 24;
+        const double pMax = 0.65;
+        const double k = 12;
+        const double kappa0 = 3;
+        const double z = 1.645;
+
+        var p = pMax * (1 - Math.Exp(-(keyRoleCount - 1) / k));
+        var mu = keyRoleCount * s * p;
+        var sigma = Math.Sqrt(mu + (mu * mu) / (keyRoleCount * kappa0));
+        var pm = z * sigma;
+
+        var low = Math.Max(0, mu - pm);
+        var high = mu + pm;
+
+        return (CeilToInt(low), CeilToInt(high));
+    }
+
+    public static (int low, int high) GetWeekendEmailRange(int keyRoleCount, DayOfWeek dayType)
+    {
+        if (dayType != DayOfWeek.Saturday && dayType != DayOfWeek.Sunday)
+            throw new ArgumentOutOfRangeException(nameof(dayType), "Day type must be Saturday or Sunday.");
+
+        if (keyRoleCount <= 0)
+            throw new ArgumentOutOfRangeException(nameof(keyRoleCount), "Key role count must be positive.");
+
+        const double s = 24;
+        const double pMax = 0.65;
+        const double k = 12;
+        const double kappa0 = 2;
+        const double z = 1.645;
+        const double mSat = 0.146;
+        const double mSun = 0.136;
+
+        var p = pMax * (1 - Math.Exp(-(keyRoleCount - 1) / k));
+        var muBd = keyRoleCount * s * p;
+        var m = dayType == DayOfWeek.Saturday ? mSat : mSun;
+        var mu = m * muBd;
+
+        var sigma = Math.Sqrt(mu + (mu * mu) / (keyRoleCount * kappa0));
+        var pm = z * sigma;
+
+        var low = Math.Max(0, mu - pm);
+        var high = mu + pm;
+
+        return (CeilToInt(low), CeilToInt(high));
+    }
+
+    public static int CalculateEmailCountForRange(DateTime start, DateTime end, int keyRoleCount, Random rng)
+    {
+        if (rng == null) throw new ArgumentNullException(nameof(rng));
+        if (keyRoleCount <= 0)
+            throw new ArgumentOutOfRangeException(nameof(keyRoleCount), "Key role count must be positive.");
+
+        var startDate = start.Date;
+        var endDate = end.Date;
+        if (endDate < startDate)
+            throw new ArgumentException("End date must be on or after start date.", nameof(end));
+
+        var (businessLow, businessHigh) = GetBusinessDayEmailRange(keyRoleCount);
+        var (satLow, satHigh) = GetWeekendEmailRange(keyRoleCount, DayOfWeek.Saturday);
+        var (sunLow, sunHigh) = GetWeekendEmailRange(keyRoleCount, DayOfWeek.Sunday);
+
+        var total = 0;
+        for (var current = startDate; current <= endDate; current = current.AddDays(1))
+        {
+            switch (current.DayOfWeek)
+            {
+                case DayOfWeek.Saturday:
+                    total += SampleDailyCount(satLow, satHigh, rng);
+                    break;
+                case DayOfWeek.Sunday:
+                    total += SampleDailyCount(sunLow, sunHigh, rng);
+                    break;
+                default:
+                    total += SampleDailyCount(businessLow, businessHigh, rng);
+                    break;
+            }
+        }
+
+        return total;
+    }
+
+    internal static List<int> BuildThreadSizePlan(int totalEmails, Random rng)
+    {
+        if (rng == null) throw new ArgumentNullException(nameof(rng));
+        if (totalEmails < 0)
+            throw new ArgumentOutOfRangeException(nameof(totalEmails), "Total email count must be non-negative.");
+        if (totalEmails == 0) return new List<int>();
+
+        var sizes = new List<int>();
+        var remaining = totalEmails;
+
+        while (remaining > 0)
+        {
+            var eligible = ThreadSizeBuckets.Where(b => b.Min <= remaining).ToList();
+            if (eligible.Count == 0)
+            {
+                sizes.Add(1);
+                remaining -= 1;
+                continue;
+            }
+
+            var chosen = WeightedChoice(eligible, rng);
+            var hi = Math.Min(Math.Min(chosen.Max, remaining), ThreadSizeCap);
+            var lo = chosen.Min;
+
+            int size;
+            if (hi < lo)
+            {
+                size = 1;
+            }
+            else if (hi == lo)
+            {
+                size = lo;
+            }
+            else
+            {
+                size = SampleLowerBiased(lo, hi, rng);
+            }
+
+            sizes.Add(size);
+            remaining -= size;
+        }
+
+        return sizes;
+    }
+
+    private static int SampleDailyCount(int low, int high, Random rng)
+    {
+        if (low < 0) low = 0;
+        if (high < low) high = low;
+        return rng.Next(low, high + 1);
+    }
+
+    private const int ThreadSizeCap = 50;
+
+    private sealed class ThreadSizeBucket
+    {
+        public ThreadSizeBucket(int min, int max, double weight)
+        {
+            Min = min;
+            Max = max;
+            Weight = weight;
+        }
+
+        public int Min { get; }
+        public int Max { get; }
+        public double Weight { get; }
+    }
+
+    private static readonly ThreadSizeBucket[] ThreadSizeBuckets =
+    {
+        new(1, 1, 0.35),
+        new(2, 2, 0.25),
+        new(3, 3, 0.12),
+        new(4, 4, 0.07),
+        new(5, 5, 0.05),
+        new(6, 10, 0.10),
+        new(11, 15, 0.03),
+        new(16, 20, 0.02),
+        new(21, 30, 0.007),
+        new(31, 40, 0.002),
+        new(41, 50, 0.001)
+    };
+
+    private static ThreadSizeBucket WeightedChoice(IReadOnlyList<ThreadSizeBucket> buckets, Random rng)
+    {
+        var totalWeight = buckets.Sum(b => b.Weight);
+        var roll = rng.NextDouble() * totalWeight;
+        var acc = 0.0;
+
+        foreach (var bucket in buckets)
+        {
+            acc += bucket.Weight;
+            if (roll <= acc)
+                return bucket;
+        }
+
+        return buckets[^1];
+    }
+
+    private static int SampleLowerBiased(int min, int max, Random rng)
+    {
+        var x = rng.Next(min, max + 1);
+        var y = rng.Next(min, max + 1);
+        return Math.Min(x, y);
+    }
+
+    private static int CeilToInt(double value)
+    {
+        if (value <= 0) return 0;
+        if (value >= int.MaxValue) return int.MaxValue;
+        return (int)Math.Ceiling(value);
     }
 }

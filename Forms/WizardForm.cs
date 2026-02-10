@@ -1,9 +1,8 @@
-using System.Reflection;
-using ReelDiscovery.Helpers;
-using ReelDiscovery.Models;
-using ReelDiscovery.UserControls;
+using EvidenceFoundry.Helpers;
+using EvidenceFoundry.Models;
+using EvidenceFoundry.UserControls;
 
-namespace ReelDiscovery.Forms;
+namespace EvidenceFoundry.Forms;
 
 public partial class WizardForm : Form
 {
@@ -28,25 +27,6 @@ public partial class WizardForm : Form
         InitializeWizardUI();
         LoadSteps();
         InitializeCostTracker();
-        LoadIcon();
-    }
-
-    private void LoadIcon()
-    {
-        try
-        {
-            var assembly = Assembly.GetExecutingAssembly();
-            var resourceName = "ReelDiscovery.Resources.QD_Logo_Color_236x256.ico";
-            using var stream = assembly.GetManifestResourceStream(resourceName);
-            if (stream != null)
-            {
-                this.Icon = new Icon(stream);
-            }
-        }
-        catch
-        {
-            // Icon loading failed, use default
-        }
     }
 
     private void InitializeCostTracker()
@@ -81,7 +61,7 @@ public partial class WizardForm : Form
         this.ClientSize = new Size(900, 600);
         this.MinimumSize = new Size(800, 500);
         this.Name = "WizardForm";
-        this.Text = "Reel Discovery - E-Discovery Dataset Generator";
+        this.Text = "Evidence Foundry - E-Discovery Dataset Generator";
         this.StartPosition = FormStartPosition.CenterScreen;
         this.ResumeLayout(false);
     }
@@ -136,7 +116,7 @@ public partial class WizardForm : Form
 
         var lblFooter = new LinkLabel
         {
-            Text = "Provided for free distribution by QuikData  |  Visit www.quikdata.com for more information",
+            Text = "Provided for free distribution by Sevrak LLC  |  Visit www.sevrak.com for more information",
             Dock = DockStyle.Fill,
             ForeColor = Color.FromArgb(180, 180, 180),
             LinkColor = Color.FromArgb(100, 180, 255),
@@ -144,7 +124,7 @@ public partial class WizardForm : Form
             Font = new Font("Segoe UI", 8.5F),
             TextAlign = ContentAlignment.MiddleCenter
         };
-        lblFooter.Links.Add(53, 16, "https://www.quikdata.com");
+        lblFooter.Links.Add(53, 16, "https://www.sevrak.com");
         lblFooter.LinkClicked += (s, e) =>
         {
             if (e.Link?.LinkData is string url)
@@ -211,9 +191,12 @@ public partial class WizardForm : Form
     {
         _steps.Add(new StepApiConfiguration());
         _steps.Add(new StepTopicInput());
+        _steps.Add(new StepWorldModel());
         _steps.Add(new StepStorylines());
         _steps.Add(new StepCharacters());
+        _steps.Add(new StepStoryBeats());
         _steps.Add(new StepGenerationConfig());
+        _steps.Add(new StepGenerationSummary());
         _steps.Add(new StepGeneration());
         _steps.Add(new StepComplete());
 

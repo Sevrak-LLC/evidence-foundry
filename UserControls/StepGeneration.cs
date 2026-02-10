@@ -1,8 +1,8 @@
-using ReelDiscovery.Helpers;
-using ReelDiscovery.Models;
-using ReelDiscovery.Services;
+using EvidenceFoundry.Helpers;
+using EvidenceFoundry.Models;
+using EvidenceFoundry.Services;
 
-namespace ReelDiscovery.UserControls;
+namespace EvidenceFoundry.UserControls;
 
 public class StepGeneration : UserControl, IWizardStep
 {
@@ -17,6 +17,7 @@ public class StepGeneration : UserControl, IWizardStep
     private System.Windows.Forms.Timer? _usageUpdateTimer;
     private bool _isGenerating = false;
     private bool _generationComplete = false;
+    private string? _lastStorylineLogged;
 
     public string StepTitle => "Generating Emails";
     public bool CanMoveNext => _generationComplete;
@@ -81,7 +82,7 @@ public class StepGeneration : UserControl, IWizardStep
         // Token usage label
         _lblTokenUsage = new Label
         {
-            Text = "Tokens: 0 | Cost: $0.0000",
+            Text = "Cost: $0.0000 | Tokens: 0",
             Dock = DockStyle.Fill,
             TextAlign = ContentAlignment.MiddleLeft,
             ForeColor = Color.DimGray,
@@ -145,7 +146,7 @@ public class StepGeneration : UserControl, IWizardStep
 
         var tracker = _state.UsageTracker;
         var totalTokens = tracker.TotalInputTokens + tracker.TotalOutputTokens;
-        _lblTokenUsage.Text = $"Tokens: {totalTokens:N0} ({tracker.TotalInputTokens:N0} in / {tracker.TotalOutputTokens:N0} out) | Cost: ${tracker.TotalCost:F4}";
+        _lblTokenUsage.Text = $"Cost: ${tracker.TotalCost:F4} | Tokens: {totalTokens:N0} ({tracker.TotalInputTokens:N0} in / {tracker.TotalOutputTokens:N0} out)";
     }
 
     private async Task StartGenerationAsync()
@@ -165,12 +166,14 @@ public class StepGeneration : UserControl, IWizardStep
         _progressBar.Style = ProgressBarStyle.Marquee;
         _btnCancel.Enabled = true;
         _txtLog.Clear();
+        _lastStorylineLogged = null;
 
         AppendLog("Starting email generation...", Color.Cyan);
-        AppendLog($"Topic: {_state.Topic}");
-        AppendLog($"Storylines: {_state.Storylines.Count}");
+        AppendLog($"Topic: {_state.TopicDisplayName}");
+        var storyline = _state.Storyline;
+        AppendLog($"Storyline: {storyline?.Title ?? "(none)"}");
         AppendLog($"Characters: {_state.Characters.Count}");
-        AppendLog($"Target emails: {_state.Config.TotalEmailCount}");
+        AppendLog($"Target emails: {storyline?.EmailCount ?? 0}");
         AppendLog($"Attachment percentage: {_state.Config.AttachmentPercentage}%");
         AppendLog("");
 
@@ -234,7 +237,10 @@ public class StepGeneration : UserControl, IWizardStep
                 // Verify files were created
                 if (Directory.Exists(result.OutputFolder))
                 {
-                    var emlFiles = Directory.GetFiles(result.OutputFolder, "*.eml").Length;
+                    var searchOption = _state.Config.OrganizeBySender
+                        ? SearchOption.AllDirectories
+                        : SearchOption.TopDirectoryOnly;
+                    var emlFiles = Directory.GetFiles(result.OutputFolder, "*.eml", searchOption).Length;
                     AppendLog($"Verified: {emlFiles} .eml files in output folder", Color.Green);
                 }
             }
@@ -268,6 +274,7 @@ public class StepGeneration : UserControl, IWizardStep
 
             _cts?.Dispose();
             _cts = null;
+            _lastStorylineLogged = null;
             StateChanged?.Invoke(this, EventArgs.Empty);
         }
     }
@@ -304,7 +311,11 @@ public class StepGeneration : UserControl, IWizardStep
 
         if (!string.IsNullOrEmpty(p.CurrentStoryline))
         {
-            AppendLog($"Processing storyline: {p.CurrentStoryline}");
+            if (!string.Equals(_lastStorylineLogged, p.CurrentStoryline, StringComparison.Ordinal))
+            {
+                AppendLog($"Processing storyline: {p.CurrentStoryline}");
+                _lastStorylineLogged = p.CurrentStoryline;
+            }
         }
     }
 

@@ -118,16 +118,4 @@
     <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
   </resheader>
   <assembly alias="System.Windows.Forms" name="System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089" />
-  <data name="QD_Full_Color" type="System.Resources.ResXFileRef, System.Windows.Forms">
-    <value>..\Resources\QD_Full_Color.svg;System.Byte[], mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
-  </data>
-  <data name="QD_Logo_Color_236x256" type="System.Resources.ResXFileRef, System.Windows.Forms">
-    <value>..\Resources\QD_Logo_Color_236x256.ico;System.Byte[], mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
-  </data>
-  <data name="quikdata_disclaimer_banner_yellow_svglogo_with_url" type="System.Resources.ResXFileRef, System.Windows.Forms">
-    <value>..\Resources\quikdata_disclaimer_banner_yellow_svglogo_with_url.png;System.Byte[], mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
-  </data>
-  <data name="ReelDiscovery" type="System.Resources.ResXFileRef, System.Windows.Forms">
-    <value>..\Resources\98c804f5-9d4f-4d4b-a654-a9b33c92781f.png;System.Byte[], mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
-  </data>
 </root>

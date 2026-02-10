@@ -1,4 +1,4 @@
-namespace ReelDiscovery.Helpers;
+namespace EvidenceFoundry.Helpers;
 
 public static class ButtonHelper
 {
