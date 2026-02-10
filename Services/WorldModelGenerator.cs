@@ -9,6 +9,60 @@ public class WorldModelGenerator
 {
     private readonly OpenAIService _openAI;
     private const string RandomIndustryPreference = "Random";
+    private static readonly Dictionary<string, UsState> UsStateAbbreviations = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["AL"] = UsState.Alabama,
+        ["AK"] = UsState.Alaska,
+        ["AZ"] = UsState.Arizona,
+        ["AR"] = UsState.Arkansas,
+        ["CA"] = UsState.California,
+        ["CO"] = UsState.Colorado,
+        ["CT"] = UsState.Connecticut,
+        ["DE"] = UsState.Delaware,
+        ["FL"] = UsState.Florida,
+        ["GA"] = UsState.Georgia,
+        ["HI"] = UsState.Hawaii,
+        ["ID"] = UsState.Idaho,
+        ["IL"] = UsState.Illinois,
+        ["IN"] = UsState.Indiana,
+        ["IA"] = UsState.Iowa,
+        ["KS"] = UsState.Kansas,
+        ["KY"] = UsState.Kentucky,
+        ["LA"] = UsState.Louisiana,
+        ["ME"] = UsState.Maine,
+        ["MD"] = UsState.Maryland,
+        ["MA"] = UsState.Massachusetts,
+        ["MI"] = UsState.Michigan,
+        ["MN"] = UsState.Minnesota,
+        ["MS"] = UsState.Mississippi,
+        ["MO"] = UsState.Missouri,
+        ["MT"] = UsState.Montana,
+        ["NE"] = UsState.Nebraska,
+        ["NV"] = UsState.Nevada,
+        ["NH"] = UsState.NewHampshire,
+        ["NJ"] = UsState.NewJersey,
+        ["NM"] = UsState.NewMexico,
+        ["NY"] = UsState.NewYork,
+        ["NC"] = UsState.NorthCarolina,
+        ["ND"] = UsState.NorthDakota,
+        ["OH"] = UsState.Ohio,
+        ["OK"] = UsState.Oklahoma,
+        ["OR"] = UsState.Oregon,
+        ["PA"] = UsState.Pennsylvania,
+        ["RI"] = UsState.RhodeIsland,
+        ["SC"] = UsState.SouthCarolina,
+        ["SD"] = UsState.SouthDakota,
+        ["TN"] = UsState.Tennessee,
+        ["TX"] = UsState.Texas,
+        ["UT"] = UsState.Utah,
+        ["VT"] = UsState.Vermont,
+        ["VA"] = UsState.Virginia,
+        ["WA"] = UsState.Washington,
+        ["WV"] = UsState.WestVirginia,
+        ["WI"] = UsState.Wisconsin,
+        ["WY"] = UsState.Wyoming,
+        ["DC"] = UsState.DistrictOfColumbia
+    };
 
     public WorldModelGenerator(OpenAIService openAI)
     {
@@ -325,7 +379,7 @@ OUTPUT JSON SCHEMA (respond with JSON that matches this exactly)
         var industry = ParseRequiredEnum<Industry>(
             dto.Industry,
             $"Invalid industry '{dto.Industry}' for organization '{name}'.");
-        var state = ParseRequiredEnum<UsState>(
+        var state = ParseRequiredUsState(
             dto.State,
             $"Invalid state '{dto.State}' for organization '{name}'.");
 
@@ -358,6 +412,18 @@ OUTPUT JSON SCHEMA (respond with JSON that matches this exactly)
             throw new InvalidOperationException(errorMessage);
 
         return parsed;
+    }
+
+    private static UsState ParseRequiredUsState(string? value, string errorMessage)
+    {
+        if (EnumHelper.TryParseEnum(value, out UsState parsed))
+            return parsed;
+
+        if (!string.IsNullOrWhiteSpace(value) &&
+            UsStateAbbreviations.TryGetValue(value.Trim(), out var mapped))
+            return mapped;
+
+        throw new InvalidOperationException(errorMessage);
     }
 
     private static int ValidateFoundedYear(int foundedYear, string organizationName)
