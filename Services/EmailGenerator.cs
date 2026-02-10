@@ -77,111 +77,35 @@ public class EmailGenerator
 
             foreach (var storyline in activeStorylines)
             {
-                var emailCount = storyline.EmailCount;
-                var beats = storyline.Beats ?? new List<StoryBeat>();
-                var completedAtStart = 0;
-
-                try
-                {
-                    ct.ThrowIfCancellationRequested();
-
-                    // Report that we're starting this storyline
-                    ReportProgress(progress, progressData, progressLock, p =>
-                    {
-                        p.CurrentStoryline = storyline.Title;
-                        p.CurrentOperation = $"Processing storyline: {storyline.Title}";
-                    });
-
-                    lock (progressLock)
-                    {
-                        completedAtStart = progressData.CompletedEmails;
-                    }
-
-                    // Generate thread(s) for this storyline
-                    var storylineThreads = await GenerateThreadsForStorylineAsync(
-                        storyline, state.Characters, state.CompanyDomain,
-                        beats,
-                        state.Config, state.DomainThemes, characterContexts,
-                        state, result, progressData, progress, progressLock,
-                        emlService, saveSemaphore, savedThreads, ct);
-
-                    // Add to concurrent collection
-                    foreach (var thread in storylineThreads)
-                    {
-                        threads.Add(thread);
-                    }
-                }
-                catch (OperationCanceledException)
-                {
-                    throw; // Let cancellation propagate
-                }
-                catch (Exception ex)
-                {
-                    // Per-storyline error handling: log and continue with others
-                    lock (progressLock)
-                    {
-                        result.Errors.Add($"Storyline '{storyline.Title}' failed: {ex.Message}");
-                    }
-
-                    // Still count these emails as "completed" for progress tracking
-                    var completedAtFailure = 0;
-                    lock (progressLock)
-                    {
-                        completedAtFailure = progressData.CompletedEmails;
-                    }
-
-                    var completedInStoryline = completedAtFailure - completedAtStart;
-                    var remaining = Math.Max(0, emailCount - completedInStoryline);
-                    if (remaining > 0)
-                    {
-                        ReportProgress(progress, progressData, progressLock, p =>
-                        {
-                            p.CompletedEmails += remaining;
-                        });
-                    }
-                }
+                await ProcessStorylineAsync(
+                    storyline,
+                    state,
+                    characterContexts,
+                    threads,
+                    result,
+                    progressData,
+                    progress,
+                    progressLock,
+                    emlService,
+                    saveSemaphore,
+                    savedThreads,
+                    ct);
             }
 
             // Convert to list for saving and results
             var threadsList = threads.ToList();
 
             // Save any remaining EML files (threads that weren't saved incrementally)
-            var unsavedThreads = threadsList.Where(t => !savedThreads.ContainsKey(t.Id)).ToList();
-            if (unsavedThreads.Count > 0)
-            {
-                ReportProgress(progress, progressData, progressLock, p => p.CurrentOperation = "Saving EML files...");
-
-                try
-                {
-                    var emlProgress = new Progress<(int completed, int total, string currentFile)>(p =>
-                    {
-                        ReportProgress(progress, progressData, progressLock, pd =>
-                        {
-                            pd.CurrentOperation = $"Saving: {p.currentFile}";
-                        });
-                    });
-
-                    await emlService.SaveAllEmailsAsync(
-                        unsavedThreads,
-                        state.Config.OutputFolder,
-                        state.Config.OrganizeBySender,
-                        emlProgress,
-                        ct,
-                        state.Config.ParallelThreads,
-                        releaseAttachmentContent: true);
-                }
-                catch (Exception ex)
-                {
-                    lock (progressLock)
-                    {
-                        result.Errors.Add($"Failed to save EML files: {ex.Message}");
-                        if (ex.InnerException != null)
-                        {
-                            result.Errors.Add($"  Inner error: {ex.InnerException.Message}");
-                        }
-                    }
-                }
-            }
+            await SaveRemainingEmlAsync(
+                threadsList,
+                savedThreads,
+                state,
+                result,
+                progressData,
+                progress,
+                progressLock,
+                emlService,
+                ct);
 
             await GenerateSuggestedSearchTermsAsync(
                 threadsList,
@@ -217,6 +141,136 @@ public class EmailGenerator
             result.Errors.Add(ex.Message);
             result.ElapsedTime = DateTime.Now - startTime;
             return result;
+        }
+    }
+
+    private async Task ProcessStorylineAsync(
+        Storyline storyline,
+        WizardState state,
+        Dictionary<Guid, CharacterContext> characterContexts,
+        ConcurrentBag<EmailThread> threads,
+        GenerationResult result,
+        GenerationProgress progressData,
+        IProgress<GenerationProgress> progress,
+        object progressLock,
+        EmlFileService emlService,
+        SemaphoreSlim saveSemaphore,
+        ConcurrentDictionary<Guid, bool> savedThreads,
+        CancellationToken ct)
+    {
+        var emailCount = storyline.EmailCount;
+        var beats = storyline.Beats ?? new List<StoryBeat>();
+        var completedAtStart = 0;
+
+        try
+        {
+            ct.ThrowIfCancellationRequested();
+
+            // Report that we're starting this storyline
+            ReportProgress(progress, progressData, progressLock, p =>
+            {
+                p.CurrentStoryline = storyline.Title;
+                p.CurrentOperation = $"Processing storyline: {storyline.Title}";
+            });
+
+            lock (progressLock)
+            {
+                completedAtStart = progressData.CompletedEmails;
+            }
+
+            // Generate thread(s) for this storyline
+            var storylineThreads = await GenerateThreadsForStorylineAsync(
+                storyline, state.Characters, state.CompanyDomain,
+                beats,
+                state.Config, state.DomainThemes, characterContexts,
+                state, result, progressData, progress, progressLock,
+                emlService, saveSemaphore, savedThreads, ct);
+
+            // Add to concurrent collection
+            foreach (var thread in storylineThreads)
+            {
+                threads.Add(thread);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw; // Let cancellation propagate
+        }
+        catch (Exception ex)
+        {
+            // Per-storyline error handling: log and continue with others
+            lock (progressLock)
+            {
+                result.Errors.Add($"Storyline '{storyline.Title}' failed: {ex.Message}");
+            }
+
+            // Still count these emails as "completed" for progress tracking
+            var completedAtFailure = 0;
+            lock (progressLock)
+            {
+                completedAtFailure = progressData.CompletedEmails;
+            }
+
+            var completedInStoryline = completedAtFailure - completedAtStart;
+            var remaining = Math.Max(0, emailCount - completedInStoryline);
+            if (remaining > 0)
+            {
+                ReportProgress(progress, progressData, progressLock, p =>
+                {
+                    p.CompletedEmails += remaining;
+                });
+            }
+        }
+    }
+
+    private static async Task SaveRemainingEmlAsync(
+        List<EmailThread> threadsList,
+        ConcurrentDictionary<Guid, bool> savedThreads,
+        WizardState state,
+        GenerationResult result,
+        GenerationProgress progressData,
+        IProgress<GenerationProgress> progress,
+        object progressLock,
+        EmlFileService emlService,
+        CancellationToken ct)
+    {
+        var unsavedThreads = threadsList.Where(t => !savedThreads.ContainsKey(t.Id)).ToList();
+        if (unsavedThreads.Count == 0)
+        {
+            return;
+        }
+
+        ReportProgress(progress, progressData, progressLock, p => p.CurrentOperation = "Saving EML files...");
+
+        try
+        {
+            var emlProgress = new Progress<(int completed, int total, string currentFile)>(p =>
+            {
+                ReportProgress(progress, progressData, progressLock, pd =>
+                {
+                    pd.CurrentOperation = $"Saving: {p.currentFile}";
+                });
+            });
+
+            await emlService.SaveAllEmailsAsync(
+                unsavedThreads,
+                state.Config.OutputFolder,
+                state.Config.OrganizeBySender,
+                emlProgress,
+                ct,
+                state.Config.ParallelThreads,
+                releaseAttachmentContent: true);
+        }
+        catch (Exception ex)
+        {
+            lock (progressLock)
+            {
+                result.Errors.Add($"Failed to save EML files: {ex.Message}");
+                if (ex.InnerException != null)
+                {
+                    result.Errors.Add($"  Inner error: {ex.InnerException.Message}");
+                }
+            }
         }
     }
 
@@ -498,6 +552,17 @@ public class EmailGenerator
 
     private readonly record struct CharacterContext(string Role, string Department, string Organization);
 
+    private readonly record struct ThreadPlan(
+        int Index,
+        EmailThread Thread,
+        int EmailCount,
+        DateTime Start,
+        DateTime End,
+        string BeatName,
+        List<Character> Participants,
+        Dictionary<string, Character> ParticipantLookup,
+        string ParticipantList);
+
     private static Dictionary<Guid, CharacterContext> BuildCharacterContextMap(List<Organization> organizations)
     {
         var map = new Dictionary<Guid, CharacterContext>();
@@ -563,103 +628,35 @@ public class EmailGenerator
     {
         if (beats == null || beats.Count == 0) return new List<EmailThread>();
 
-        var threadPlans = new List<(int Index, EmailThread Thread, int EmailCount, DateTime Start, DateTime End, string BeatName, List<Character> Participants, Dictionary<string, Character> ParticipantLookup, string ParticipantList)>();
-        var planIndex = 0;
-
-        foreach (var beat in beats)
-        {
-            if (beat.EmailCount <= 0)
-            {
-                if (beat.Threads.Count > 0)
-                    throw new InvalidOperationException($"Story beat '{beat.Name}' has threads but zero planned emails.");
-                continue;
-            }
-
-            if (beat.Threads.Count == 0)
-                throw new InvalidOperationException($"Story beat '{beat.Name}' has no planned threads. Regenerate story beats.");
-
-            var emailsAssigned = 0;
-            foreach (var thread in beat.Threads)
-            {
-                if (thread.EmailMessages.Count == 0)
-                    throw new InvalidOperationException($"Story beat '{beat.Name}' has a thread with no planned emails.");
-                if (thread.StoryBeatId != beat.Id)
-                    throw new InvalidOperationException($"Story beat '{beat.Name}' has a thread with an unexpected StoryBeatId.");
-                if (thread.StorylineId != beat.StorylineId || thread.StorylineId != storyline.Id)
-                    throw new InvalidOperationException($"Story beat '{beat.Name}' has a thread with an unexpected StorylineId.");
-
-                var threadEmailCount = thread.EmailMessages.Count;
-                var threadStartDate = DateHelper.InterpolateDateInRange(beat.StartDate, beat.EndDate, (double)emailsAssigned / beat.EmailCount);
-                var threadEndDate = DateHelper.InterpolateDateInRange(beat.StartDate, beat.EndDate, (double)(emailsAssigned + threadEmailCount) / beat.EmailCount);
-                _threadGenerator.AssignThreadParticipants(thread, state.Organizations, _random);
-
-                var participants = thread.CharacterParticipants
-                    .Where(c => !string.IsNullOrWhiteSpace(c.Email))
-                    .GroupBy(c => c.Id)
-                    .Select(g => g.First())
-                    .ToList();
-
-                if (participants.Count == 0)
-                {
-                    participants = characters
-                        .Where(c => !string.IsNullOrWhiteSpace(c.Email))
-                        .ToList();
-                }
-
-                var participantLookup = participants.ToDictionary(c => c.Email, StringComparer.OrdinalIgnoreCase);
-                var participantList = BuildCharacterList(participants, characterContexts);
-
-                threadPlans.Add((planIndex++, thread, threadEmailCount, threadStartDate, threadEndDate, beat.Name, participants, participantLookup, participantList));
-                emailsAssigned += threadEmailCount;
-            }
-
-            if (emailsAssigned != beat.EmailCount)
-                throw new InvalidOperationException($"Story beat '{beat.Name}' planned emails ({emailsAssigned}) do not match beat email count ({beat.EmailCount}).");
-        }
-
+        var threadPlans = BuildThreadPlans(storyline, characters, beats, characterContexts, state);
         if (threadPlans.Count == 0) return new List<EmailThread>();
 
         var threads = new EmailThread?[threadPlans.Count];
-
         var systemPrompt = BuildEmailSystemPrompt();
-
         var degree = Math.Max(1, config.ParallelThreads);
+
         if (degree == 1)
         {
             foreach (var plan in threadPlans)
             {
                 ct.ThrowIfCancellationRequested();
-
-                var thread = await GenerateThreadWithRetriesAsync(
+                await GenerateThreadPlanAsync(
+                    plan,
+                    threads,
                     storyline,
-                    plan.Thread,
-                    plan.Participants,
-                    plan.ParticipantLookup,
                     domain,
-                    plan.EmailCount,
-                    plan.Start,
-                    plan.End,
                     config,
                     domainThemes,
                     systemPrompt,
-                    plan.ParticipantList,
-                    plan.BeatName,
+                    state,
                     result,
+                    progressData,
+                    progress,
                     progressLock,
+                    emlService,
+                    saveSemaphore,
+                    savedThreads,
                     ct);
-                ReportProgress(progress, progressData, progressLock, p =>
-                {
-                    p.CompletedEmails = Math.Min(p.TotalEmails, p.CompletedEmails + plan.EmailCount);
-                    p.CurrentOperation = thread != null
-                        ? $"Generated thread: {GetThreadSubject(thread)}"
-                        : $"Skipped thread after {MaxThreadGenerationAttempts} attempts (beat: {plan.BeatName})";
-                });
-                if (thread != null)
-                {
-                    await GenerateThreadAssetsAsync(thread, state, result, progressData, progress, progressLock, ct);
-                    await SaveThreadAsync(thread, config, emlService, progressData, progress, progressLock, saveSemaphore, result, savedThreads, ct);
-                    threads[plan.Index] = thread;
-                }
             }
         }
         else
@@ -670,40 +667,177 @@ public class EmailGenerator
                 CancellationToken = ct
             }, async (plan, token) =>
             {
-                var thread = await GenerateThreadWithRetriesAsync(
+                await GenerateThreadPlanAsync(
+                    plan,
+                    threads,
                     storyline,
-                    plan.Thread,
-                    plan.Participants,
-                    plan.ParticipantLookup,
                     domain,
-                    plan.EmailCount,
-                    plan.Start,
-                    plan.End,
                     config,
                     domainThemes,
                     systemPrompt,
-                    plan.ParticipantList,
-                    plan.BeatName,
+                    state,
                     result,
+                    progressData,
+                    progress,
                     progressLock,
+                    emlService,
+                    saveSemaphore,
+                    savedThreads,
                     token);
-                ReportProgress(progress, progressData, progressLock, p =>
-                {
-                    p.CompletedEmails = Math.Min(p.TotalEmails, p.CompletedEmails + plan.EmailCount);
-                    p.CurrentOperation = thread != null
-                        ? $"Generated thread: {GetThreadSubject(thread)}"
-                        : $"Skipped thread after {MaxThreadGenerationAttempts} attempts (beat: {plan.BeatName})";
-                });
-                if (thread != null)
-                {
-                    await GenerateThreadAssetsAsync(thread, state, result, progressData, progress, progressLock, token);
-                    await SaveThreadAsync(thread, config, emlService, progressData, progress, progressLock, saveSemaphore, result, savedThreads, token);
-                    threads[plan.Index] = thread;
-                }
             });
         }
 
         return threads.Where(t => t != null).Select(t => t!).ToList();
+    }
+
+    private List<ThreadPlan> BuildThreadPlans(
+        Storyline storyline,
+        List<Character> characters,
+        IReadOnlyList<StoryBeat> beats,
+        Dictionary<Guid, CharacterContext> characterContexts,
+        WizardState state)
+    {
+        var threadPlans = new List<ThreadPlan>();
+        var planIndex = 0;
+
+        foreach (var beat in beats)
+        {
+            if (!TryPrepareBeatForPlanning(beat))
+                continue;
+
+            var emailsAssigned = 0;
+            foreach (var thread in beat.Threads)
+            {
+                EnsureThreadIsValidForBeat(thread, beat, storyline);
+
+                var threadEmailCount = thread.EmailMessages.Count;
+                var threadStartDate = DateHelper.InterpolateDateInRange(beat.StartDate, beat.EndDate, (double)emailsAssigned / beat.EmailCount);
+                var threadEndDate = DateHelper.InterpolateDateInRange(beat.StartDate, beat.EndDate, (double)(emailsAssigned + threadEmailCount) / beat.EmailCount);
+                _threadGenerator.AssignThreadParticipants(thread, state.Organizations, _random);
+
+                var participants = ResolveThreadParticipants(thread, characters);
+                var participantLookup = participants.ToDictionary(c => c.Email, StringComparer.OrdinalIgnoreCase);
+                var participantList = BuildCharacterList(participants, characterContexts);
+
+                threadPlans.Add(new ThreadPlan(
+                    planIndex++,
+                    thread,
+                    threadEmailCount,
+                    threadStartDate,
+                    threadEndDate,
+                    beat.Name,
+                    participants,
+                    participantLookup,
+                    participantList));
+
+                emailsAssigned += threadEmailCount;
+            }
+
+            EnsureBeatEmailCountMatches(beat, emailsAssigned);
+        }
+
+        return threadPlans;
+    }
+
+    private static bool TryPrepareBeatForPlanning(StoryBeat beat)
+    {
+        if (beat.EmailCount <= 0)
+        {
+            if (beat.Threads.Count > 0)
+                throw new InvalidOperationException($"Story beat '{beat.Name}' has threads but zero planned emails.");
+            return false;
+        }
+
+        if (beat.Threads.Count == 0)
+            throw new InvalidOperationException($"Story beat '{beat.Name}' has no planned threads. Regenerate story beats.");
+
+        return true;
+    }
+
+    private static void EnsureThreadIsValidForBeat(EmailThread thread, StoryBeat beat, Storyline storyline)
+    {
+        if (thread.EmailMessages.Count == 0)
+            throw new InvalidOperationException($"Story beat '{beat.Name}' has a thread with no planned emails.");
+        if (thread.StoryBeatId != beat.Id)
+            throw new InvalidOperationException($"Story beat '{beat.Name}' has a thread with an unexpected StoryBeatId.");
+        if (thread.StorylineId != beat.StorylineId || thread.StorylineId != storyline.Id)
+            throw new InvalidOperationException($"Story beat '{beat.Name}' has a thread with an unexpected StorylineId.");
+    }
+
+    private static List<Character> ResolveThreadParticipants(EmailThread thread, List<Character> characters)
+    {
+        var participants = thread.CharacterParticipants
+            .Where(c => !string.IsNullOrWhiteSpace(c.Email))
+            .GroupBy(c => c.Id)
+            .Select(g => g.First())
+            .ToList();
+
+        if (participants.Count == 0)
+        {
+            participants = characters
+                .Where(c => !string.IsNullOrWhiteSpace(c.Email))
+                .ToList();
+        }
+
+        return participants;
+    }
+
+    private static void EnsureBeatEmailCountMatches(StoryBeat beat, int emailsAssigned)
+    {
+        if (emailsAssigned != beat.EmailCount)
+            throw new InvalidOperationException($"Story beat '{beat.Name}' planned emails ({emailsAssigned}) do not match beat email count ({beat.EmailCount}).");
+    }
+
+    private async Task GenerateThreadPlanAsync(
+        ThreadPlan plan,
+        EmailThread?[] threads,
+        Storyline storyline,
+        string domain,
+        GenerationConfig config,
+        Dictionary<string, OrganizationTheme> domainThemes,
+        string systemPrompt,
+        WizardState state,
+        GenerationResult result,
+        GenerationProgress progressData,
+        IProgress<GenerationProgress> progress,
+        object progressLock,
+        EmlFileService emlService,
+        SemaphoreSlim saveSemaphore,
+        ConcurrentDictionary<Guid, bool> savedThreads,
+        CancellationToken ct)
+    {
+        var thread = await GenerateThreadWithRetriesAsync(
+            storyline,
+            plan.Thread,
+            plan.Participants,
+            plan.ParticipantLookup,
+            domain,
+            plan.EmailCount,
+            plan.Start,
+            plan.End,
+            config,
+            domainThemes,
+            systemPrompt,
+            plan.ParticipantList,
+            plan.BeatName,
+            result,
+            progressLock,
+            ct);
+
+        ReportProgress(progress, progressData, progressLock, p =>
+        {
+            p.CompletedEmails = Math.Min(p.TotalEmails, p.CompletedEmails + plan.EmailCount);
+            p.CurrentOperation = thread != null
+                ? $"Generated thread: {GetThreadSubject(thread)}"
+                : $"Skipped thread after {MaxThreadGenerationAttempts} attempts (beat: {plan.BeatName})";
+        });
+
+        if (thread == null)
+            return;
+
+        await GenerateThreadAssetsAsync(thread, state, result, progressData, progress, progressLock, ct);
+        await SaveThreadAsync(thread, config, emlService, progressData, progress, progressLock, saveSemaphore, result, savedThreads, ct);
+        threads[plan.Index] = thread;
     }
 
     private async Task GenerateThreadAssetsAsync(
@@ -717,179 +851,224 @@ public class EmailGenerator
     {
         var emails = thread.EmailMessages;
 
+        await GeneratePlannedDocumentsAsync(emails, state, result, progressData, progress, progressLock, ct);
+        await GeneratePlannedImagesAsync(emails, state, result, progressData, progress, progressLock, ct);
+        await GenerateCalendarInvitesAsync(emails, state, result, progressData, progress, progressLock, ct);
+        await GeneratePlannedVoicemailsAsync(emails, state, result, progressData, progress, progressLock, ct);
+    }
+
+    private async Task GeneratePlannedDocumentsAsync(
+        List<EmailMessage> emails,
+        WizardState state,
+        GenerationResult result,
+        GenerationProgress progressData,
+        IProgress<GenerationProgress> progress,
+        object progressLock,
+        CancellationToken ct)
+    {
         var emailsWithPlannedDocuments = emails.Where(e => e.PlannedHasDocument).ToList();
-        if (emailsWithPlannedDocuments.Count > 0)
+        if (emailsWithPlannedDocuments.Count == 0)
+            return;
+
+        ReportProgress(progress, progressData, progressLock, p =>
+        {
+            p.TotalAttachments += emailsWithPlannedDocuments.Count;
+        });
+
+        foreach (var email in emailsWithPlannedDocuments)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            ReportProgress(progress, progressData, progressLock, p =>
+            {
+                p.CurrentOperation = $"Creating attachment for: {email.Subject}";
+            });
+
+            await GeneratePlannedDocumentAsync(email, state, ct);
+
+            var attachment = email.Attachments.FirstOrDefault(a =>
+                a.Type == AttachmentType.Word ||
+                a.Type == AttachmentType.Excel ||
+                a.Type == AttachmentType.PowerPoint);
+
+            GenerationProgress snapshot;
+            lock (progressLock)
+            {
+                progressData.CompletedAttachments++;
+
+                if (attachment != null)
+                {
+                    switch (attachment.Type)
+                    {
+                        case AttachmentType.Word:
+                            result.WordDocumentsGenerated++;
+                            break;
+                        case AttachmentType.Excel:
+                            result.ExcelDocumentsGenerated++;
+                            break;
+                        case AttachmentType.PowerPoint:
+                            result.PowerPointDocumentsGenerated++;
+                            break;
+                    }
+                }
+
+                snapshot = progressData.Snapshot();
+            }
+
+            progress.Report(snapshot);
+        }
+    }
+
+    private async Task GeneratePlannedImagesAsync(
+        List<EmailMessage> emails,
+        WizardState state,
+        GenerationResult result,
+        GenerationProgress progressData,
+        IProgress<GenerationProgress> progress,
+        object progressLock,
+        CancellationToken ct)
+    {
+        if (!state.Config.IncludeImages)
+            return;
+
+        var emailsWithPlannedImages = emails.Where(e => e.PlannedHasImage).ToList();
+        if (emailsWithPlannedImages.Count == 0)
+            return;
+
+        ReportProgress(progress, progressData, progressLock, p =>
+        {
+            p.TotalAttachments += emailsWithPlannedImages.Count;
+            p.TotalImages += emailsWithPlannedImages.Count;
+        });
+
+        foreach (var email in emailsWithPlannedImages)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            ReportProgress(progress, progressData, progressLock, p =>
+            {
+                p.CurrentOperation = $"Generating image for: {email.Subject}";
+            });
+
+            await GeneratePlannedImageAsync(email, state, ct);
+
+            var hasImage = email.Attachments.Any(a => a.Type == AttachmentType.Image);
+
+            GenerationProgress snapshot;
+            lock (progressLock)
+            {
+                progressData.CompletedAttachments++;
+                progressData.CompletedImages++;
+                if (hasImage)
+                {
+                    result.ImagesGenerated++;
+                }
+
+                snapshot = progressData.Snapshot();
+            }
+
+            progress.Report(snapshot);
+        }
+    }
+
+    private async Task GenerateCalendarInvitesAsync(
+        List<EmailMessage> emails,
+        WizardState state,
+        GenerationResult result,
+        GenerationProgress progressData,
+        IProgress<GenerationProgress> progress,
+        object progressLock,
+        CancellationToken ct)
+    {
+        if (!state.Config.IncludeCalendarInvites || state.Config.CalendarInvitePercentage <= 0)
+            return;
+
+        var maxCalendarEmails = Math.Max(1, (int)Math.Round(emails.Count * state.Config.CalendarInvitePercentage / 100.0));
+        var emailsToCheckForCalendar = emails
+            .OrderBy(_ => _random.Next())
+            .Take(maxCalendarEmails)
+            .ToList();
+
+        if (emailsToCheckForCalendar.Count > 0)
         {
             ReportProgress(progress, progressData, progressLock, p =>
             {
-                p.TotalAttachments += emailsWithPlannedDocuments.Count;
+                p.TotalAttachments += emailsToCheckForCalendar.Count;
+            });
+        }
+
+        foreach (var email in emailsToCheckForCalendar)
+        {
+            ct.ThrowIfCancellationRequested();
+            ReportProgress(progress, progressData, progressLock, p =>
+            {
+                p.CurrentOperation = $"Checking calendar invite for: {email.Subject}";
+            });
+            await DetectAndAddCalendarInviteAsync(email, state.Characters, ct);
+
+            var hasInvite = email.Attachments.Any(a => a.Type == AttachmentType.CalendarInvite);
+            GenerationProgress snapshot;
+            lock (progressLock)
+            {
+                progressData.CompletedAttachments++;
+                if (hasInvite)
+                {
+                    result.CalendarInvitesGenerated++;
+                }
+
+                snapshot = progressData.Snapshot();
+            }
+
+            progress.Report(snapshot);
+        }
+    }
+
+    private async Task GeneratePlannedVoicemailsAsync(
+        List<EmailMessage> emails,
+        WizardState state,
+        GenerationResult result,
+        GenerationProgress progressData,
+        IProgress<GenerationProgress> progress,
+        object progressLock,
+        CancellationToken ct)
+    {
+        if (!state.Config.IncludeVoicemails)
+            return;
+
+        var emailsWithPlannedVoicemails = emails.Where(e => e.PlannedHasVoicemail).ToList();
+        if (emailsWithPlannedVoicemails.Count == 0)
+            return;
+
+        ReportProgress(progress, progressData, progressLock, p =>
+        {
+            p.TotalAttachments += emailsWithPlannedVoicemails.Count;
+        });
+
+        foreach (var email in emailsWithPlannedVoicemails)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            ReportProgress(progress, progressData, progressLock, p =>
+            {
+                p.CurrentOperation = $"Generating voicemail for: {email.From.FullName}";
             });
 
-            foreach (var email in emailsWithPlannedDocuments)
+            await GeneratePlannedVoicemailAsync(email, state, ct);
+
+            var hasVoicemail = email.Attachments.Any(a => a.Type == AttachmentType.Voicemail);
+            GenerationProgress snapshot;
+            lock (progressLock)
             {
-                ct.ThrowIfCancellationRequested();
-
-                ReportProgress(progress, progressData, progressLock, p =>
+                progressData.CompletedAttachments++;
+                if (hasVoicemail)
                 {
-                    p.CurrentOperation = $"Creating attachment for: {email.Subject}";
-                });
-
-                await GeneratePlannedDocumentAsync(email, state, ct);
-
-                var attachment = email.Attachments.FirstOrDefault(a =>
-                    a.Type == AttachmentType.Word ||
-                    a.Type == AttachmentType.Excel ||
-                    a.Type == AttachmentType.PowerPoint);
-
-                GenerationProgress snapshot;
-                lock (progressLock)
-                {
-                    progressData.CompletedAttachments++;
-
-                    if (attachment != null)
-                    {
-                        switch (attachment.Type)
-                        {
-                            case AttachmentType.Word:
-                                result.WordDocumentsGenerated++;
-                                break;
-                            case AttachmentType.Excel:
-                                result.ExcelDocumentsGenerated++;
-                                break;
-                            case AttachmentType.PowerPoint:
-                                result.PowerPointDocumentsGenerated++;
-                                break;
-                        }
-                    }
-
-                    snapshot = progressData.Snapshot();
+                    result.VoicemailsGenerated++;
                 }
 
-                progress.Report(snapshot);
-            }
-        }
-
-        if (state.Config.IncludeImages)
-        {
-            var emailsWithPlannedImages = emails.Where(e => e.PlannedHasImage).ToList();
-            if (emailsWithPlannedImages.Count > 0)
-            {
-                ReportProgress(progress, progressData, progressLock, p =>
-                {
-                    p.TotalAttachments += emailsWithPlannedImages.Count;
-                    p.TotalImages += emailsWithPlannedImages.Count;
-                });
-
-                foreach (var email in emailsWithPlannedImages)
-                {
-                    ct.ThrowIfCancellationRequested();
-
-                    ReportProgress(progress, progressData, progressLock, p =>
-                    {
-                        p.CurrentOperation = $"Generating image for: {email.Subject}";
-                    });
-
-                    await GeneratePlannedImageAsync(email, state, ct);
-
-                    var hasImage = email.Attachments.Any(a => a.Type == AttachmentType.Image);
-
-                    GenerationProgress snapshot;
-                    lock (progressLock)
-                    {
-                        progressData.CompletedAttachments++;
-                        progressData.CompletedImages++;
-                        if (hasImage)
-                        {
-                            result.ImagesGenerated++;
-                        }
-
-                        snapshot = progressData.Snapshot();
-                    }
-
-                    progress.Report(snapshot);
-                }
-            }
-        }
-
-        if (state.Config.IncludeCalendarInvites && state.Config.CalendarInvitePercentage > 0)
-        {
-            var maxCalendarEmails = Math.Max(1, (int)Math.Round(emails.Count * state.Config.CalendarInvitePercentage / 100.0));
-            var emailsToCheckForCalendar = emails
-                .OrderBy(_ => _random.Next())
-                .Take(maxCalendarEmails)
-                .ToList();
-
-            if (emailsToCheckForCalendar.Count > 0)
-            {
-                ReportProgress(progress, progressData, progressLock, p =>
-                {
-                    p.TotalAttachments += emailsToCheckForCalendar.Count;
-                });
+                snapshot = progressData.Snapshot();
             }
 
-            foreach (var email in emailsToCheckForCalendar)
-            {
-                ct.ThrowIfCancellationRequested();
-                ReportProgress(progress, progressData, progressLock, p =>
-                {
-                    p.CurrentOperation = $"Checking calendar invite for: {email.Subject}";
-                });
-                await DetectAndAddCalendarInviteAsync(email, state.Characters, ct);
-
-                var hasInvite = email.Attachments.Any(a => a.Type == AttachmentType.CalendarInvite);
-                GenerationProgress snapshot;
-                lock (progressLock)
-                {
-                    progressData.CompletedAttachments++;
-                    if (hasInvite)
-                    {
-                        result.CalendarInvitesGenerated++;
-                    }
-
-                    snapshot = progressData.Snapshot();
-                }
-
-                progress.Report(snapshot);
-            }
-        }
-
-        if (state.Config.IncludeVoicemails)
-        {
-            var emailsWithPlannedVoicemails = emails.Where(e => e.PlannedHasVoicemail).ToList();
-            if (emailsWithPlannedVoicemails.Count > 0)
-            {
-                ReportProgress(progress, progressData, progressLock, p =>
-                {
-                    p.TotalAttachments += emailsWithPlannedVoicemails.Count;
-                });
-
-                foreach (var email in emailsWithPlannedVoicemails)
-                {
-                    ct.ThrowIfCancellationRequested();
-
-                    ReportProgress(progress, progressData, progressLock, p =>
-                    {
-                        p.CurrentOperation = $"Generating voicemail for: {email.From.FullName}";
-                    });
-
-                    await GeneratePlannedVoicemailAsync(email, state, ct);
-
-                    var hasVoicemail = email.Attachments.Any(a => a.Type == AttachmentType.Voicemail);
-                    GenerationProgress snapshot;
-                    lock (progressLock)
-                    {
-                        progressData.CompletedAttachments++;
-                        if (hasVoicemail)
-                        {
-                            result.VoicemailsGenerated++;
-                        }
-
-                        snapshot = progressData.Snapshot();
-                    }
-
-                    progress.Report(snapshot);
-                }
-            }
+            progress.Report(snapshot);
         }
     }
 
@@ -1551,86 +1730,20 @@ ATTACHMENT REMINDER:
         DateTime startDate, DateTime endDate, ref int sequence, int batchOffset)
     {
         if (target == null) throw new ArgumentNullException(nameof(target));
-        if (!participantLookup.TryGetValue(e.FromEmail, out var fromChar))
-        {
-            fromChar = participants[_random.Next(participants.Count)];
-        }
-
-        var toChars = new List<Character>();
-        foreach (var emailAddress in e.ToEmails)
-        {
-            if (participantLookup.TryGetValue(emailAddress, out var toChar))
-            {
-                toChars.Add(toChar);
-            }
-        }
-
+        var fromChar = ResolveFromCharacter(e, participants, participantLookup);
+        var toChars = ResolveRecipients(e.ToEmails, participantLookup);
         if (toChars.Count == 0)
         {
-            var fallback = participants.FirstOrDefault(c => c.Id != fromChar.Id) ?? fromChar;
-            toChars.Add(fallback);
+            toChars = ResolveFallbackRecipients(participants, fromChar);
         }
 
-        var ccChars = new List<Character>();
-        if (e.CcEmails != null)
-        {
-            foreach (var ccAddress in e.CcEmails)
-            {
-                if (participantLookup.TryGetValue(ccAddress, out var ccChar))
-                {
-                    ccChars.Add(ccChar);
-                }
-            }
-        }
+        var ccChars = e.CcEmails != null
+            ? ResolveRecipients(e.CcEmails, participantLookup)
+            : new List<Character>();
 
-        var subject = threadSubject;
-        if (e.IsForward)
-            subject = ThreadingHelper.AddForwardPrefix(subject);
-        else if (e.IsReply && sequence > 0)
-            subject = ThreadingHelper.AddReplyPrefix(subject);
-
-        DateTime sentDate;
-        if (!DateTime.TryParse(e.SentDateTime, out sentDate))
-        {
-            sentDate = DateHelper.RandomDateInRange(startDate, endDate);
-        }
-
-        // Fix sender/signature mismatch: ensure the body's signature matches the fromEmail character
-        var correctedBody = CorrectSignatureBlock(e.BodyPlain, fromChar, participants);
-
-        // Build the full email body with quoted content for replies/forwards
-        var fullBody = correctedBody;
-
-        // Get the email being replied to/forwarded based on replyToIndex (batch-relative)
-        EmailMessage? referencedEmail = null;
-        if (e.ReplyToIndex >= 0)
-        {
-            var globalIndex = batchOffset + e.ReplyToIndex;
-            if (globalIndex >= 0 && globalIndex < sequence)
-            {
-                referencedEmail = thread.EmailMessages[globalIndex];
-            }
-        }
-
-        if (referencedEmail == null && sequence > 0)
-        {
-            referencedEmail = thread.EmailMessages[sequence - 1];
-        }
-
-        var shouldQuoteAsReply = e.IsReply;
-        if (!shouldQuoteAsReply && !e.IsForward && sequence > 0 && referencedEmail != null)
-        {
-            shouldQuoteAsReply = true;
-        }
-
-        if (shouldQuoteAsReply && referencedEmail != null)
-        {
-            fullBody += ThreadingHelper.FormatQuotedReply(referencedEmail);
-        }
-        else if (e.IsForward && referencedEmail != null)
-        {
-            fullBody += ThreadingHelper.FormatForwardedContent(referencedEmail);
-        }
+        var subject = ResolveSubject(threadSubject, e, sequence);
+        var sentDate = ResolveSentDate(e, startDate, endDate);
+        var fullBody = BuildEmailBody(e, thread, fromChar, participants, sequence, batchOffset);
 
         var senderDomain = fromChar.Domain;
         domainThemes.TryGetValue(senderDomain, out var senderTheme);
@@ -1656,6 +1769,109 @@ ATTACHMENT REMINDER:
         target.PlannedVoicemailContext = e.VoicemailContext;
 
         return target;
+    }
+
+    private Character ResolveFromCharacter(
+        EmailDto e,
+        List<Character> participants,
+        Dictionary<string, Character> participantLookup)
+    {
+        if (participantLookup.TryGetValue(e.FromEmail, out var fromChar))
+            return fromChar;
+
+        return participants[_random.Next(participants.Count)];
+    }
+
+    private static List<Character> ResolveRecipients(
+        IEnumerable<string> emailAddresses,
+        Dictionary<string, Character> participantLookup)
+    {
+        var recipients = new List<Character>();
+        foreach (var emailAddress in emailAddresses)
+        {
+            if (participantLookup.TryGetValue(emailAddress, out var recipient))
+            {
+                recipients.Add(recipient);
+            }
+        }
+
+        return recipients;
+    }
+
+    private static List<Character> ResolveFallbackRecipients(List<Character> participants, Character fromChar)
+    {
+        var fallback = participants.FirstOrDefault(c => c.Id != fromChar.Id) ?? fromChar;
+        return new List<Character> { fallback };
+    }
+
+    private static string ResolveSubject(string threadSubject, EmailDto e, int sequence)
+    {
+        if (e.IsForward)
+            return ThreadingHelper.AddForwardPrefix(threadSubject);
+        if (e.IsReply && sequence > 0)
+            return ThreadingHelper.AddReplyPrefix(threadSubject);
+        return threadSubject;
+    }
+
+    private static DateTime ResolveSentDate(EmailDto e, DateTime startDate, DateTime endDate)
+    {
+        return DateTime.TryParse(e.SentDateTime, out var sentDate)
+            ? sentDate
+            : DateHelper.RandomDateInRange(startDate, endDate);
+    }
+
+    private static string BuildEmailBody(
+        EmailDto e,
+        EmailThread thread,
+        Character fromChar,
+        List<Character> participants,
+        int sequence,
+        int batchOffset)
+    {
+        // Fix sender/signature mismatch: ensure the body's signature matches the fromEmail character
+        var correctedBody = CorrectSignatureBlock(e.BodyPlain, fromChar, participants);
+        var fullBody = correctedBody;
+
+        var referencedEmail = ResolveReferencedEmail(thread, e, sequence, batchOffset);
+        if (referencedEmail == null)
+            return fullBody;
+
+        if (ShouldQuoteAsReply(e, sequence, referencedEmail))
+        {
+            fullBody += ThreadingHelper.FormatQuotedReply(referencedEmail);
+        }
+        else if (e.IsForward)
+        {
+            fullBody += ThreadingHelper.FormatForwardedContent(referencedEmail);
+        }
+
+        return fullBody;
+    }
+
+    private static EmailMessage? ResolveReferencedEmail(
+        EmailThread thread,
+        EmailDto e,
+        int sequence,
+        int batchOffset)
+    {
+        if (e.ReplyToIndex >= 0)
+        {
+            var globalIndex = batchOffset + e.ReplyToIndex;
+            if (globalIndex >= 0 && globalIndex < sequence)
+            {
+                return thread.EmailMessages[globalIndex];
+            }
+        }
+
+        return sequence > 0 ? thread.EmailMessages[sequence - 1] : null;
+    }
+
+    private static bool ShouldQuoteAsReply(EmailDto e, int sequence, EmailMessage? referencedEmail)
+    {
+        if (e.IsReply)
+            return true;
+
+        return !e.IsForward && sequence > 0 && referencedEmail != null;
     }
 
     /// <summary>

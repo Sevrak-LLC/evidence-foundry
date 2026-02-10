@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="EvidenceFoundry.csproj" />
+  <Project Path="EvidenceFoundry.Tests/EvidenceFoundry.Tests.csproj" />
+</Solution>

@@ -13,8 +13,6 @@ public class OpenAIService
 {
     public static TimeSpan? RateLimitDelayOverride { get; set; }
 
-    private readonly string _apiKey;
-    private readonly string _model;
     private readonly OpenAIClient _client;
     private readonly ChatClient _chatClient;
     private readonly AIModelConfig? _modelConfig;
@@ -31,16 +29,12 @@ public class OpenAIService
 
     public OpenAIService(string apiKey, string model)
     {
-        _apiKey = apiKey;
-        _model = model;
         _client = CreateClient(apiKey);
         _chatClient = _client.GetChatClient(model);
     }
 
     public OpenAIService(string apiKey, AIModelConfig modelConfig, TokenUsageTracker? usageTracker = null)
     {
-        _apiKey = apiKey;
-        _model = modelConfig.ModelId;
         _modelConfig = modelConfig;
         _usageTracker = usageTracker;
         _client = CreateClient(apiKey);

@@ -112,7 +112,11 @@ public class DepartmentGenerator
             Industries = filteredIndustries
         };
 
-        var options = new JsonSerializerOptions { WriteIndented = true };
+        var options = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        };
         options.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
 
         return JsonSerializer.Serialize(filteredCatalog, options);
