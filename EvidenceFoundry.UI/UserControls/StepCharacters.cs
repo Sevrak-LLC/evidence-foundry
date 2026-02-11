@@ -130,9 +130,9 @@ public class StepCharacters : UserControl, IWizardStep
 
         _gridCharacters.Columns.Add(new DataGridViewTextBoxColumn
         {
-            Name = "FullName",
+            Name = nameof(CharacterRow.FullName),
             HeaderText = "Full Name",
-            DataPropertyName = "FullName",
+            DataPropertyName = nameof(CharacterRow.FullName),
             Width = 160
         });
 
