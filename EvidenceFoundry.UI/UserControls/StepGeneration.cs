@@ -135,7 +135,7 @@ public class StepGeneration : UserControl, IWizardStep
         _txtLog.SelectionStart = _txtLog.TextLength;
         _txtLog.SelectionLength = 0;
         _txtLog.SelectionColor = color ?? Color.LightGray;
-        _txtLog.AppendText($"[{DateTime.Now:HH:mm:ss}] {message}\n");
+        _txtLog.AppendText($"[{Clock.LocalNowDateTime:HH:mm:ss}] {message}\n");
         _txtLog.ScrollToCaret();
     }
 

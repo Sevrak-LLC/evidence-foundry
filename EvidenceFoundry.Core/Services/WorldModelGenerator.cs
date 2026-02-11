@@ -453,7 +453,7 @@ OUTPUT JSON SCHEMA (respond with JSON that matches this exactly)
         if (foundedYear <= 0)
             throw new InvalidOperationException($"Organization '{organizationName}' must include a founded year.");
 
-        var maxYear = DateTime.UtcNow.Year;
+        var maxYear = Clock.UtcNowDateTime.Year;
         if (foundedYear < 1980 || foundedYear > maxYear)
             throw new InvalidOperationException($"Organization '{organizationName}' founded year must be between 1980 and {maxYear}.");
 

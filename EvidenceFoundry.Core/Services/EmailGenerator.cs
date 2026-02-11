@@ -2060,9 +2060,13 @@ ATTACHMENT REMINDER:
 
     private DateTime ResolveSentDate(EmailDto e, DateTime startDate, DateTime endDate)
     {
-        return DateTime.TryParse(e.SentDateTime, CultureInfo.CurrentCulture, DateTimeStyles.None, out var sentDate)
-            ? sentDate
-            : DateHelper.RandomDateInRange(startDate, endDate, _rng);
+        if (DateTime.TryParse(e.SentDateTime, CultureInfo.CurrentCulture, DateTimeStyles.AllowWhiteSpaces, out var sentDate))
+        {
+            return Clock.EnsureKind(sentDate, DateTimeKind.Local);
+        }
+
+        var fallback = DateHelper.RandomDateInRange(startDate, endDate, _rng);
+        return Clock.EnsureKind(fallback, DateTimeKind.Local);
     }
 
     private static string BuildEmailBody(

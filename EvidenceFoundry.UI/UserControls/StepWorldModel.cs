@@ -560,7 +560,7 @@ public class StepWorldModel : UserControl, IWizardStep
         if (year == 0)
             return string.Empty;
 
-        var maxYear = DateTime.UtcNow.Year;
+        var maxYear = Clock.UtcNowDateTime.Year;
         if (year < 1800 || year > maxYear)
             return $"Founded year must be between 1800 and {maxYear}.";
 

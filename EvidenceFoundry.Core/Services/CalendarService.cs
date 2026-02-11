@@ -39,7 +39,7 @@ public class CalendarService
         var organizerNameValue = EscapeIcsText(SanitizeHeaderText(request.OrganizerName));
         var attendees = request.Attendees ?? Array.Empty<(string name, string email)>();
         var uid = BuildCalendarUid(request, organizerEmailValue, attendees);
-        var now = DateTime.UtcNow;
+        var now = Clock.UtcNowDateTime;
 
         var sb = new StringBuilder();
         AppendFoldedLine(sb, "BEGIN:VCALENDAR");
@@ -78,7 +78,9 @@ public class CalendarService
 
     private static string FormatDateTime(DateTime dt)
     {
-        return dt.ToUniversalTime().ToString("yyyyMMddTHHmmssZ");
+        var normalized = Clock.EnsureKind(dt, DateTimeKind.Local);
+        var utc = normalized.Kind == DateTimeKind.Utc ? normalized : normalized.ToUniversalTime();
+        return utc.ToString("yyyyMMddTHHmmssZ");
     }
 
     private static string BuildCalendarUid(

@@ -87,7 +87,7 @@ public class EmlFileService
         var message = new MimeMessage
         {
             MessageId = GetMessageId(email),
-            Date = new DateTimeOffset(email.SentDate),
+            Date = Clock.EnsureOffset(email.SentDate, DateTimeKind.Local),
             Subject = SanitizeHeaderValue(email.Subject, 255)
         };
 

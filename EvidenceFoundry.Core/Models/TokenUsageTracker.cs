@@ -1,3 +1,5 @@
+using EvidenceFoundry.Helpers;
+
 namespace EvidenceFoundry.Models;
 
 public class TokenUsageTracker
@@ -32,7 +34,7 @@ public class TokenUsageTracker
 
             _entries.Add(new TokenUsageEntry
             {
-                Timestamp = DateTime.Now,
+                Timestamp = Clock.LocalNowDateTime,
                 Operation = operation,
                 ModelId = model.ModelId,
                 InputTokens = inputTokens,

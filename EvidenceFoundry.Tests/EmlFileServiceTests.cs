@@ -1,3 +1,4 @@
+using EvidenceFoundry.Helpers;
 using EvidenceFoundry.Models;
 using EvidenceFoundry.Services;
 
@@ -175,7 +176,7 @@ public class EmlFileServiceTests
             To = new List<Character> { to },
             Subject = subject,
             BodyPlain = body + "\n\n" + from.SignatureBlock,
-            SentDate = DateTime.UtcNow,
+            SentDate = Clock.UtcNowDateTime,
             Attachments = new List<Attachment> { attachment }
         };
     }

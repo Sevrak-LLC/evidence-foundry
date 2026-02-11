@@ -1,9 +1,18 @@
+using EvidenceFoundry.Helpers;
+
 namespace EvidenceFoundry.Models;
 
 public class GenerationConfig
 {
-    public DateTime StartDate { get; set; } = DateTime.Now.AddMonths(-3);
-    public DateTime EndDate { get; set; } = DateTime.Now;
+    public GenerationConfig()
+    {
+        var now = Clock.LocalNowDateTime;
+        StartDate = now.AddMonths(-3);
+        EndDate = now;
+    }
+
+    public DateTime StartDate { get; set; }
+    public DateTime EndDate { get; set; }
     public bool LetAISuggestDates { get; set; } = true;
     public int AttachmentPercentage { get; set; } = 20;
     public AttachmentComplexity AttachmentComplexity { get; set; } = AttachmentComplexity.Detailed;
