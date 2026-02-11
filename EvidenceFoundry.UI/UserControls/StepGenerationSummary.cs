@@ -4,6 +4,7 @@ namespace EvidenceFoundry.UserControls;
 
 public class StepGenerationSummary : UserControl, IWizardStep
 {
+    private const string DisabledText = "Disabled";
     private WizardState _state = null!;
     private TableLayoutPanel _summaryTable = null!;
     private Label _lblStatus = null!;
@@ -177,20 +178,20 @@ public class StepGenerationSummary : UserControl, IWizardStep
         AddRow("Model:", _state.SelectedModelConfig?.DisplayName ?? _state.SelectedModel);
         AddRow("Parallel API Calls:", _state.Config.ParallelThreads.ToString("N0"));
         AddRow("Attachment Complexity:", _state.Config.AttachmentComplexity.ToString());
-        AddRow("Attachment Chains:", _state.Config.EnableAttachmentChains ? "Enabled" : "Disabled");
+        AddRow("Attachment Chains:", _state.Config.EnableAttachmentChains ? "Enabled" : DisabledText);
 
         AddSectionHeader("Attachments & Media", 1);
         AddRow("Docs %:", $"{_state.Config.AttachmentPercentage}% (~{summary.EstimatedDocumentAttachments:N0} files)");
         AddRow("Doc Types:", attachmentTypeText);
         AddRow("Images:", _state.Config.IncludeImages
             ? $"{_state.Config.ImagePercentage}% (~{summary.EstimatedImageAttachments:N0} images)"
-            : "Disabled");
+            : DisabledText);
         AddRow("Voicemails:", _state.Config.IncludeVoicemails
             ? $"{_state.Config.VoicemailPercentage}% (~{summary.EstimatedVoicemailAttachments:N0} files)"
-            : "Disabled");
+            : DisabledText);
         AddRow("Calendar Invites:", _state.Config.IncludeCalendarInvites
             ? $"{_state.Config.CalendarInvitePercentage}% (~{summary.EstimatedCalendarInviteChecks:N0} checks)"
-            : "Disabled");
+            : DisabledText);
 
         AddSectionHeader("Output", 1);
         AddRow("Folder:", string.IsNullOrWhiteSpace(_state.Config.OutputFolder) ? "Not set" : _state.Config.OutputFolder);
