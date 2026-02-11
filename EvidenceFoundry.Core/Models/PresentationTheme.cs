@@ -75,4 +75,12 @@ public class OrganizationTheme
 }
 
 // Backward compatibility alias
-public class PresentationTheme : OrganizationTheme { }
+public class PresentationTheme : OrganizationTheme
+{
+    /// <summary>
+    /// Initializes a new instance of the <see cref="PresentationTheme"/> class.
+    /// </summary>
+    public PresentationTheme()
+    {
+    }
+}
