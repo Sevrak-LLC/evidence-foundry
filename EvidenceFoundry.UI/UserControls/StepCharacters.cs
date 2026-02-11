@@ -7,6 +7,7 @@ namespace EvidenceFoundry.UserControls;
 
 public class StepCharacters : UserControl, IWizardStep
 {
+    private const string StateColumnName = "State";
     private WizardState _state = null!;
     private DataGridView _gridCharacters = null!;
     private DataGridView _gridPlaintiffs = null!;
@@ -17,8 +18,6 @@ public class StepCharacters : UserControl, IWizardStep
     private LoadingOverlay _loadingOverlay = null!;
     private bool _isLoading = false;
     private BindingList<CharacterRow> _characterRows = null!;
-    private BindingList<Organization> _plaintiffRows = null!;
-    private BindingList<Organization> _defendantRows = null!;
     private ListSortDirection _sortDirection = ListSortDirection.Ascending;
     private int _sortColumnIndex = -1;
 
@@ -257,9 +256,9 @@ public class StepCharacters : UserControl, IWizardStep
 
         grid.Columns.Add(new DataGridViewTextBoxColumn
         {
-            Name = "State",
-            HeaderText = "State",
-            DataPropertyName = "State",
+            Name = StateColumnName,
+            HeaderText = StateColumnName,
+            DataPropertyName = StateColumnName,
             Width = 110
         });
 
@@ -441,10 +440,10 @@ public class StepCharacters : UserControl, IWizardStep
 
     private void RefreshOrganizationGrids()
     {
-        _plaintiffRows = new BindingList<Organization>(_state.Organizations.Where(o => o.IsPlaintiff).ToList());
-        _defendantRows = new BindingList<Organization>(_state.Organizations.Where(o => o.IsDefendant).ToList());
-        _gridPlaintiffs.DataSource = _plaintiffRows;
-        _gridDefendants.DataSource = _defendantRows;
+        var plaintiffRows = new BindingList<Organization>(_state.Organizations.Where(o => o.IsPlaintiff).ToList());
+        var defendantRows = new BindingList<Organization>(_state.Organizations.Where(o => o.IsDefendant).ToList());
+        _gridPlaintiffs.DataSource = plaintiffRows;
+        _gridDefendants.DataSource = defendantRows;
     }
 
     private void RefreshCharacterGrid()
@@ -469,22 +468,17 @@ public class StepCharacters : UserControl, IWizardStep
 
     private void RemoveCharacter(Guid characterId)
     {
-        foreach (var org in _state.Organizations)
-        {
-            foreach (var dept in org.Departments)
-            {
-                foreach (var role in dept.Roles)
-                {
-                    var toRemove = role.Characters.FirstOrDefault(c => c.Id == characterId);
-                    if (toRemove != null)
-                    {
-                        role.Characters.Remove(toRemove);
-                        _state.Characters.RemoveAll(c => c.Id == characterId);
-                        return;
-                    }
-                }
-            }
-        }
+        var match = _state.Organizations
+            .SelectMany(org => org.Departments)
+            .SelectMany(dept => dept.Roles)
+            .SelectMany(role => role.Characters.Select(character => new { Role = role, Character = character }))
+            .FirstOrDefault(entry => entry.Character.Id == characterId);
+
+        if (match == null)
+            return;
+
+        match.Role.Characters.Remove(match.Character);
+        _state.Characters.RemoveAll(c => c.Id == characterId);
     }
 
     private void GridOrganizations_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e)
@@ -493,7 +487,7 @@ public class StepCharacters : UserControl, IWizardStep
             return;
 
         var columnName = grid.Columns[e.ColumnIndex].Name;
-        if (columnName == "OrganizationType" || columnName == "State")
+        if (columnName == "OrganizationType" || columnName == StateColumnName)
         {
             e.Value = EnumHelper.HumanizeEnumName(e.Value.ToString() ?? string.Empty);
             e.FormattingApplied = true;
@@ -533,15 +527,15 @@ public class StepCharacters : UserControl, IWizardStep
             return Task.FromResult(false);
         }
 
-        foreach (var character in _state.Characters)
+        var hasIncompleteCharacters = _state.Characters.Any(character =>
+            string.IsNullOrWhiteSpace(character.FirstName) ||
+            string.IsNullOrWhiteSpace(character.LastName) ||
+            string.IsNullOrWhiteSpace(character.Email));
+
+        if (hasIncompleteCharacters)
         {
-            if (string.IsNullOrWhiteSpace(character.FirstName) ||
-                string.IsNullOrWhiteSpace(character.LastName) ||
-                string.IsNullOrWhiteSpace(character.Email))
-            {
-                MessageBox.Show("All characters must have a name and email.", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return Task.FromResult(false);
-            }
+            MessageBox.Show("All characters must have a name and email.", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return Task.FromResult(false);
         }
 
         return Task.FromResult(true);
