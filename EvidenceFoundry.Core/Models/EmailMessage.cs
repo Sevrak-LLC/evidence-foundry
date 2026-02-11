@@ -2,6 +2,11 @@ namespace EvidenceFoundry.Models;
 
 public class EmailMessage
 {
+    private readonly List<string> _references = new();
+    private readonly List<Character> _to = new();
+    private readonly List<Character> _cc = new();
+    private readonly List<Attachment> _attachments = new();
+
     public Guid Id { get; set; }
     public Guid EmailThreadId { get; set; }
     public Guid StoryBeatId { get; set; }
@@ -10,12 +15,12 @@ public class EmailMessage
     // Threading headers
     public string MessageId { get; set; } = string.Empty;
     public string? InReplyTo { get; set; }
-    public List<string> References { get; set; } = new();
+    public IReadOnlyList<string> References => _references;
 
     // Addressing
     public Character From { get; set; } = null!;
-    public List<Character> To { get; set; } = new();
-    public List<Character> Cc { get; set; } = new();
+    public IReadOnlyList<Character> To => _to;
+    public IReadOnlyList<Character> Cc => _cc;
 
     // Content
     public string Subject { get; set; } = string.Empty;
@@ -24,7 +29,7 @@ public class EmailMessage
     public DateTime SentDate { get; set; }
 
     // Attachments
-    public List<Attachment> Attachments { get; set; } = new();
+    public IReadOnlyList<Attachment> Attachments => _attachments;
 
     // Ordering within thread
     public int SequenceInThread { get; set; }
@@ -42,4 +47,34 @@ public class EmailMessage
     public bool PlannedIsImageInline { get; set; }
     public bool PlannedHasVoicemail { get; set; }
     public string? PlannedVoicemailContext { get; set; }
+
+    public void SetReferences(IEnumerable<string> references)
+    {
+        ArgumentNullException.ThrowIfNull(references);
+        _references.Clear();
+        _references.AddRange(references);
+    }
+
+    public void SetTo(IEnumerable<Character> recipients)
+    {
+        ArgumentNullException.ThrowIfNull(recipients);
+        _to.Clear();
+        _to.AddRange(recipients);
+    }
+
+    public void SetCc(IEnumerable<Character> recipients)
+    {
+        ArgumentNullException.ThrowIfNull(recipients);
+        _cc.Clear();
+        _cc.AddRange(recipients);
+    }
+
+    public void SetAttachments(IEnumerable<Attachment> attachments)
+    {
+        ArgumentNullException.ThrowIfNull(attachments);
+        _attachments.Clear();
+        _attachments.AddRange(attachments);
+    }
+
+    public void AddAttachment(Attachment attachment) => _attachments.Add(attachment);
 }

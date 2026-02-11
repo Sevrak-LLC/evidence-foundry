@@ -81,31 +81,32 @@ public class WizardStateTests
             StartDate = new DateTime(2025, 1, 1),
             EndDate = new DateTime(2025, 1, 10)
         };
-        storyline.Beats.Add(new StoryBeat
+        var firstBeat = new StoryBeat
         {
             StartDate = new DateTime(2025, 1, 1),
             EndDate = new DateTime(2025, 1, 5),
-            EmailCount = 12,
-            Threads = new List<EmailThread>
+            EmailCount = 12
+        };
+        firstBeat.SetThreads(new List<EmailThread>
+        {
+            new EmailThread
             {
-                new EmailThread
-                {
-                    IsHot = true,
-                    Relevance = EmailThread.ThreadRelevance.NonResponsive
-                },
-                new EmailThread
-                {
-                    Relevance = EmailThread.ThreadRelevance.Responsive
-                }
+                IsHot = true,
+                Relevance = EmailThread.ThreadRelevance.NonResponsive
+            },
+            new EmailThread
+            {
+                Relevance = EmailThread.ThreadRelevance.Responsive
             }
         });
-        storyline.Beats.Add(new StoryBeat
+        var secondBeat = new StoryBeat
         {
             StartDate = new DateTime(2025, 1, 6),
             EndDate = new DateTime(2025, 1, 10),
-            EmailCount = 8,
-            Threads = new List<EmailThread> { new EmailThread() }
-        });
+            EmailCount = 8
+        };
+        secondBeat.SetThreads(new List<EmailThread> { new EmailThread() });
+        storyline.SetBeats(new List<StoryBeat> { firstBeat, secondBeat });
 
         var state = new WizardState
         {
@@ -148,7 +149,7 @@ public class WizardStateTests
             StartDate = new DateTime(2025, 1, 1),
             EndDate = new DateTime(2025, 1, 2)
         };
-        storyline.Beats.Add(new StoryBeat
+        storyline.AddBeat(new StoryBeat
         {
             StartDate = new DateTime(2025, 1, 1),
             EndDate = new DateTime(2025, 1, 2),

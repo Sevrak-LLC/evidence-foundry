@@ -198,7 +198,7 @@ public class StepStoryBeats : UserControl, IWizardStep
                     characters,
                     progress);
 
-                storyline.Beats = beats.ToList();
+                storyline.SetBeats(beats.ToList());
 
                 var characterGenerator = new CharacterGenerator(openAI, _state.GenerationRandom);
                 await characterGenerator.AnnotateStorylineRelevanceAsync(

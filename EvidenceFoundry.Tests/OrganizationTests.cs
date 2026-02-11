@@ -15,11 +15,11 @@ public class OrganizationTests
         var alex = new Character { FirstName = "Alex", LastName = "Smith", Email = "alex@ardent.com" };
         var jamie = new Character { FirstName = "Jamie", LastName = "Lee", Email = "jamie@ardent.com" };
 
-        gc.Characters.Add(alex);
-        counsel.Characters.Add(jamie);
-        legal.Roles.Add(gc);
-        legal.Roles.Add(counsel);
-        org.Departments.Add(legal);
+        gc.AddCharacter(alex);
+        counsel.AddCharacter(jamie);
+        legal.AddRole(gc);
+        legal.AddRole(counsel);
+        org.AddDepartment(legal);
 
         var assignments = org.EnumerateCharacters().ToList();
 

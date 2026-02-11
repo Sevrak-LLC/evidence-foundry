@@ -13,10 +13,10 @@ public class CharacterGeneratorTests
         var engineering = new Department { Name = DepartmentName.Engineering };
         var opsRole = new Role { Name = RoleName.ProjectManager };
         var engRole = new Role { Name = RoleName.ProjectManager };
-        operations.Roles.Add(opsRole);
-        engineering.Roles.Add(engRole);
-        organization.Departments.Add(operations);
-        organization.Departments.Add(engineering);
+        operations.AddRole(opsRole);
+        engineering.AddRole(engRole);
+        organization.AddDepartment(operations);
+        organization.AddDepartment(engineering);
 
         var roles = new List<CharacterGenerator.RoleCharactersDto>
         {
@@ -48,11 +48,11 @@ public class CharacterGeneratorTests
         var execRole = new Role { Name = RoleName.ChiefFinancialOfficer };
         var financeRole = new Role { Name = RoleName.ChiefFinancialOfficer };
         var existing = new Character { FirstName = "Chris", LastName = "Ng", Email = "chris@acme.com" };
-        execRole.Characters.Add(existing);
-        executive.Roles.Add(execRole);
-        finance.Roles.Add(financeRole);
-        organization.Departments.Add(executive);
-        organization.Departments.Add(finance);
+        execRole.AddCharacter(existing);
+        executive.AddRole(execRole);
+        finance.AddRole(financeRole);
+        organization.AddDepartment(executive);
+        organization.AddDepartment(finance);
 
         var roles = new List<CharacterGenerator.RoleCharactersDto>
         {

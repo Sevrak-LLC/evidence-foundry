@@ -402,7 +402,7 @@ public class StepCharacters : UserControl, IWizardStep
                 _state.Organizations = result.Organizations;
                 _state.Characters = result.Characters;
                 _state.CompanyDomain = result.PrimaryDomain;
-                storyline.Beats.Clear();
+                storyline.SetBeats(Array.Empty<StoryBeat>());
 
                 RefreshOrganizationGrids();
                 RefreshCharacterGrid();
@@ -457,7 +457,7 @@ public class StepCharacters : UserControl, IWizardStep
         if (match == null)
             return;
 
-        match.Role.Characters.Remove(match.Character);
+        match.Role.RemoveCharacter(match.Character);
         _state.Characters.RemoveAll(c => c.Id == characterId);
     }
 

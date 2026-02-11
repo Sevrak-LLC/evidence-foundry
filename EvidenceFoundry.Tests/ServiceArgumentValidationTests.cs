@@ -177,21 +177,22 @@ public class ServiceArgumentValidationTests
     private static Storyline BuildStoryline()
     {
         var startDate = DateTime.Today;
-        return new Storyline
+        var storyline = new Storyline
         {
             Title = "Storyline",
             Summary = "Summary",
             StartDate = startDate,
-            EndDate = startDate.AddDays(1),
-            Beats = [new StoryBeat
-            {
-                Id = Guid.NewGuid(),
-                Name = "Beat",
-                Plot = "Plot",
-                StartDate = startDate,
-                EndDate = startDate.AddDays(1)
-            }]
+            EndDate = startDate.AddDays(1)
         };
+        storyline.SetBeats([new StoryBeat
+        {
+            Id = Guid.NewGuid(),
+            Name = "Beat",
+            Plot = "Plot",
+            StartDate = startDate,
+            EndDate = startDate.AddDays(1)
+        }]);
+        return storyline;
     }
 
     private static List<Organization> BuildOrganizations() =>

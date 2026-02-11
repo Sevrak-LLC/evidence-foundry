@@ -49,7 +49,7 @@ public static class RoleGenerator
             return executive;
 
         executive = new Department { Name = DepartmentName.Executive };
-        organization.Departments.Insert(0, executive);
+        organization.InsertDepartment(0, executive);
         return executive;
     }
 
@@ -66,7 +66,7 @@ public static class RoleGenerator
 
         foreach (var role in toMove)
         {
-            department.Roles.Remove(role);
+            department.RemoveRole(role);
             if (executiveRoles.TryGetValue(role.Name, out var target))
             {
                 MoveCharactersToRole(role, target, executive, executiveCharacterIds, organizationId);
@@ -92,7 +92,7 @@ public static class RoleGenerator
             character.RoleId = targetRole.Id;
             character.DepartmentId = executive.Id;
             character.OrganizationId = organizationId;
-            targetRole.Characters.Add(character);
+            targetRole.AddCharacter(character);
         }
     }
 
@@ -114,7 +114,7 @@ public static class RoleGenerator
             executiveCharacterIds.Add(character.Id);
         }
 
-        executive.Roles.Add(role);
+        executive.AddRole(role);
         executiveRoles[role.Name] = role;
     }
 

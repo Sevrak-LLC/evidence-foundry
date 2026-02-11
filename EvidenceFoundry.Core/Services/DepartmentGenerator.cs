@@ -54,23 +54,23 @@ public static class DepartmentGenerator
         var allowedDepartments = GetAllowedDepartments(organization.Industry, organization.OrganizationType);
         var allowedDepartmentSet = new HashSet<DepartmentName>(allowedDepartments);
 
-        organization.Departments = organization.Departments
+        organization.SetDepartments(organization.Departments
             .Where(d => allowedDepartmentSet.Contains(d.Name))
-            .ToList();
+            .ToList());
 
         foreach (var department in organization.Departments)
         {
             var allowedRoles = GetAllowedRoles(organization.Industry, organization.OrganizationType, department.Name);
             if (allowedRoles.Count == 0)
             {
-                department.Roles.Clear();
+                department.ClearRoles();
                 continue;
             }
 
             var allowedRoleSet = new HashSet<RoleName>(allowedRoles);
-            department.Roles = department.Roles
+            department.SetRoles(department.Roles
                 .Where(r => allowedRoleSet.Contains(r.Name))
-                .ToList();
+                .ToList());
         }
     }
 

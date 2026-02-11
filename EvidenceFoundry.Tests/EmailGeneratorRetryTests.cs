@@ -121,12 +121,13 @@ public class EmailGeneratorRetryTests
 
     private static Storyline BuildStoryline()
     {
-        return new Storyline
+        var storyline = new Storyline
         {
             Title = "Budget Review",
-            Summary = "Quarterly budget review.",
-            Beats = new List<StoryBeat>()
+            Summary = "Quarterly budget review."
         };
+        storyline.SetBeats(new List<StoryBeat>());
+        return storyline;
     }
 
     private static EmailGenerator.ThreadApiResponse BuildResponse(

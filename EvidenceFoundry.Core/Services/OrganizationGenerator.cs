@@ -299,7 +299,7 @@ Enum values are shown as Raw (Humanized). Return only the Raw enum value.
             organization.Founded = founded;
         }
 
-        PopulateDepartments(organization.Departments, response.Departments);
+        PopulateDepartments(organization, response.Departments);
 
         return organization;
     }
@@ -333,12 +333,12 @@ Enum values are shown as Raw (Humanized). Return only the Raw enum value.
             IsDefendant = entity.Defendant
         };
 
-        PopulateDepartments(organization.Departments, entity.Departments);
+        PopulateDepartments(organization, entity.Departments);
         return true;
     }
 
     private static void PopulateDepartments(
-        List<Department> target,
+        Organization organization,
         IEnumerable<DepartmentDto>? departments)
     {
         if (departments == null)
@@ -350,13 +350,13 @@ Enum values are shown as Raw (Humanized). Return only the Raw enum value.
                 continue;
 
             var department = new Department { Name = deptName };
-            PopulateRoles(department.Roles, deptDto.Roles);
-            target.Add(department);
+            PopulateRoles(department, deptDto.Roles);
+            organization.AddDepartment(department);
         }
     }
 
     private static void PopulateRoles(
-        List<Role> target,
+        Department department,
         IEnumerable<RoleDto>? roles)
     {
         if (roles == null)
@@ -374,7 +374,7 @@ Enum values are shown as Raw (Humanized). Return only the Raw enum value.
                     ? reportsTo
                     : null
             };
-            target.Add(role);
+            department.AddRole(role);
         }
     }
 
@@ -398,11 +398,12 @@ Enum values are shown as Raw (Humanized). Return only the Raw enum value.
 
         if (organization.Departments.Count == 0)
         {
-            organization.Departments.Add(new Department
+            var executive = new Department
             {
-                Name = DepartmentName.Executive,
-                Roles = new List<Role> { new() { Name = RoleName.ChiefExecutiveOfficer } }
-            });
+                Name = DepartmentName.Executive
+            };
+            executive.SetRoles(new List<Role> { new() { Name = RoleName.ChiefExecutiveOfficer } });
+            organization.AddDepartment(executive);
         }
 
         RoleGenerator.EnsureSingleOccupantRolesInExecutive(organization);
@@ -420,13 +421,13 @@ Enum values are shown as Raw (Humanized). Return only the Raw enum value.
             {
                 var defaults = DepartmentGenerator.GetAllowedRoles(organization.Industry, organization.OrganizationType, department.Name);
                 if (defaults.Count > 0)
-                    department.Roles.Add(new Role { Name = defaults[0] });
+                    department.AddRole(new Role { Name = defaults[0] });
             }
 
-            department.Roles = department.Roles
+            department.SetRoles(department.Roles
                 .GroupBy(r => r.Name)
                 .Select(g => g.First())
-                .ToList();
+                .ToList());
         }
 
         AssignHierarchyIds(organization);

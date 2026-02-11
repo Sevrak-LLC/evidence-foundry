@@ -317,8 +317,8 @@ Generate the world model ONLY: organizations + minimal directly-involved key peo
         };
 
         var organizationsDto = response.WorldModel.Organizations ?? new OrganizationGroupDto();
-        world.Plaintiffs = BuildOrganizations(organizationsDto.Plaintiffs, true, false, "plaintiff");
-        world.Defendants = BuildOrganizations(organizationsDto.Defendants, false, true, "defendant");
+        world.SetPlaintiffs(BuildOrganizations(organizationsDto.Plaintiffs, true, false, "plaintiff"));
+        world.SetDefendants(BuildOrganizations(organizationsDto.Defendants, false, true, "defendant"));
 
         if (world.Plaintiffs.Count != plaintiffCount)
             throw new InvalidOperationException($"Expected {plaintiffCount} plaintiff organization(s) but received {world.Plaintiffs.Count}.");
@@ -335,7 +335,6 @@ Generate the world model ONLY: organizations + minimal directly-involved key peo
             throw new InvalidOperationException($"Duplicate organization name detected: '{duplicateOrg}'.");
 
         var seenEmails = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        world.KeyPeople.Clear();
         var characters = world.Plaintiffs
             .Concat(world.Defendants)
             .SelectMany(org => org.EnumerateCharacters())
@@ -344,7 +343,7 @@ Generate the world model ONLY: organizations + minimal directly-involved key peo
         var duplicateCharacter = characters.FirstOrDefault(character => !seenEmails.Add(character.Email));
         if (duplicateCharacter != null)
             throw new InvalidOperationException($"Duplicate key person email detected: '{duplicateCharacter.Email}'.");
-        world.KeyPeople.AddRange(characters);
+        world.SetKeyPeople(characters);
 
         return world;
     }
@@ -493,7 +492,7 @@ Generate the world model ONLY: organizations + minimal directly-involved key peo
             InvolvementSummary = person.InvolvementSummary?.Trim() ?? string.Empty
         };
 
-        role.Characters.Add(character);
+        role.AddCharacter(character);
     }
 
     private static (string firstName, string lastName, string email) NormalizeKeyPersonNames(KeyPersonDto person)
@@ -552,7 +551,7 @@ Generate the world model ONLY: organizations + minimal directly-involved key peo
             Name = departmentName,
             OrganizationId = organization.Id
         };
-        organization.Departments.Add(department);
+        organization.AddDepartment(department);
         return department;
     }
 
@@ -583,7 +582,7 @@ Generate the world model ONLY: organizations + minimal directly-involved key peo
             DepartmentId = department.Id,
             OrganizationId = organization.Id
         };
-        department.Roles.Add(role);
+        department.AddRole(role);
         return role;
     }
 

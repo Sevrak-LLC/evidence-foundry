@@ -152,10 +152,8 @@ public class EmlFileServiceTests
             CreateEmail(senderA, senderB, "Subject C", "Follow-up from Alex.")
         };
 
-        var thread = new EmailThread
-        {
-            EmailMessages = emails
-        };
+        var thread = new EmailThread();
+        thread.SetEmailMessages(emails);
 
         return new List<EmailThread> { thread };
     }
@@ -170,15 +168,16 @@ public class EmlFileServiceTests
             Content = new byte[] { 1, 2, 3, 4 }
         };
 
-        return new EmailMessage
+        var email = new EmailMessage
         {
             From = from,
-            To = new List<Character> { to },
             Subject = subject,
             BodyPlain = body + "\n\n" + from.SignatureBlock,
-            SentDate = Clock.UtcNowDateTime,
-            Attachments = new List<Attachment> { attachment }
+            SentDate = Clock.UtcNowDateTime
         };
+        email.SetTo(new List<Character> { to });
+        email.SetAttachments(new List<Attachment> { attachment });
+        return email;
     }
 
     private static string SanitizeFolderName(string email)

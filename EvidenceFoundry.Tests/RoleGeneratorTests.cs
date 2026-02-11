@@ -10,8 +10,8 @@ public class RoleGeneratorTests
     {
         var organization = new Organization { Name = "Acme" };
         var finance = new Department { Name = DepartmentName.Finance };
-        finance.Roles.Add(new Role { Name = RoleName.ChiefFinancialOfficer });
-        organization.Departments.Add(finance);
+        finance.AddRole(new Role { Name = RoleName.ChiefFinancialOfficer });
+        organization.AddDepartment(finance);
 
         RoleGenerator.EnsureSingleOccupantRolesInExecutive(organization);
 
@@ -27,9 +27,9 @@ public class RoleGeneratorTests
         var finance = new Department { Name = DepartmentName.Finance };
         var cfoRole = new Role { Name = RoleName.ChiefFinancialOfficer };
         var character = new Character { FirstName = "Alex", LastName = "Park", Email = "alex@acme.com" };
-        cfoRole.Characters.Add(character);
-        finance.Roles.Add(cfoRole);
-        organization.Departments.Add(finance);
+        cfoRole.AddCharacter(character);
+        finance.AddRole(cfoRole);
+        organization.AddDepartment(finance);
 
         RoleGenerator.EnsureSingleOccupantRolesInExecutive(organization);
 

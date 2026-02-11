@@ -274,7 +274,7 @@ public class StepStorylines : UserControl, IWizardStep
         {
             ApplyStorylineEditorChanges(storyline =>
             {
-                storyline.PlotOutline = ParseOutline(_txtPlotOutline.Text);
+                storyline.SetPlotOutline(ParseOutline(_txtPlotOutline.Text));
             });
         };
         layout.Controls.Add(_txtPlotOutline, 1, row);
@@ -293,7 +293,7 @@ public class StepStorylines : UserControl, IWizardStep
         {
             ApplyStorylineEditorChanges(storyline =>
             {
-                storyline.TensionDrivers = ParseList(_txtTensionDrivers.Text);
+                storyline.SetTensionDrivers(ParseList(_txtTensionDrivers.Text));
             });
         };
         layout.Controls.Add(_txtTensionDrivers, 1, row);
@@ -312,7 +312,7 @@ public class StepStorylines : UserControl, IWizardStep
         {
             ApplyStorylineEditorChanges(storyline =>
             {
-                storyline.Ambiguities = ParseList(_txtAmbiguities.Text);
+                storyline.SetAmbiguities(ParseList(_txtAmbiguities.Text));
             });
         };
         layout.Controls.Add(_txtAmbiguities, 1, row);
@@ -331,7 +331,7 @@ public class StepStorylines : UserControl, IWizardStep
         {
             ApplyStorylineEditorChanges(storyline =>
             {
-                storyline.RedHerrings = ParseList(_txtRedHerrings.Text);
+                storyline.SetRedHerrings(ParseList(_txtRedHerrings.Text));
             });
         };
         layout.Controls.Add(_txtRedHerrings, 1, row);
@@ -350,7 +350,7 @@ public class StepStorylines : UserControl, IWizardStep
         {
             ApplyStorylineEditorChanges(storyline =>
             {
-                storyline.EvidenceThemes = ParseList(_txtEvidenceThemes.Text);
+                storyline.SetEvidenceThemes(ParseList(_txtEvidenceThemes.Text));
             });
         };
         layout.Controls.Add(_txtEvidenceThemes, 1, row);

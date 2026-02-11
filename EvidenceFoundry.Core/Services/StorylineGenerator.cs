@@ -161,20 +161,26 @@ REQUIREMENTS:
         }
 
         var storyline = response.Storylines[0];
+        var plotOutline = storyline.PlotOutline?
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .Select(p => new StoryOutline { Point = p.Trim() })
+            .ToList() ?? new List<StoryOutline>();
+        var tensionDrivers = FilterAndTrimList(storyline.TensionDrivers);
+        var ambiguities = FilterAndTrimList(storyline.Ambiguities);
+        var redHerrings = FilterAndTrimList(storyline.RedHerrings);
+        var evidenceThemes = FilterAndTrimList(storyline.EvidenceThemes);
+
         result.Storyline = new Storyline
         {
             Title = storyline.Title,
             Logline = storyline.Logline,
-            Summary = storyline.Summary,
-            PlotOutline = storyline.PlotOutline?
-                .Where(p => !string.IsNullOrWhiteSpace(p))
-                .Select(p => new StoryOutline { Point = p.Trim() })
-                .ToList() ?? new List<StoryOutline>(),
-            TensionDrivers = FilterAndTrimList(storyline.TensionDrivers),
-            Ambiguities = FilterAndTrimList(storyline.Ambiguities),
-            RedHerrings = FilterAndTrimList(storyline.RedHerrings),
-            EvidenceThemes = FilterAndTrimList(storyline.EvidenceThemes)
+            Summary = storyline.Summary
         };
+        result.Storyline.SetPlotOutline(plotOutline);
+        result.Storyline.SetTensionDrivers(tensionDrivers);
+        result.Storyline.SetAmbiguities(ambiguities);
+        result.Storyline.SetRedHerrings(redHerrings);
+        result.Storyline.SetEvidenceThemes(evidenceThemes);
         result.Storyline.Id = DeterministicIdHelper.CreateGuid(
             "storyline",
             result.Storyline.Title,
@@ -225,7 +231,7 @@ REQUIREMENTS:
 
         _threadGenerator.PlanEmailThreadsForBeats(beats, characters.Count, _rng);
 
-        storyline.Beats = beats;
+        storyline.SetBeats(beats);
         return beats;
     }
 

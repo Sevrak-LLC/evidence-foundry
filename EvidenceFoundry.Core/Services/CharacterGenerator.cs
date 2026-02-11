@@ -553,7 +553,7 @@ Characters (JSON):
                     out var email))
                 continue;
 
-            targetRole.Characters.Add(character);
+            targetRole.AddCharacter(character);
             tracker.UsedNames.Add(fullName);
             tracker.UsedEmails.Add(email);
             tracker.TotalCount++;

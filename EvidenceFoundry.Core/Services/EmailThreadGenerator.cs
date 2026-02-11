@@ -22,9 +22,9 @@ public class EmailThreadGenerator
             .Where(o => GetOrganizationCharacters(o).Count > 0)
             .ToList();
 
-        thread.OrganizationParticipants.Clear();
-        thread.CharacterParticipants.Clear();
-        thread.RoleParticipants.Clear();
+        thread.ClearOrganizationParticipants();
+        thread.ClearCharacterParticipants();
+        thread.ClearRoleParticipants();
 
         if (availableOrganizations.Count == 0)
             return;
@@ -34,20 +34,20 @@ public class EmailThreadGenerator
         if (thread.Scope == EmailThreadScope.External)
         {
             var selectedOrgs = SelectExternalOrganizations(availableOrganizations, requiresKey, rng);
-            thread.OrganizationParticipants = selectedOrgs;
-            thread.CharacterParticipants = SelectExternalCharacters(selectedOrgs, requiresKey, rng);
+            thread.SetOrganizationParticipants(selectedOrgs);
+            thread.SetCharacterParticipants(SelectExternalCharacters(selectedOrgs, requiresKey, rng));
         }
         else
         {
             var selectedOrg = SelectInternalOrganization(availableOrganizations, requiresKey, rng);
             if (selectedOrg != null)
             {
-                thread.OrganizationParticipants = new List<Organization> { selectedOrg };
-                thread.CharacterParticipants = SelectInternalCharacters(selectedOrg, requiresKey, rng);
+                thread.SetOrganizationParticipants(new List<Organization> { selectedOrg });
+                thread.SetCharacterParticipants(SelectInternalCharacters(selectedOrg, requiresKey, rng));
             }
         }
 
-        thread.RoleParticipants = BuildRoleParticipants(thread.CharacterParticipants, organizations);
+        thread.SetRoleParticipants(BuildRoleParticipants(thread.CharacterParticipants, organizations));
     }
 
     internal void PlanEmailThreadsForBeats(
@@ -69,7 +69,7 @@ public class EmailThreadGenerator
                 keyRoleCount,
                 rng);
 
-            beat.Threads = CreateThreads(beat, rng);
+            beat.SetThreads(CreateThreads(beat, rng));
         }
 
         EnsureThreadRelevanceCoverage(beats, rng);
@@ -126,10 +126,10 @@ public class EmailThreadGenerator
             throw new InvalidOperationException($"Thread placeholder count ({thread.EmailMessages.Count}) does not match planned email count ({emailCount}).");
 
         EnsureThreadId(thread);
-        thread.EmailMessages = new List<EmailMessage>(emailCount);
+        thread.ClearEmailMessages();
         for (var i = 0; i < emailCount; i++)
         {
-            thread.EmailMessages.Add(new EmailMessage
+            thread.AddEmailMessage(new EmailMessage
             {
                 Id = DeterministicIdHelper.CreateGuid(
                     "email-message",
@@ -150,10 +150,10 @@ public class EmailThreadGenerator
             throw new ArgumentOutOfRangeException(nameof(emailCount), "Thread email count must be positive.");
 
         EnsureThreadId(thread);
-        thread.EmailMessages = new List<EmailMessage>(emailCount);
+        thread.ClearEmailMessages();
         for (var i = 0; i < emailCount; i++)
         {
-            thread.EmailMessages.Add(new EmailMessage
+            thread.AddEmailMessage(new EmailMessage
             {
                 Id = DeterministicIdHelper.CreateGuid(
                     "email-message",
@@ -232,7 +232,7 @@ public class EmailThreadGenerator
 
             for (var i = 0; i < size; i++)
             {
-                thread.EmailMessages.Add(new EmailMessage
+                thread.AddEmailMessage(new EmailMessage
                 {
                     Id = DeterministicIdHelper.CreateGuid(
                         "email-message",

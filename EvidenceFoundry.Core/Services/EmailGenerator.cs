@@ -904,7 +904,7 @@ public class EmailGenerator
     }
 
     private async Task GeneratePlannedDocumentsAsync(
-        List<EmailMessage> emails,
+        IReadOnlyList<EmailMessage> emails,
         WizardState state,
         GenerationResult result,
         GenerationProgress progressData,
@@ -966,7 +966,7 @@ public class EmailGenerator
     }
 
     private async Task GeneratePlannedImagesAsync(
-        List<EmailMessage> emails,
+        IReadOnlyList<EmailMessage> emails,
         WizardState state,
         GenerationResult result,
         GenerationProgress progressData,
@@ -1018,7 +1018,7 @@ public class EmailGenerator
     }
 
     private async Task GenerateCalendarInvitesAsync(
-        List<EmailMessage> emails,
+        IReadOnlyList<EmailMessage> emails,
         WizardState state,
         GenerationResult result,
         GenerationProgress progressData,
@@ -1071,7 +1071,7 @@ public class EmailGenerator
     }
 
     private async Task GeneratePlannedVoicemailsAsync(
-        List<EmailMessage> emails,
+        IReadOnlyList<EmailMessage> emails,
         WizardState state,
         GenerationResult result,
         GenerationProgress progressData,
@@ -1923,8 +1923,8 @@ For threads with 5+ emails, include at least ONE of these realistic patterns:
         target.StoryBeatId = thread.StoryBeatId;
         target.StorylineId = thread.StorylineId;
         target.From = fromChar;
-        target.To = toChars;
-        target.Cc = ccChars;
+        target.SetTo(toChars);
+        target.SetCc(ccChars);
         target.Subject = subject;
         target.BodyPlain = fullBody;
         target.BodyHtml = HtmlEmailFormatter.ConvertToHtml(fullBody, senderTheme);
@@ -2211,7 +2211,7 @@ For threads with 5+ emails, include at least ONE of these realistic patterns:
         return signOffIndex >= 0;
     }
 
-    private List<EmailMessage> SelectEmailsForAttachments(List<EmailMessage> emails, int percentage)
+    private List<EmailMessage> SelectEmailsForAttachments(IReadOnlyList<EmailMessage> emails, int percentage)
     {
         if (percentage <= 0) return new List<EmailMessage>();
 
@@ -2272,7 +2272,7 @@ Email body preview: {email.BodyPlain[..Math.Min(300, email.BodyPlain.Length)]}..
         }
 
         EnsureAttachmentId(email, attachment);
-        email.Attachments.Add(attachment);
+        email.AddAttachment(attachment);
     }
 
     private static bool TryResolvePlannedAttachmentType(
@@ -2420,7 +2420,7 @@ Email body preview: {email.BodyPlain[..Math.Min(300, email.BodyPlain.Length)]}..
         var attachment = BuildPlannedImageAttachment(email, imageBytes, contentId);
 
         EnsureAttachmentId(email, attachment);
-        email.Attachments.Add(attachment);
+        email.AddAttachment(attachment);
 
         InsertInlineImageIfNeeded(email, contentId);
     }
@@ -2561,7 +2561,7 @@ The voicemail should:
         };
 
         EnsureAttachmentId(email, attachment);
-        email.Attachments.Add(attachment);
+        email.AddAttachment(attachment);
     }
 
     private async Task GenerateAttachmentAsync(EmailMessage email, WizardState state, CancellationToken ct)
@@ -2593,7 +2593,7 @@ The voicemail should:
             attachment.FileName = FileNameHelper.GenerateAttachmentFileName(attachment, email);
         }
         EnsureAttachmentId(email, attachment);
-        email.Attachments.Add(attachment);
+        email.AddAttachment(attachment);
     }
 
     private static string BuildAttachmentContext(
@@ -2967,7 +2967,7 @@ Suggest ONE image that would be realistic to include with this email. Consider:
         };
 
         EnsureAttachmentId(email, attachment);
-        email.Attachments.Add(attachment);
+        email.AddAttachment(attachment);
 
         // If inline, update the HTML body to include the image in the main content (before quoted text)
         if (response.IsInline && !string.IsNullOrEmpty(email.BodyHtml))
@@ -3122,7 +3122,7 @@ If details are vague or missing, set hasMeeting to false.
         };
 
         EnsureAttachmentId(email, attachment);
-        email.Attachments.Add(attachment);
+        email.AddAttachment(attachment);
     }
 
     private sealed class MeetingDetectionResponse
@@ -3215,7 +3215,7 @@ The voicemail should:
         };
 
         EnsureAttachmentId(email, attachment);
-        email.Attachments.Add(attachment);
+        email.AddAttachment(attachment);
     }
 
     private sealed class VoicemailScriptResponse

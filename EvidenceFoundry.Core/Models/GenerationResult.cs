@@ -2,6 +2,8 @@ namespace EvidenceFoundry.Models;
 
 public class GenerationResult
 {
+    private readonly List<string> _errors = new();
+
     public int TotalEmailsGenerated { get; set; }
     public int TotalThreadsGenerated { get; set; }
     public int TotalAttachmentsGenerated { get; set; }
@@ -13,8 +15,17 @@ public class GenerationResult
     public int VoicemailsGenerated { get; set; }
     public string OutputFolder { get; set; } = string.Empty;
     public TimeSpan ElapsedTime { get; set; }
-    public List<string> Errors { get; set; } = new();
+    public IReadOnlyList<string> Errors => _errors;
     public bool WasCancelled { get; set; }
+
+    public void SetErrors(IEnumerable<string> errors)
+    {
+        ArgumentNullException.ThrowIfNull(errors);
+        _errors.Clear();
+        _errors.AddRange(errors);
+    }
+
+    public void AddError(string error) => _errors.Add(error);
 }
 
 public class GenerationProgress

@@ -99,7 +99,7 @@ public class PromptPayloadSerializerTests
 
         if (includeCharacter)
         {
-            role.Characters.Add(new Character
+            role.AddCharacter(new Character
             {
                 Id = Guid.NewGuid(),
                 RoleId = roleId,
@@ -115,11 +115,11 @@ public class PromptPayloadSerializerTests
         {
             Id = departmentId,
             OrganizationId = organizationId,
-            Name = DepartmentName.HumanResources,
-            Roles = new List<Role> { role }
+            Name = DepartmentName.HumanResources
         };
+        department.SetRoles(new List<Role> { role });
 
-        organization.Departments.Add(department);
+        organization.AddDepartment(department);
 
         return organization;
     }

@@ -16,13 +16,13 @@ public class DepartmentGeneratorTests
         };
 
         var engineering = new Department { Name = DepartmentName.Engineering };
-        engineering.Roles.Add(new Role { Name = RoleName.SoftwareEngineer });
+        engineering.AddRole(new Role { Name = RoleName.SoftwareEngineer });
 
         var hr = new Department { Name = DepartmentName.HumanResources };
-        hr.Roles.Add(new Role { Name = RoleName.SoftwareEngineer });
+        hr.AddRole(new Role { Name = RoleName.SoftwareEngineer });
 
-        organization.Departments.Add(engineering);
-        organization.Departments.Add(hr);
+        organization.AddDepartment(engineering);
+        organization.AddDepartment(hr);
 
         DepartmentGenerator.ApplyDepartmentRoleConstraints(organization);
 

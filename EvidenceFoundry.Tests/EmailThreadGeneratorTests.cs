@@ -33,10 +33,8 @@ public class EmailThreadGeneratorTests
     public void EnsurePlaceholderMessages_ThrowsWhenExistingCountDoesNotMatch()
     {
         var generator = new EmailThreadGenerator();
-        var thread = new EmailThread
-        {
-            EmailMessages = new List<EmailMessage> { new() }
-        };
+        var thread = new EmailThread();
+        thread.SetEmailMessages(new List<EmailMessage> { new() });
 
         var ex = Assert.Throws<InvalidOperationException>(() => generator.EnsurePlaceholderMessages(thread, 2));
 
@@ -47,10 +45,8 @@ public class EmailThreadGeneratorTests
     public void ResetThreadForRetry_RebuildsMessages()
     {
         var generator = new EmailThreadGenerator();
-        var thread = new EmailThread
-        {
-            EmailMessages = new List<EmailMessage> { new() }
-        };
+        var thread = new EmailThread();
+        thread.SetEmailMessages(new List<EmailMessage> { new() });
 
         generator.ResetThreadForRetry(thread, 2);
 

@@ -36,7 +36,7 @@ public static class ThreadingHelper
             {
                 // This is a reply
                 email.InReplyTo = previousMessageId;
-                email.References = new List<string>(references);
+                email.SetReferences(references);
             }
 
             // Add current message to references for future replies

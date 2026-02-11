@@ -74,7 +74,7 @@ public class EntityGeneratorOrchestrator
         if (characters.Count < 2)
             throw new InvalidOperationException("At least 2 characters are required to generate emails.");
 
-        storyline.Organizations = organizations;
+        storyline.SetOrganizations(organizations);
         var primaryOrg = organizations.FirstOrDefault(o => o.IsPlaintiff)
             ?? organizations.FirstOrDefault(o => o.IsDefendant)
             ?? organizations.FirstOrDefault();
