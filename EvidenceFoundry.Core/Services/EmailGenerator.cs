@@ -126,14 +126,17 @@ public class EmailGenerator
                 processContext,
                 ct);
 
+            var suggestedSearchContext = new SuggestedSearchTermsContext(
+                progressData,
+                progress,
+                progressLock,
+                result);
+
             await GenerateSuggestedSearchTermsAsync(
                 threadsList,
                 activeStorylines,
                 state.Config,
-                progressData,
-                progress,
-                progressLock,
-                result,
+                suggestedSearchContext,
                 ct);
 
             // Finalize results
@@ -391,10 +394,7 @@ public class EmailGenerator
         IReadOnlyList<EmailThread> threads,
         IReadOnlyList<Storyline> storylines,
         GenerationConfig config,
-        GenerationProgress progressData,
-        IProgress<GenerationProgress> progress,
-        object progressLock,
-        GenerationResult result,
+        SuggestedSearchTermsContext context,
         CancellationToken ct)
     {
         if (threads.Count == 0)
@@ -427,8 +427,8 @@ public class EmailGenerator
             var contextOptions = new SuggestedSearchContextOptions(
                 beatLookup,
                 storylineLookup,
-                progressLock,
-                result);
+                context.ProgressLock,
+                context.Result);
 
             if (!TryGetSuggestedSearchContext(
                     thread,
@@ -441,15 +441,15 @@ public class EmailGenerator
             }
 
             var subject = GetThreadSubject(thread);
-            ReportProgress(progress, progressData, progressLock, p =>
+            ReportProgress(context.Progress, context.ProgressData, context.ProgressLock, p =>
             {
                 p.CurrentOperation = $"Generating suggested search terms: {subject}";
             });
 
             var terms = await GenerateSuggestedSearchTermsForThreadAsync(
                 new SuggestedSearchTermsRequest(subject, largestEmail, storyline, beat, thread.IsHot),
-                progressLock,
-                result,
+                context.ProgressLock,
+                context.Result,
                 ct);
 
             results.Add(new SuggestedSearchTermResult
@@ -464,7 +464,7 @@ public class EmailGenerator
         if (results.Count == 0)
             return;
 
-        ReportProgress(progress, progressData, progressLock, p =>
+        ReportProgress(context.Progress, context.ProgressData, context.ProgressLock, p =>
         {
             p.CurrentOperation = "Writing suggested search terms markdown...";
         });
@@ -478,9 +478,9 @@ public class EmailGenerator
         }
         catch (Exception ex)
         {
-            lock (progressLock)
+            lock (context.ProgressLock)
             {
-                result.Errors.Add($"Failed to write suggested search terms markdown: {ex.Message}");
+                context.Result.Errors.Add($"Failed to write suggested search terms markdown: {ex.Message}");
             }
         }
     }
@@ -526,6 +526,12 @@ public class EmailGenerator
         Storyline Storyline,
         StoryBeat Beat,
         bool IsHot);
+
+    private sealed record SuggestedSearchTermsContext(
+        GenerationProgress ProgressData,
+        IProgress<GenerationProgress> Progress,
+        object ProgressLock,
+        GenerationResult Result);
 
     private sealed record SuggestedSearchContextOptions(
         IReadOnlyDictionary<Guid, StoryBeat> BeatLookup,
