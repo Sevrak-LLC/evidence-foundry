@@ -4,6 +4,8 @@ namespace EvidenceFoundry.Helpers;
 
 public static class ThreadingHelper
 {
+    private static readonly string[] LineBreakSeparators = { "\r\n", "\n" };
+
     public static string GenerateMessageId(string domain)
     {
         var uniquePart = $"{Guid.NewGuid():N}.{DateTime.UtcNow.Ticks}";
@@ -112,7 +114,7 @@ To: {toList}{ccList}
     public static string QuoteText(string text)
     {
         if (string.IsNullOrEmpty(text)) return "> ";
-        var lines = text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+        var lines = text.Split(LineBreakSeparators, StringSplitOptions.None);
         return string.Join("\n", lines.Select(line => $"> {line}"));
     }
 }
