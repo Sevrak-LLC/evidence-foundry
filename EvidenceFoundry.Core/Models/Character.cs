@@ -2,7 +2,7 @@ namespace EvidenceFoundry.Models;
 
 public class Character
 {
-    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid Id { get; set; }
     public Guid RoleId { get; set; }
     public Guid DepartmentId { get; set; }
     public Guid OrganizationId { get; set; }

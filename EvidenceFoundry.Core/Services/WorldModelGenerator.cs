@@ -292,15 +292,29 @@ OUTPUT JSON SCHEMA (respond with JSON that matches this exactly)
             throw new InvalidOperationException("World model response was empty.");
 
         var caseContext = response.WorldModel.CaseContext ?? new CaseContextDto();
+        var caseContextModel = new CaseContext
+        {
+            CaseArea = caseContext.CaseArea?.Trim() ?? string.Empty,
+            MatterType = caseContext.MatterType?.Trim() ?? string.Empty,
+            Issue = caseContext.Issue?.Trim() ?? string.Empty,
+            IssueDescription = caseContext.IssueDescription?.Trim() ?? string.Empty
+        };
+        caseContextModel.Id = DeterministicIdHelper.CreateGuid(
+            "case-context",
+            caseContextModel.CaseArea,
+            caseContextModel.MatterType,
+            caseContextModel.Issue,
+            caseContextModel.IssueDescription);
+
         var world = new World
         {
-            CaseContext = new CaseContext
-            {
-                CaseArea = caseContext.CaseArea?.Trim() ?? string.Empty,
-                MatterType = caseContext.MatterType?.Trim() ?? string.Empty,
-                Issue = caseContext.Issue?.Trim() ?? string.Empty,
-                IssueDescription = caseContext.IssueDescription?.Trim() ?? string.Empty
-            }
+            Id = DeterministicIdHelper.CreateGuid(
+                "world",
+                caseContextModel.CaseArea,
+                caseContextModel.MatterType,
+                caseContextModel.Issue,
+                caseContextModel.IssueDescription),
+            CaseContext = caseContextModel
         };
 
         var organizationsDto = response.WorldModel.Organizations ?? new OrganizationGroupDto();
@@ -400,6 +414,7 @@ OUTPUT JSON SCHEMA (respond with JSON that matches this exactly)
 
         return new Organization
         {
+            Id = DeterministicIdHelper.CreateGuid("organization", name),
             Name = name,
             Domain = domain,
             Description = dto.Description?.Trim() ?? string.Empty,
@@ -461,6 +476,10 @@ OUTPUT JSON SCHEMA (respond with JSON that matches this exactly)
 
         var character = new Character
         {
+            Id = DeterministicIdHelper.CreateGuid(
+                "character",
+                organization.Id.ToString("N"),
+                email.ToLowerInvariant()),
             RoleId = role.Id,
             DepartmentId = department.Id,
             OrganizationId = organization.Id,
@@ -514,10 +533,23 @@ OUTPUT JSON SCHEMA (respond with JSON that matches this exactly)
     {
         var department = organization.Departments.FirstOrDefault(d => d.Name == departmentName);
         if (department != null)
+        {
+            if (department.Id == Guid.Empty)
+            {
+                department.Id = DeterministicIdHelper.CreateGuid(
+                    "department",
+                    organization.Id.ToString("N"),
+                    departmentName.ToString());
+            }
             return department;
+        }
 
         department = new Department
         {
+            Id = DeterministicIdHelper.CreateGuid(
+                "department",
+                organization.Id.ToString("N"),
+                departmentName.ToString()),
             Name = departmentName,
             OrganizationId = organization.Id
         };
@@ -529,10 +561,25 @@ OUTPUT JSON SCHEMA (respond with JSON that matches this exactly)
     {
         var role = department.Roles.FirstOrDefault(r => r.Name == roleName);
         if (role != null)
+        {
+            if (role.Id == Guid.Empty)
+            {
+                role.Id = DeterministicIdHelper.CreateGuid(
+                    "role",
+                    organization.Id.ToString("N"),
+                    department.Name.ToString(),
+                    roleName.ToString());
+            }
             return role;
+        }
 
         role = new Role
         {
+            Id = DeterministicIdHelper.CreateGuid(
+                "role",
+                organization.Id.ToString("N"),
+                department.Name.ToString(),
+                roleName.ToString()),
             Name = roleName,
             DepartmentId = department.Id,
             OrganizationId = organization.Id

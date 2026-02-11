@@ -18,7 +18,7 @@ public enum AttachmentComplexity
 
 public class Attachment
 {
-    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid Id { get; set; }
     public AttachmentType Type { get; set; }
     public string FileName { get; set; } = string.Empty;
     public string ContentDescription { get; set; } = string.Empty;

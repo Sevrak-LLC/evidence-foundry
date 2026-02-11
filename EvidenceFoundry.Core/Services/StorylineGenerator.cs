@@ -174,6 +174,11 @@ Respond with JSON in this exact format:
             RedHerrings = FilterAndTrimList(storyline.RedHerrings),
             EvidenceThemes = FilterAndTrimList(storyline.EvidenceThemes)
         };
+        result.Storyline.Id = DeterministicIdHelper.CreateGuid(
+            "storyline",
+            result.Storyline.Title,
+            result.Storyline.Summary,
+            result.Storyline.Logline);
 
         await ApplyStorylineDateRangeAsync(result, topic, additionalInstructions, progress, ct);
         ValidateStoryline(result);
@@ -202,6 +207,15 @@ Respond with JSON in this exact format:
         foreach (var beat in beats)
         {
             beat.StorylineId = storyline.Id;
+            if (beat.Id == Guid.Empty)
+            {
+                beat.Id = DeterministicIdHelper.CreateGuid(
+                    "story-beat",
+                    storyline.Id.ToString("N"),
+                    beat.Name,
+                    beat.StartDate.ToString("yyyyMMdd"),
+                    beat.EndDate.ToString("yyyyMMdd"));
+            }
         }
 
         _threadGenerator.PlanEmailThreadsForBeats(beats, characters.Count, _rng);

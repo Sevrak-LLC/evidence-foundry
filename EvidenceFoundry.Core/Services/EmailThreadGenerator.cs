@@ -1,3 +1,4 @@
+using System.Globalization;
 using EvidenceFoundry.Helpers;
 using EvidenceFoundry.Models;
 
@@ -61,6 +62,7 @@ public class EmailThreadGenerator
 
         foreach (var beat in beats)
         {
+            EnsureBeatId(beat);
             beat.EmailCount = DateHelper.CalculateEmailCountForRange(
                 beat.StartDate.Date,
                 beat.EndDate.Date,
@@ -123,11 +125,16 @@ public class EmailThreadGenerator
         if (thread.EmailMessages.Count > 0)
             throw new InvalidOperationException($"Thread placeholder count ({thread.EmailMessages.Count}) does not match planned email count ({emailCount}).");
 
+        EnsureThreadId(thread);
         thread.EmailMessages = new List<EmailMessage>(emailCount);
         for (var i = 0; i < emailCount; i++)
         {
             thread.EmailMessages.Add(new EmailMessage
             {
+                Id = DeterministicIdHelper.CreateGuid(
+                    "email-message",
+                    thread.Id.ToString("N"),
+                    i.ToString(CultureInfo.InvariantCulture)),
                 EmailThreadId = thread.Id,
                 StoryBeatId = thread.StoryBeatId,
                 StorylineId = thread.StorylineId,
@@ -142,11 +149,16 @@ public class EmailThreadGenerator
         if (emailCount <= 0)
             throw new ArgumentOutOfRangeException(nameof(emailCount), "Thread email count must be positive.");
 
+        EnsureThreadId(thread);
         thread.EmailMessages = new List<EmailMessage>(emailCount);
         for (var i = 0; i < emailCount; i++)
         {
             thread.EmailMessages.Add(new EmailMessage
             {
+                Id = DeterministicIdHelper.CreateGuid(
+                    "email-message",
+                    thread.Id.ToString("N"),
+                    i.ToString(CultureInfo.InvariantCulture)),
                 EmailThreadId = thread.Id,
                 StoryBeatId = thread.StoryBeatId,
                 StorylineId = thread.StorylineId,
@@ -155,12 +167,41 @@ public class EmailThreadGenerator
         }
     }
 
+    private static void EnsureBeatId(StoryBeat beat)
+    {
+        if (beat.Id != Guid.Empty)
+            return;
+        if (beat.StorylineId == Guid.Empty)
+            throw new InvalidOperationException($"Story beat '{beat.Name}' is missing a StorylineId.");
+
+        beat.Id = DeterministicIdHelper.CreateGuid(
+            "story-beat",
+            beat.StorylineId.ToString("N"),
+            beat.Name,
+            beat.StartDate.ToString("yyyyMMdd"),
+            beat.EndDate.ToString("yyyyMMdd"));
+    }
+
+    private static void EnsureThreadId(EmailThread thread)
+    {
+        if (thread.Id != Guid.Empty)
+            return;
+
+        thread.Id = DeterministicIdHelper.CreateGuid(
+            "email-thread",
+            thread.StoryBeatId.ToString("N"),
+            thread.StorylineId.ToString("N"),
+            thread.Topic);
+    }
+
     private List<EmailThread> CreateThreads(StoryBeat beat, Random rng)
     {
         ArgumentNullException.ThrowIfNull(beat);
 
         if (beat.StorylineId == Guid.Empty)
             throw new InvalidOperationException($"Story beat '{beat.Name}' is missing a StorylineId.");
+
+        EnsureBeatId(beat);
 
         var emailCount = beat.EmailCount;
         if (emailCount < 0)
@@ -172,10 +213,15 @@ public class EmailThreadGenerator
         var sizes = DateHelper.BuildThreadSizePlan(emailCount, rng);
         var threads = new List<EmailThread>(sizes.Count);
 
+        var threadIndex = 0;
         foreach (var size in sizes)
         {
             var thread = new EmailThread
             {
+                Id = DeterministicIdHelper.CreateGuid(
+                    "email-thread",
+                    beat.Id.ToString("N"),
+                    threadIndex.ToString(CultureInfo.InvariantCulture)),
                 StoryBeatId = beat.Id,
                 StorylineId = beat.StorylineId
             };
@@ -188,6 +234,10 @@ public class EmailThreadGenerator
             {
                 thread.EmailMessages.Add(new EmailMessage
                 {
+                    Id = DeterministicIdHelper.CreateGuid(
+                        "email-message",
+                        thread.Id.ToString("N"),
+                        i.ToString(CultureInfo.InvariantCulture)),
                     EmailThreadId = thread.Id,
                     StoryBeatId = thread.StoryBeatId,
                     StorylineId = thread.StorylineId,
@@ -204,6 +254,7 @@ public class EmailThreadGenerator
             thread.IsHot = isHot;
 
             threads.Add(thread);
+            threadIndex++;
         }
 
         return threads;

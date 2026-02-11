@@ -278,9 +278,13 @@ Respond with JSON in this exact format:
         if (response.Plaintiff && response.Defendant)
             throw new InvalidOperationException($"Organization '{response.Name}' cannot be both plaintiff and defendant.");
 
+        var organizationId = seed.Id == Guid.Empty
+            ? DeterministicIdHelper.CreateGuid("organization", seed.Name)
+            : seed.Id;
+
         var organization = new Organization
         {
-            Id = seed.Id,
+            Id = organizationId,
             Name = string.IsNullOrWhiteSpace(response.Name) ? seed.Name : response.Name.Trim(),
             Domain = response.Domain?.Trim() ?? seed.Domain,
             Description = response.Description?.Trim() ?? seed.Description,
@@ -319,6 +323,7 @@ Respond with JSON in this exact format:
 
         organization = new Organization
         {
+            Id = DeterministicIdHelper.CreateGuid("organization", entity.Name.Trim()),
             Name = entity.Name.Trim(),
             Domain = entity.Domain?.Trim() ?? string.Empty,
             Description = entity.Description?.Trim() ?? string.Empty,
@@ -388,6 +393,10 @@ Respond with JSON in this exact format:
         if (organization.IsPlaintiff && organization.IsDefendant)
             throw new InvalidOperationException($"Organization '{organization.Name}' cannot be both plaintiff and defendant.");
 
+        organization.Id = organization.Id == Guid.Empty
+            ? DeterministicIdHelper.CreateGuid("organization", organization.Name)
+            : organization.Id;
+
         organization.Domain = NormalizeDomain(organization.Domain, organization.Name, usedDomains);
         organization.Founded = DateHelper.NormalizeFoundedDate(organization.Founded, storylineStartDate);
         organization.OrganizationType = NormalizeOrganizationType(organization.OrganizationType, organization.Name);
@@ -407,6 +416,13 @@ Respond with JSON in this exact format:
 
         foreach (var department in organization.Departments)
         {
+            if (department.Id == Guid.Empty)
+            {
+                department.Id = DeterministicIdHelper.CreateGuid(
+                    "department",
+                    organization.Id.ToString("N"),
+                    department.Name.ToString());
+            }
             if (department.Roles.Count == 0)
             {
                 var defaults = DepartmentGenerator.GetAllowedRoles(organization.Industry, organization.OrganizationType, department.Name);
@@ -427,21 +443,44 @@ Respond with JSON in this exact format:
     {
         ArgumentNullException.ThrowIfNull(organization);
 
+        if (organization.Id == Guid.Empty)
+        {
+            organization.Id = DeterministicIdHelper.CreateGuid("organization", organization.Name);
+        }
+
         foreach (var department in organization.Departments)
         {
             if (department.Id == Guid.Empty)
-                department.Id = Guid.NewGuid();
+            {
+                department.Id = DeterministicIdHelper.CreateGuid(
+                    "department",
+                    organization.Id.ToString("N"),
+                    department.Name.ToString());
+            }
             department.OrganizationId = organization.Id;
 
             foreach (var role in department.Roles)
             {
                 if (role.Id == Guid.Empty)
-                    role.Id = Guid.NewGuid();
+                {
+                    role.Id = DeterministicIdHelper.CreateGuid(
+                        "role",
+                        organization.Id.ToString("N"),
+                        department.Name.ToString(),
+                        role.Name.ToString());
+                }
                 role.DepartmentId = department.Id;
                 role.OrganizationId = organization.Id;
 
                 foreach (var character in role.Characters)
                 {
+                    if (character.Id == Guid.Empty)
+                    {
+                        character.Id = DeterministicIdHelper.CreateGuid(
+                            "character",
+                            organization.Id.ToString("N"),
+                            character.Email.ToLowerInvariant());
+                    }
                     character.RoleId = role.Id;
                     character.DepartmentId = department.Id;
                     character.OrganizationId = organization.Id;

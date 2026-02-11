@@ -588,6 +588,10 @@ Respond with JSON in this exact format:
 
         model = new Character
         {
+            Id = DeterministicIdHelper.CreateGuid(
+                "character",
+                context.OrganizationId.ToString("N"),
+                email.ToLowerInvariant()),
             FirstName = character.FirstName.Trim(),
             LastName = character.LastName.Trim(),
             Email = email,

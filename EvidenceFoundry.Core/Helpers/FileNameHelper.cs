@@ -32,6 +32,35 @@ public static partial class FileNameHelper
         return $"{subjectPart}_{typeName}_{dateStr}{attachment.Extension}";
     }
 
+    public static string GenerateImageFileName(EmailMessage email, string? description, string? contentId)
+    {
+        var token = DeterministicIdHelper.CreateShortToken(
+            "image-file",
+            6,
+            email.Id.ToString("N"),
+            description ?? string.Empty,
+            contentId ?? string.Empty);
+
+        return $"image_{email.SentDate:yyyyMMdd}_{token}.png";
+    }
+
+    public static string GenerateCalendarInviteFileName(
+        EmailMessage email,
+        DateTime startTime,
+        string? title,
+        string? organizerEmail)
+    {
+        var token = DeterministicIdHelper.CreateShortToken(
+            "calendar-invite",
+            6,
+            email.Id.ToString("N"),
+            startTime.ToString("O"),
+            title ?? string.Empty,
+            organizerEmail ?? string.Empty);
+
+        return $"invite_{startTime:yyyyMMdd}_{token}.ics";
+    }
+
     public static string SanitizeForFileName(string input)
     {
         if (string.IsNullOrWhiteSpace(input))

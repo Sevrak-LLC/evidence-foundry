@@ -1,5 +1,7 @@
 using System.Net.Mail;
 using System.Text;
+using System.Linq;
+using EvidenceFoundry.Helpers;
 
 namespace EvidenceFoundry.Services;
 
@@ -31,13 +33,13 @@ public class CalendarService
             endTime = startTime.AddMinutes(60);
         }
 
-        var uid = Guid.NewGuid().ToString();
-        var now = DateTime.UtcNow;
         var organizerEmailValue = TryNormalizeEmail(request.OrganizerEmail, out var normalizedOrganizer)
             ? normalizedOrganizer
             : "unknown@invalid.local";
         var organizerNameValue = EscapeIcsText(SanitizeHeaderText(request.OrganizerName));
         var attendees = request.Attendees ?? Array.Empty<(string name, string email)>();
+        var uid = BuildCalendarUid(request, organizerEmailValue, attendees);
+        var now = DateTime.UtcNow;
 
         var sb = new StringBuilder();
         AppendFoldedLine(sb, "BEGIN:VCALENDAR");
@@ -77,6 +79,41 @@ public class CalendarService
     private static string FormatDateTime(DateTime dt)
     {
         return dt.ToUniversalTime().ToString("yyyyMMddTHHmmssZ");
+    }
+
+    private static string BuildCalendarUid(
+        CalendarInviteRequest request,
+        string organizerEmail,
+        IReadOnlyList<(string name, string email)> attendees)
+    {
+        var attendeeSeed = string.Join(
+            ";",
+            attendees.Select(a => a.email)
+                .Where(e => !string.IsNullOrWhiteSpace(e))
+                .OrderBy(e => e, StringComparer.OrdinalIgnoreCase));
+
+        var token = DeterministicIdHelper.CreateShortToken(
+            "calendar-uid",
+            32,
+            request.Title,
+            request.Description,
+            request.Location,
+            request.StartTime.ToString("O"),
+            request.EndTime.ToString("O"),
+            organizerEmail,
+            attendeeSeed);
+
+        var domain = ExtractEmailDomain(organizerEmail);
+        return $"{token}@{domain}";
+    }
+
+    private static string ExtractEmailDomain(string email)
+    {
+        var atIndex = email.IndexOf('@');
+        if (atIndex >= 0 && atIndex < email.Length - 1)
+            return email[(atIndex + 1)..];
+
+        return "generated.local";
     }
 
     private static string EscapeIcsText(string text)

@@ -1,13 +1,25 @@
+using System.Globalization;
 using EvidenceFoundry.Models;
 
 namespace EvidenceFoundry.Helpers;
 
 public static class ThreadingHelper
 {
-    public static string GenerateMessageId(string domain)
+    public static string GenerateMessageId(EmailMessage email, string domain)
     {
-        var uniquePart = $"{Guid.NewGuid():N}.{DateTime.UtcNow.Ticks}";
-        return $"<{uniquePart}@{domain}>";
+        ArgumentNullException.ThrowIfNull(email);
+
+        var resolvedDomain = ResolveDomain(domain, email.From?.Domain);
+        var token = DeterministicIdHelper.CreateShortToken(
+            "message-id",
+            32,
+            email.Id.ToString("N"),
+            email.SequenceInThread.ToString(CultureInfo.InvariantCulture),
+            email.SentDate.ToString("O"),
+            email.Subject,
+            email.From?.Email ?? string.Empty);
+
+        return $"<{token}@{resolvedDomain}>";
     }
 
     public static void SetupThreading(EmailThread thread, string domain)
@@ -18,7 +30,7 @@ public static class ThreadingHelper
         foreach (var email in thread.EmailMessages.OrderBy(m => m.SequenceInThread))
         {
             // Generate unique Message-ID
-            email.MessageId = GenerateMessageId(domain);
+            email.MessageId = GenerateMessageId(email, domain);
 
             if (previousMessageId != null)
             {
@@ -114,5 +126,14 @@ To: {toList}{ccList}
         if (string.IsNullOrEmpty(text)) return "> ";
         var lines = TextSplitHelper.SplitLines(text, StringSplitOptions.None);
         return string.Join("\n", lines.Select(line => $"> {line}"));
+    }
+
+    private static string ResolveDomain(string? domain, string? fallback)
+    {
+        if (!string.IsNullOrWhiteSpace(domain))
+            return domain.Trim();
+        if (!string.IsNullOrWhiteSpace(fallback))
+            return fallback.Trim();
+        return "generated.local";
     }
 }

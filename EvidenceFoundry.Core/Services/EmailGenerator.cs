@@ -55,7 +55,7 @@ public class EmailGenerator
 
     private sealed class DocumentChainState
     {
-        public string ChainId { get; set; } = Guid.NewGuid().ToString("N")[..8];
+        public string ChainId { get; set; } = string.Empty;
         public string BaseTitle { get; set; } = "";
         public AttachmentType Type { get; set; }
         public int VersionNumber { get; set; } = 1;
@@ -2164,7 +2164,13 @@ ATTACHMENT REMINDER:
     {
         foreach (var otherChar in allCharacters)
         {
-            if (otherChar.Id == fromChar.Id || string.IsNullOrWhiteSpace(otherChar.SignatureBlock))
+            if (ReferenceEquals(otherChar, fromChar))
+                continue;
+
+            if (otherChar.Id != Guid.Empty && fromChar.Id != Guid.Empty && otherChar.Id == fromChar.Id)
+                continue;
+
+            if (string.IsNullOrWhiteSpace(otherChar.SignatureBlock))
                 continue;
 
             var wrongSig = otherChar.SignatureBlock.Trim();
@@ -2319,13 +2325,14 @@ Email body preview: {email.BodyPlain[..Math.Min(300, email.BodyPlain.Length)]}..
         if (attachment == null)
             return;
 
-        ApplyDocumentChainVersioning(attachment, chainState, reservedVersion, state);
+        ApplyDocumentChainVersioning(attachment, chainState, reservedVersion, state, email);
 
         if (string.IsNullOrEmpty(attachment.FileName))
         {
             attachment.FileName = FileNameHelper.GenerateAttachmentFileName(attachment, email);
         }
 
+        EnsureAttachmentId(email, attachment);
         email.Attachments.Add(attachment);
     }
 
@@ -2410,7 +2417,8 @@ Email body preview: {email.BodyPlain[..Math.Min(300, email.BodyPlain.Length)]}..
         Attachment attachment,
         DocumentChainState? chainState,
         int? reservedVersion,
-        WizardState state)
+        WizardState state,
+        EmailMessage email)
     {
         if (chainState != null && attachment.Content != null)
         {
@@ -2429,6 +2437,12 @@ Email body preview: {email.BodyPlain[..Math.Min(300, email.BodyPlain.Length)]}..
             // Start a new chain for Word documents
             var newChain = new DocumentChainState
             {
+                ChainId = DeterministicIdHelper.CreateShortToken(
+                    "doc-chain",
+                    8,
+                    email.Id.ToString("N"),
+                    attachment.ContentDescription,
+                    attachment.Type.ToString()),
                 BaseTitle = attachment.ContentDescription,
                 Type = attachment.Type,
                 VersionNumber = 1
@@ -2455,9 +2469,16 @@ Email body preview: {email.BodyPlain[..Math.Min(300, email.BodyPlain.Length)]}..
         if (imageBytes == null || imageBytes.Length == 0)
             return;
 
-        var contentId = $"img_{Guid.NewGuid():N}";
+        var contentIdToken = DeterministicIdHelper.CreateShortToken(
+            "inline-image",
+            32,
+            email.Id.ToString("N"),
+            email.PlannedImageDescription ?? string.Empty,
+            email.SentDate.ToString("O"));
+        var contentId = $"img_{contentIdToken}";
         var attachment = BuildPlannedImageAttachment(email, imageBytes, contentId);
 
+        EnsureAttachmentId(email, attachment);
         email.Attachments.Add(attachment);
 
         InsertInlineImageIfNeeded(email, contentId);
@@ -2478,7 +2499,7 @@ Email body preview: {email.BodyPlain[..Math.Min(300, email.BodyPlain.Length)]}..
             ContentDescription = plannedDescription,
             IsInline = email.PlannedIsImageInline,
             ContentId = contentId,
-            FileName = $"image_{email.SentDate:yyyyMMdd}_{Guid.NewGuid().ToString("N")[..6]}.png"
+            FileName = FileNameHelper.GenerateImageFileName(email, plannedDescription, contentId)
         };
     }
 
@@ -2598,6 +2619,7 @@ Respond with JSON:
             FileName = BuildVoicemailFileName(email.From.LastName, email.SentDate)
         };
 
+        EnsureAttachmentId(email, attachment);
         email.Attachments.Add(attachment);
     }
 
@@ -2623,12 +2645,13 @@ Respond with JSON:
         if (attachment == null)
             return;
 
-        ApplyDocumentChainVersioning(attachment, chainState, reservedVersion, state);
+        ApplyDocumentChainVersioning(attachment, chainState, reservedVersion, state, email);
 
         if (string.IsNullOrEmpty(attachment.FileName))
         {
             attachment.FileName = FileNameHelper.GenerateAttachmentFileName(attachment, email);
         }
+        EnsureAttachmentId(email, attachment);
         email.Attachments.Add(attachment);
     }
 
@@ -2704,6 +2727,22 @@ Respond with JSON:
         }
 
         return $"{prefix}{safeLastName}{suffix}";
+    }
+
+    private static void EnsureAttachmentId(EmailMessage email, Attachment attachment, int? indexOverride = null)
+    {
+        if (attachment.Id != Guid.Empty)
+            return;
+
+        var index = indexOverride ?? email.Attachments.Count;
+        attachment.Id = DeterministicIdHelper.CreateGuid(
+            "attachment",
+            email.Id.ToString("N"),
+            index.ToString(CultureInfo.InvariantCulture),
+            attachment.Type.ToString(),
+            attachment.FileName ?? string.Empty,
+            attachment.ContentDescription ?? string.Empty,
+            attachment.ContentId ?? string.Empty);
     }
 
     private async Task<Attachment> GenerateWordAttachmentAsync(
@@ -2954,7 +2993,13 @@ Respond with JSON:
         if (imageBytes == null || imageBytes.Length == 0)
             return;
 
-        var contentId = $"img_{Guid.NewGuid():N}";
+        var contentIdToken = DeterministicIdHelper.CreateShortToken(
+            "inline-image",
+            32,
+            email.Id.ToString("N"),
+            response.ImageDescription ?? string.Empty,
+            response.ImageContext ?? string.Empty);
+        var contentId = $"img_{contentIdToken}";
         var attachment = new Attachment
         {
             Type = AttachmentType.Image,
@@ -2962,9 +3007,10 @@ Respond with JSON:
             ContentDescription = response.ImageContext ?? "Attached image",
             IsInline = response.IsInline,
             ContentId = contentId,
-            FileName = $"image_{email.SentDate:yyyyMMdd}_{Guid.NewGuid().ToString("N")[..6]}.png"
+            FileName = FileNameHelper.GenerateImageFileName(email, response.ImageContext ?? response.ImageDescription, contentId)
         };
 
+        EnsureAttachmentId(email, attachment);
         email.Attachments.Add(attachment);
 
         // If inline, update the HTML body to include the image in the main content (before quoted text)
@@ -3108,9 +3154,14 @@ Respond with JSON:
             Type = AttachmentType.CalendarInvite,
             Content = icsContent,
             ContentDescription = response.MeetingTitle ?? "Meeting Invite",
-            FileName = $"invite_{startTime:yyyyMMdd}_{Guid.NewGuid().ToString("N")[..6]}.ics"
+            FileName = FileNameHelper.GenerateCalendarInviteFileName(
+                email,
+                startTime,
+                response.MeetingTitle,
+                email.From.Email)
         };
 
+        EnsureAttachmentId(email, attachment);
         email.Attachments.Add(attachment);
     }
 
@@ -3199,6 +3250,7 @@ Respond with JSON:
             FileName = BuildVoicemailFileName(email.From.LastName, email.SentDate)
         };
 
+        EnsureAttachmentId(email, attachment);
         email.Attachments.Add(attachment);
     }
 

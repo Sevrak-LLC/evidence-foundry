@@ -105,10 +105,26 @@ public class EmlFileService
         var messageId = SanitizeHeaderValue(email.MessageId, 200);
         if (string.IsNullOrEmpty(messageId))
         {
-            messageId = $"<{Guid.NewGuid():N}.{DateTime.UtcNow.Ticks}@generated.local>";
+            var domain = ResolveMessageIdDomain(email);
+            messageId = ThreadingHelper.GenerateMessageId(email, domain);
         }
 
         return SanitizeHeaderValue(messageId, 200).Trim('<', '>');
+    }
+
+    private static string ResolveMessageIdDomain(EmailMessage email)
+    {
+        if (!string.IsNullOrWhiteSpace(email.From?.Domain))
+            return email.From.Domain;
+
+        if (!string.IsNullOrWhiteSpace(email.From?.Email))
+        {
+            var atIndex = email.From.Email.IndexOf('@');
+            if (atIndex >= 0 && atIndex < email.From.Email.Length - 1)
+                return email.From.Email[(atIndex + 1)..];
+        }
+
+        return "generated.local";
     }
 
     private static void AddRecipients(InternetAddressList list, IEnumerable<Character> participants)

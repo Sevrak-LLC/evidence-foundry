@@ -8,7 +8,7 @@ public class EmailThread
         Responsive
     }
 
-    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid Id { get; set; }
     public Guid StoryBeatId { get; set; }
     public Guid StorylineId { get; set; }
     public EmailThreadScope Scope { get; set; } = EmailThreadScope.Internal;
