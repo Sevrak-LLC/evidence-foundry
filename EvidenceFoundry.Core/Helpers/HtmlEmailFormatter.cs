@@ -1,11 +1,12 @@
 using EvidenceFoundry.Models;
+using System.Text.RegularExpressions;
 
 namespace EvidenceFoundry.Helpers;
 
 /// <summary>
 /// Converts plain text email content to formatted HTML with organization-specific styling.
 /// </summary>
-public static class HtmlEmailFormatter
+public static partial class HtmlEmailFormatter
 {
     /// <summary>
     /// Builds the HTML template with organization-specific styling.
@@ -505,32 +506,35 @@ public static class HtmlEmailFormatter
         var accentColor = $"#{t.AccentColor}";
 
         // Convert *text* to <strong>text</strong>
-        encoded = System.Text.RegularExpressions.Regex.Replace(
-            encoded,
-            @"\*([^*]+)\*",
-            "<strong>$1</strong>");
+        encoded = InlineBoldRegex().Replace(encoded, "<strong>$1</strong>");
 
         // Convert _text_ to <em>text</em>
-        encoded = System.Text.RegularExpressions.Regex.Replace(
-            encoded,
-            @"_([^_]+)_",
-            "<em>$1</em>");
+        encoded = InlineEmphasisRegex().Replace(encoded, "<em>$1</em>");
 
         // Convert URLs to clickable links (using theme primary color)
-        encoded = System.Text.RegularExpressions.Regex.Replace(
+        encoded = InlineUrlRegex().Replace(
             encoded,
-            @"(https?://[^\s<]+)",
             $"<a href=\"$1\" style=\"color: {primaryColor};\">$1</a>");
 
         // Convert ACTION REQUIRED: and similar to bold (using theme accent color)
-        encoded = System.Text.RegularExpressions.Regex.Replace(
+        encoded = InlineAttentionRegex().Replace(
             encoded,
-            @"(ACTION REQUIRED:|URGENT:|IMPORTANT:|NOTE:|FYI:|REMINDER:)",
-            $"<strong style=\"color: {accentColor};\">$1</strong>",
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            $"<strong style=\"color: {accentColor};\">$1</strong>");
 
         return encoded;
     }
+
+    [GeneratedRegex(@"\*([^*]+)\*")]
+    private static partial Regex InlineBoldRegex();
+
+    [GeneratedRegex(@"_([^_]+)_")]
+    private static partial Regex InlineEmphasisRegex();
+
+    [GeneratedRegex(@"(https?://[^\s<]+)")]
+    private static partial Regex InlineUrlRegex();
+
+    [GeneratedRegex(@"(ACTION REQUIRED:|URGENT:|IMPORTANT:|NOTE:|FYI:|REMINDER:)", RegexOptions.IgnoreCase)]
+    private static partial Regex InlineAttentionRegex();
 
     private static bool IsSignatureStart(string[] lines, int index)
     {
