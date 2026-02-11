@@ -51,7 +51,7 @@ public class EmailGenerator
         _searchTermGenerator = new SuggestedSearchTermGenerator(openAI);
     }
 
-    private class DocumentChainState
+    private sealed class DocumentChainState
     {
         public string ChainId { get; set; } = Guid.NewGuid().ToString("N")[..8];
         public string BaseTitle { get; set; } = "";
@@ -3015,7 +3015,7 @@ Respond with JSON:
         }
     }
 
-    private class ImageSuggestionResponse
+    private sealed class ImageSuggestionResponse
     {
         [JsonPropertyName("shouldIncludeImage")]
         public bool ShouldIncludeImage { get; set; }
@@ -3110,7 +3110,7 @@ Respond with JSON:
         email.Attachments.Add(attachment);
     }
 
-    private class MeetingDetectionResponse
+    private sealed class MeetingDetectionResponse
     {
         [JsonPropertyName("hasMeeting")]
         public bool HasMeeting { get; set; }
@@ -3198,7 +3198,7 @@ Respond with JSON:
         email.Attachments.Add(attachment);
     }
 
-    private class VoicemailScriptResponse
+    private sealed class VoicemailScriptResponse
     {
         [JsonPropertyName("shouldCreateVoicemail")]
         public bool ShouldCreateVoicemail { get; set; }
@@ -3272,7 +3272,7 @@ Respond with JSON:
         public string? VoicemailContext { get; set; } // Context for the voicemail
     }
 
-    private class WordDocResponse
+    private sealed class WordDocResponse
     {
         [JsonPropertyName("title")]
         public string Title { get; set; } = string.Empty;
@@ -3281,7 +3281,7 @@ Respond with JSON:
         public string Content { get; set; } = string.Empty;
     }
 
-    private class ExcelDocResponse
+    private sealed class ExcelDocResponse
     {
         [JsonPropertyName("title")]
         public string Title { get; set; } = string.Empty;
@@ -3294,7 +3294,7 @@ Respond with JSON:
     }
 
     // Raw response that handles mixed types (strings and numbers) in Excel rows
-    private class ExcelDocResponseRaw
+    private sealed class ExcelDocResponseRaw
     {
         [JsonPropertyName("title")]
         public string Title { get; set; } = string.Empty;
@@ -3306,7 +3306,7 @@ Respond with JSON:
         public List<List<System.Text.Json.JsonElement>> Rows { get; set; } = new();
     }
 
-    private class PowerPointDocResponse
+    private sealed class PowerPointDocResponse
     {
         [JsonPropertyName("title")]
         public string Title { get; set; } = string.Empty;
@@ -3315,7 +3315,7 @@ Respond with JSON:
         public List<SlideDto> Slides { get; set; } = new();
     }
 
-    private class SlideDto
+    private sealed class SlideDto
     {
         [JsonPropertyName("slideTitle")]
         public string SlideTitle { get; set; } = string.Empty;
