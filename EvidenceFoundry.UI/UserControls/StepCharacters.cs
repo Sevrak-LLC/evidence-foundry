@@ -138,9 +138,9 @@ public class StepCharacters : UserControl, IWizardStep
 
         _gridCharacters.Columns.Add(new DataGridViewTextBoxColumn
         {
-            Name = "Email",
+            Name = nameof(CharacterRow.Email),
             HeaderText = "Email",
-            DataPropertyName = "Email",
+            DataPropertyName = nameof(CharacterRow.Email),
             Width = 200
         });
 
