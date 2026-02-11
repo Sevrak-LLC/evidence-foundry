@@ -569,12 +569,25 @@ public class EmailGenerator
         sb.AppendLine($"## {title}");
         if (items.Count == 0)
         {
-            sb.AppendLine();
-            sb.AppendLine("_None_");
-            sb.AppendLine();
+            WriteEmptySection(sb);
             return;
         }
 
+        var aggregated = AggregateTerms(items);
+        WriteAggregatedTerms(sb, aggregated);
+        WriteThreadTerms(sb, items);
+        sb.AppendLine();
+    }
+
+    private static void WriteEmptySection(StringBuilder sb)
+    {
+        sb.AppendLine();
+        sb.AppendLine("_None_");
+        sb.AppendLine();
+    }
+
+    private static List<string> AggregateTerms(IEnumerable<SuggestedSearchTermResult> items)
+    {
         var aggregated = new List<string>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var item in items)
@@ -588,39 +601,48 @@ public class EmailGenerator
             }
         }
 
+        return aggregated;
+    }
+
+    private static void WriteAggregatedTerms(StringBuilder sb, List<string> aggregated)
+    {
         sb.AppendLine();
         sb.AppendLine("### Aggregated Terms");
         if (aggregated.Count == 0)
         {
             sb.AppendLine("- (none generated)");
-        }
-        else
-        {
-            foreach (var term in aggregated)
-            {
-                sb.AppendLine($"- {term}");
-            }
+            return;
         }
 
+        foreach (var term in aggregated)
+        {
+            sb.AppendLine($"- {term}");
+        }
+    }
+
+    private static void WriteThreadTerms(StringBuilder sb, List<SuggestedSearchTermResult> items)
+    {
         sb.AppendLine();
         sb.AppendLine("### Thread Terms");
         foreach (var item in items.OrderBy(i => i.Subject, StringComparer.OrdinalIgnoreCase))
         {
-            sb.AppendLine($"- Subject: {item.Subject}");
-            if (item.Terms.Count == 0)
-            {
-                sb.AppendLine("  - (no terms generated)");
-            }
-            else
-            {
-                foreach (var term in item.Terms)
-                {
-                    sb.AppendLine($"  - {term}");
-                }
-            }
+            WriteThreadItem(sb, item);
+        }
+    }
+
+    private static void WriteThreadItem(StringBuilder sb, SuggestedSearchTermResult item)
+    {
+        sb.AppendLine($"- Subject: {item.Subject}");
+        if (item.Terms.Count == 0)
+        {
+            sb.AppendLine("  - (no terms generated)");
+            return;
         }
 
-        sb.AppendLine();
+        foreach (var term in item.Terms)
+        {
+            sb.AppendLine($"  - {term}");
+        }
     }
 
     private readonly record struct CharacterContext(string Role, string Department, string Organization);
