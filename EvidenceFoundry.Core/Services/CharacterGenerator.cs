@@ -501,6 +501,26 @@ Respond with JSON in this exact format:
         public int TotalCount { get; set; }
     }
 
+    private sealed class CharacterBuildContext
+    {
+        public CharacterBuildContext(string domain, Guid roleId, Guid departmentId, Guid organizationId, HashSet<string> usedNames, HashSet<string> usedEmails)
+        {
+            Domain = domain;
+            RoleId = roleId;
+            DepartmentId = departmentId;
+            OrganizationId = organizationId;
+            UsedNames = usedNames;
+            UsedEmails = usedEmails;
+        }
+
+        public string Domain { get; }
+        public Guid RoleId { get; }
+        public Guid DepartmentId { get; }
+        public Guid OrganizationId { get; }
+        public HashSet<string> UsedNames { get; }
+        public HashSet<string> UsedEmails { get; }
+    }
+
     private static bool TryAddCharactersToRole(
         IEnumerable<SimpleCharacterDto>? characters,
         Organization organization,
@@ -508,18 +528,21 @@ Respond with JSON in this exact format:
         Department targetDepartment,
         CharacterAddTracker tracker)
     {
+        var buildContext = new CharacterBuildContext(
+            organization.Domain,
+            targetRole.Id,
+            targetDepartment.Id,
+            organization.Id,
+            tracker.UsedNames,
+            tracker.UsedEmails);
+
         foreach (var c in characters ?? Enumerable.Empty<SimpleCharacterDto>())
         {
             if (tracker.MaxTotalCharacters.HasValue && tracker.TotalCount >= tracker.MaxTotalCharacters.Value)
                 return true;
             if (!TryBuildCharacter(
                     c,
-                    organization.Domain,
-                    targetRole.Id,
-                    targetDepartment.Id,
-                    organization.Id,
-                    tracker.UsedNames,
-                    tracker.UsedEmails,
+                    buildContext,
                     out var character,
                     out var fullName,
                     out var email))
@@ -536,12 +559,7 @@ Respond with JSON in this exact format:
 
     private static bool TryBuildCharacter(
         SimpleCharacterDto character,
-        string domain,
-        Guid roleId,
-        Guid departmentId,
-        Guid organizationId,
-        HashSet<string> usedNames,
-        HashSet<string> usedEmails,
+        CharacterBuildContext context,
         out Character model,
         out string fullName,
         out string email)
@@ -554,14 +572,14 @@ Respond with JSON in this exact format:
             return false;
 
         fullName = $"{character.FirstName.Trim()} {character.LastName.Trim()}".Trim();
-        if (usedNames.Contains(fullName))
+        if (context.UsedNames.Contains(fullName))
             return false;
 
         email = EmailAddressHelper.GenerateUniqueEmail(
             character.FirstName,
             character.LastName,
-            domain,
-            usedEmails,
+            context.Domain,
+            context.UsedEmails,
             character.Email);
         if (string.IsNullOrWhiteSpace(email))
             return false;
@@ -571,9 +589,9 @@ Respond with JSON in this exact format:
             FirstName = character.FirstName.Trim(),
             LastName = character.LastName.Trim(),
             Email = email,
-            RoleId = roleId,
-            DepartmentId = departmentId,
-            OrganizationId = organizationId,
+            RoleId = context.RoleId,
+            DepartmentId = context.DepartmentId,
+            OrganizationId = context.OrganizationId,
             Personality = string.Empty,
             CommunicationStyle = string.Empty,
             SignatureBlock = string.Empty
