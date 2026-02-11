@@ -92,11 +92,8 @@ Respond with JSON:
 
         if (response?.Themes != null)
         {
-            foreach (var t in response.Themes)
+            foreach (var t in response.Themes.Where(t => !string.IsNullOrEmpty(t.Domain)))
             {
-                if (string.IsNullOrEmpty(t.Domain))
-                    continue;
-
                 themes[t.Domain] = new OrganizationTheme
                 {
                     Domain = t.Domain,
@@ -150,13 +147,13 @@ Respond with JSON:
         return color.ToUpperInvariant();
     }
 
-    private class ThemeApiResponse
+    private sealed class ThemeApiResponse
     {
         [JsonPropertyName("themes")]
         public List<ThemeDto> Themes { get; set; } = new();
     }
 
-    private class ThemeDto
+    private sealed class ThemeDto
     {
         [JsonPropertyName("domain")]
         public string Domain { get; set; } = string.Empty;
