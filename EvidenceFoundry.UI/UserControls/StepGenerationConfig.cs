@@ -19,7 +19,6 @@ public class StepGenerationConfig : UserControl, IWizardStep
     private CheckBox _chkCalendarInvites = null!;
     private NumericUpDown _numCalendarPercent = null!;
     private TextBox _txtOutputFolder = null!;
-    private Button _btnBrowse = null!;
     private CheckBox _chkOrganizeBySender = null!;
 
     public string StepTitle => "Generation Settings";
@@ -319,11 +318,11 @@ public class StepGenerationConfig : UserControl, IWizardStep
                 Location = new Point(0, 5)
             };
             _txtOutputFolder.TextChanged += (s, e) => StateChanged?.Invoke(this, EventArgs.Empty);
-            _btnBrowse = ButtonHelper.CreateButton("Browse...", 90, 30, ButtonStyle.Default);
-            _btnBrowse.Location = new Point(390, 3);
-            _btnBrowse.Click += BtnBrowse_Click;
+            var btnBrowse = ButtonHelper.CreateButton("Browse...", 90, 30, ButtonStyle.Default);
+            btnBrowse.Location = new Point(390, 3);
+            btnBrowse.Click += BtnBrowse_Click;
             panel.Controls.Add(_txtOutputFolder);
-            panel.Controls.Add(_btnBrowse);
+            panel.Controls.Add(btnBrowse);
             return panel;
         });
 
