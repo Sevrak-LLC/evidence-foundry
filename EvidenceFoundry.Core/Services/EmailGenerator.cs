@@ -229,11 +229,11 @@ public class EmailGenerator
 
             // Generate thread(s) for this storyline
             var storylineThreads = await GenerateThreadsForStorylineAsync(
-                storyline, state.Characters, state.CompanyDomain,
+                storyline,
                 beats,
-                state.Config, state.DomainThemes, context.CharacterContexts,
-                state, context.Result, context.ProgressData, context.Progress, context.ProgressLock,
-                context.EmlService, context.SaveSemaphore, context.SavedThreads, ct);
+                state,
+                context,
+                ct);
 
             // Add to concurrent collection
             foreach (var thread in storylineThreads)
@@ -738,44 +738,33 @@ public class EmailGenerator
 
     private async Task<List<EmailThread>> GenerateThreadsForStorylineAsync(
         Storyline storyline,
-        List<Character> characters,
-        string domain,
         IReadOnlyList<StoryBeat> beats,
-        GenerationConfig config,
-        Dictionary<string, OrganizationTheme> domainThemes,
-        Dictionary<Guid, CharacterContext> characterContexts,
         WizardState state,
-        GenerationResult result,
-        GenerationProgress progressData,
-        IProgress<GenerationProgress> progress,
-        object progressLock,
-        EmlFileService emlService,
-        SemaphoreSlim saveSemaphore,
-        ConcurrentDictionary<Guid, bool> savedThreads,
+        ProcessStorylineContext processContext,
         CancellationToken ct)
     {
         if (beats == null || beats.Count == 0) return new List<EmailThread>();
 
-        var threadPlans = BuildThreadPlans(storyline, characters, beats, characterContexts, state);
+        var threadPlans = BuildThreadPlans(storyline, state.Characters, beats, processContext.CharacterContexts, state);
         if (threadPlans.Count == 0) return new List<EmailThread>();
 
         var threads = new EmailThread?[threadPlans.Count];
         var systemPrompt = BuildEmailSystemPrompt();
         var context = new ThreadPlanContext(
             storyline,
-            domain,
-            config,
-            domainThemes,
+            state.CompanyDomain,
+            state.Config,
+            state.DomainThemes,
             systemPrompt,
             state,
-            result,
-            progressData,
-            progress,
-            progressLock,
-            emlService,
-            saveSemaphore,
-            savedThreads);
-        var degree = Math.Max(1, config.ParallelThreads);
+            processContext.Result,
+            processContext.ProgressData,
+            processContext.Progress,
+            processContext.ProgressLock,
+            processContext.EmlService,
+            processContext.SaveSemaphore,
+            processContext.SavedThreads);
+        var degree = Math.Max(1, state.Config.ParallelThreads);
 
         if (degree == 1)
         {
