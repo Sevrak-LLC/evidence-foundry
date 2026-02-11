@@ -121,13 +121,8 @@ public class EmailGenerator
             // Save any remaining EML files (threads that weren't saved incrementally)
             await SaveRemainingEmlAsync(
                 threadsList,
-                savedThreads,
                 state,
-                result,
-                progressData,
-                progress,
-                progressLock,
-                emlService,
+                processContext,
                 ct);
 
             await GenerateSuggestedSearchTermsAsync(
@@ -275,34 +270,29 @@ public class EmailGenerator
 
     private static async Task SaveRemainingEmlAsync(
         List<EmailThread> threadsList,
-        ConcurrentDictionary<Guid, bool> savedThreads,
         WizardState state,
-        GenerationResult result,
-        GenerationProgress progressData,
-        IProgress<GenerationProgress> progress,
-        object progressLock,
-        EmlFileService emlService,
+        ProcessStorylineContext context,
         CancellationToken ct)
     {
-        var unsavedThreads = threadsList.Where(t => !savedThreads.ContainsKey(t.Id)).ToList();
+        var unsavedThreads = threadsList.Where(t => !context.SavedThreads.ContainsKey(t.Id)).ToList();
         if (unsavedThreads.Count == 0)
         {
             return;
         }
 
-        ReportProgress(progress, progressData, progressLock, p => p.CurrentOperation = "Saving EML files...");
+        ReportProgress(context.Progress, context.ProgressData, context.ProgressLock, p => p.CurrentOperation = "Saving EML files...");
 
         try
         {
             var emlProgress = new Progress<(int completed, int total, string currentFile)>(p =>
             {
-                ReportProgress(progress, progressData, progressLock, pd =>
+                ReportProgress(context.Progress, context.ProgressData, context.ProgressLock, pd =>
                 {
                     pd.CurrentOperation = $"Saving: {p.currentFile}";
                 });
             });
 
-            await emlService.SaveAllEmailsAsync(
+            await context.EmlService.SaveAllEmailsAsync(
                 unsavedThreads,
                 state.Config.OutputFolder,
                 state.Config.OrganizeBySender,
@@ -313,12 +303,12 @@ public class EmailGenerator
         }
         catch (Exception ex)
         {
-            lock (progressLock)
+            lock (context.ProgressLock)
             {
-                result.Errors.Add($"Failed to save EML files: {ex.Message}");
+                context.Result.Errors.Add($"Failed to save EML files: {ex.Message}");
                 if (ex.InnerException != null)
                 {
-                    result.Errors.Add($"  Inner error: {ex.InnerException.Message}");
+                    context.Result.Errors.Add($"  Inner error: {ex.InnerException.Message}");
                 }
             }
         }
