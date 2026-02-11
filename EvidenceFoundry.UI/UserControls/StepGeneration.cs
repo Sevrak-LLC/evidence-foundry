@@ -114,14 +114,13 @@ public class StepGeneration : UserControl, IWizardStep
 
     private void BtnCancel_Click(object? sender, EventArgs e)
     {
-        if (_isGenerating && _cts != null)
-        {
-            if (MessageBox.Show("Are you sure you want to cancel the generation?",
+        if (_isGenerating
+            && _cts != null
+            && MessageBox.Show("Are you sure you want to cancel the generation?",
                 "Confirm Cancel", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
-            {
-                _cts.Cancel();
-                AppendLog("Cancellation requested...", Color.Yellow);
-            }
+        {
+            _cts.Cancel();
+            AppendLog("Cancellation requested...", Color.Yellow);
         }
     }
 
@@ -209,7 +208,7 @@ public class StepGeneration : UserControl, IWizardStep
         AppendLog("");
     }
 
-    private IProgress<GenerationProgress> BuildProgressReporter()
+    private Progress<GenerationProgress> BuildProgressReporter()
     {
         return new Progress<GenerationProgress>(p =>
         {
@@ -326,13 +325,11 @@ public class StepGeneration : UserControl, IWizardStep
             }
         }
 
-        if (!string.IsNullOrEmpty(p.CurrentStoryline))
+        if (!string.IsNullOrEmpty(p.CurrentStoryline)
+            && !string.Equals(_lastStorylineLogged, p.CurrentStoryline, StringComparison.Ordinal))
         {
-            if (!string.Equals(_lastStorylineLogged, p.CurrentStoryline, StringComparison.Ordinal))
-            {
-                AppendLog($"Processing storyline: {p.CurrentStoryline}");
-                _lastStorylineLogged = p.CurrentStoryline;
-            }
+            AppendLog($"Processing storyline: {p.CurrentStoryline}");
+            _lastStorylineLogged = p.CurrentStoryline;
         }
     }
 
