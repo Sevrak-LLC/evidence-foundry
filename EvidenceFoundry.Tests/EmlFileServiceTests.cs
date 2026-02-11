@@ -21,9 +21,9 @@ public class EmlFileServiceTests
                 tempDir,
                 organizeBySender: false,
                 progress: null,
-                ct: default,
                 maxDegreeOfParallelism: 4,
-                releaseAttachmentContent: true);
+                releaseAttachmentContent: true,
+                ct: default);
 
             var files = Directory.GetFiles(tempDir, "*.eml", SearchOption.AllDirectories);
             Assert.Equal(emails.Count, files.Length);
@@ -61,8 +61,8 @@ public class EmlFileServiceTests
                 tempDir,
                 organizeBySender: true,
                 progress: null,
-                ct: default,
-                maxDegreeOfParallelism: 2);
+                maxDegreeOfParallelism: 2,
+                ct: default);
 
             var expectedFolders = emails
                 .Select(e => SanitizeFolderName(e.From.Email))
@@ -104,8 +104,8 @@ public class EmlFileServiceTests
                 tempDir,
                 organizeBySender: false,
                 progress: null,
-                ct: default,
-                releaseAttachmentContent: true);
+                releaseAttachmentContent: true,
+                ct: default);
 
             var files = Directory.GetFiles(tempDir, "*.eml", SearchOption.AllDirectories);
             Assert.Equal(emails.Count, files.Length);

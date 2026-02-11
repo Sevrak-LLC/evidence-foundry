@@ -9,7 +9,7 @@ public class EmlFileService
 {
     private const int MaxFileNameLength = 180;
 
-    public async Task SaveEmailAsEmlAsync(
+    public static async Task SaveEmailAsEmlAsync(
         EmailMessage email,
         string outputFolder,
         CancellationToken ct = default)
@@ -31,9 +31,9 @@ public class EmlFileService
         string outputFolder,
         bool organizeBySender = false,
         IProgress<(int completed, int total, string currentFile)>? progress = null,
-        CancellationToken ct = default,
         int? maxDegreeOfParallelism = null,
-        bool releaseAttachmentContent = false)
+        bool releaseAttachmentContent = false,
+        CancellationToken ct = default)
     {
         // Ensure output folder exists
         Directory.CreateDirectory(outputFolder);
@@ -231,17 +231,17 @@ public class EmlFileService
         string outputFolder,
         bool organizeBySender = false,
         IProgress<(int completed, int total, string currentFile)>? progress = null,
-        CancellationToken ct = default,
-        bool releaseAttachmentContent = false)
+        bool releaseAttachmentContent = false,
+        CancellationToken ct = default)
     {
         return SaveAllEmailsAsync(
             new List<EmailThread> { thread },
             outputFolder,
             organizeBySender,
             progress,
-            ct,
             maxDegreeOfParallelism: 1,
-            releaseAttachmentContent: releaseAttachmentContent);
+            releaseAttachmentContent: releaseAttachmentContent,
+            ct: ct);
     }
 
     private static string SanitizeFolderName(string email)

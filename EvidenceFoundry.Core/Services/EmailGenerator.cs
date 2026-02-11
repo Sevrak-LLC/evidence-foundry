@@ -299,9 +299,9 @@ public class EmailGenerator
                 state.Config.OutputFolder,
                 state.Config.OrganizeBySender,
                 emlProgress,
-                ct,
                 state.Config.ParallelThreads,
-                releaseAttachmentContent: true);
+                releaseAttachmentContent: true,
+                ct: ct);
         }
         catch (Exception ex)
         {
@@ -1210,8 +1210,8 @@ public class EmailGenerator
                 context.Config.OutputFolder,
                 context.Config.OrganizeBySender,
                 emlProgress,
-                ct,
-                releaseAttachmentContent: true);
+                releaseAttachmentContent: true,
+                ct: ct);
 
             context.SavedThreads.TryAdd(thread.Id, true);
         }
