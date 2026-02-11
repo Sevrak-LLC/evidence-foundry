@@ -389,7 +389,11 @@ Respond with JSON in this exact format:
         int? maxTotalCharacters = null)
     {
         var roleLookup = BuildRoleLookup(organization);
-        var totalCount = organization.EnumerateCharacters().Count();
+        var tracker = new CharacterAddTracker(
+            usedNames,
+            usedEmails,
+            maxTotalCharacters,
+            organization.EnumerateCharacters().Count());
 
         foreach (var roleDto in roles)
         {
@@ -407,10 +411,7 @@ Respond with JSON in this exact format:
                     organization,
                     targetRole,
                     targetDepartment,
-                    usedNames,
-                    usedEmails,
-                    maxTotalCharacters,
-                    ref totalCount))
+                    tracker))
                 return;
         }
     }
@@ -484,19 +485,32 @@ Respond with JSON in this exact format:
         return roleAssignments.All(r => r.Role.Characters.Count == 0);
     }
 
+    private sealed class CharacterAddTracker
+    {
+        public CharacterAddTracker(HashSet<string> usedNames, HashSet<string> usedEmails, int? maxTotalCharacters, int totalCount)
+        {
+            UsedNames = usedNames;
+            UsedEmails = usedEmails;
+            MaxTotalCharacters = maxTotalCharacters;
+            TotalCount = totalCount;
+        }
+
+        public HashSet<string> UsedNames { get; }
+        public HashSet<string> UsedEmails { get; }
+        public int? MaxTotalCharacters { get; }
+        public int TotalCount { get; set; }
+    }
+
     private static bool TryAddCharactersToRole(
         IEnumerable<SimpleCharacterDto>? characters,
         Organization organization,
         Role targetRole,
         Department targetDepartment,
-        HashSet<string> usedNames,
-        HashSet<string> usedEmails,
-        int? maxTotalCharacters,
-        ref int totalCount)
+        CharacterAddTracker tracker)
     {
         foreach (var c in characters ?? Enumerable.Empty<SimpleCharacterDto>())
         {
-            if (maxTotalCharacters.HasValue && totalCount >= maxTotalCharacters.Value)
+            if (tracker.MaxTotalCharacters.HasValue && tracker.TotalCount >= tracker.MaxTotalCharacters.Value)
                 return true;
             if (!TryBuildCharacter(
                     c,
@@ -504,17 +518,17 @@ Respond with JSON in this exact format:
                     targetRole.Id,
                     targetDepartment.Id,
                     organization.Id,
-                    usedNames,
-                    usedEmails,
+                    tracker.UsedNames,
+                    tracker.UsedEmails,
                     out var character,
                     out var fullName,
                     out var email))
                 continue;
 
             targetRole.Characters.Add(character);
-            usedNames.Add(fullName);
-            usedEmails.Add(email);
-            totalCount++;
+            tracker.UsedNames.Add(fullName);
+            tracker.UsedEmails.Add(email);
+            tracker.TotalCount++;
         }
 
         return false;
