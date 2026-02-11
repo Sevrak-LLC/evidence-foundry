@@ -580,13 +580,13 @@ Characters (JSON):
         if (context.UsedNames.Contains(fullName))
             return false;
 
-        email = EmailAddressHelper.GenerateUniqueEmail(
-            character.FirstName,
-            character.LastName,
-            context.Domain,
-            context.UsedEmails,
-            character.Email);
-        if (string.IsNullOrWhiteSpace(email))
+        if (!EmailAddressHelper.TryGenerateUniqueEmail(
+                character.FirstName,
+                character.LastName,
+                context.Domain,
+                context.UsedEmails,
+                out email,
+                character.Email))
             return false;
 
         model = new Character

@@ -153,8 +153,7 @@ Sans-serif: Segoe UI, Arial, Calibri, Trebuchet MS, Century Gothic, Verdana, Tah
 
         foreach (var t in response.Themes)
         {
-            var normalizedDomain = NormalizeDomainKey(t.Domain);
-            if (string.IsNullOrWhiteSpace(normalizedDomain))
+            if (!TryNormalizeDomainKey(t.Domain, out var normalizedDomain))
                 continue;
 
             if (!normalizedDomains.TryGetValue(normalizedDomain, out var allowedDomain))
@@ -241,8 +240,7 @@ Sans-serif: Segoe UI, Arial, Calibri, Trebuchet MS, Century Gothic, Verdana, Tah
         var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var domain in domains)
         {
-            var normalized = NormalizeDomainKey(domain);
-            if (string.IsNullOrWhiteSpace(normalized))
+            if (!TryNormalizeDomainKey(domain, out var normalized))
                 continue;
 
             if (!map.ContainsKey(normalized))
@@ -254,10 +252,11 @@ Sans-serif: Segoe UI, Arial, Calibri, Trebuchet MS, Century Gothic, Verdana, Tah
         return map;
     }
 
-    private static string NormalizeDomainKey(string? domain)
+    private static bool TryNormalizeDomainKey(string? domain, out string normalized)
     {
+        normalized = string.Empty;
         if (string.IsNullOrWhiteSpace(domain))
-            return string.Empty;
+            return false;
 
         var trimmed = domain.Trim();
         if ((trimmed.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
@@ -276,6 +275,11 @@ Sans-serif: Segoe UI, Arial, Calibri, Trebuchet MS, Century Gothic, Verdana, Tah
             }
         }
 
-        return trimmed.Trim().Trim('.');
+        trimmed = trimmed.Trim().Trim('.');
+        if (string.IsNullOrWhiteSpace(trimmed))
+            return false;
+
+        normalized = trimmed;
+        return true;
     }
 }

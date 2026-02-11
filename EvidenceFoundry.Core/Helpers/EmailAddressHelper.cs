@@ -15,7 +15,20 @@ public static partial class EmailAddressHelper
 
     public static string GenerateEmail(string firstName, string lastName, string domain, string? preferredEmail = null)
     {
-        return GenerateUniqueEmail(firstName, lastName, domain, null, preferredEmail);
+        if (TryGenerateEmail(firstName, lastName, domain, out var email, preferredEmail))
+            return email;
+
+        throw new InvalidOperationException("Unable to generate an email address from the provided inputs.");
+    }
+
+    public static bool TryGenerateEmail(
+        string firstName,
+        string lastName,
+        string domain,
+        out string email,
+        string? preferredEmail = null)
+    {
+        return TryGenerateUniqueEmail(firstName, lastName, domain, null, out email, preferredEmail);
     }
 
     public static string GenerateUniqueEmail(
@@ -25,64 +38,86 @@ public static partial class EmailAddressHelper
         ISet<string>? usedEmails,
         string? preferredEmail = null)
     {
-        var cleanedDomain = NormalizeDomain(domain);
-        if (string.IsNullOrWhiteSpace(cleanedDomain))
-            return string.Empty;
+        if (TryGenerateUniqueEmail(firstName, lastName, domain, usedEmails, out var email, preferredEmail))
+            return email;
 
-        var preferredLocal = ExtractLocalPart(preferredEmail);
-        var baseLocal = !string.IsNullOrWhiteSpace(preferredLocal)
+        throw new InvalidOperationException("Unable to generate a unique email address from the provided inputs.");
+    }
+
+    public static bool TryGenerateUniqueEmail(
+        string firstName,
+        string lastName,
+        string domain,
+        ISet<string>? usedEmails,
+        out string email,
+        string? preferredEmail = null)
+    {
+        email = string.Empty;
+        if (!TryNormalizeDomain(domain, out var cleanedDomain))
+            return false;
+
+        var baseLocal = TryExtractLocalPart(preferredEmail, out var preferredLocal)
             ? preferredLocal
-            : NormalizeLocalPart($"{firstName}.{lastName}");
-
-        if (string.IsNullOrWhiteSpace(baseLocal))
-            baseLocal = "user";
+            : TryNormalizeLocalPart($"{firstName}.{lastName}", out var normalizedLocal)
+                ? normalizedLocal
+                : "user";
 
         baseLocal = TruncateLocalPart(baseLocal);
 
         var candidate = $"{baseLocal}@{cleanedDomain}";
         if (IsValidEmail(candidate) && (usedEmails == null || !usedEmails.Contains(candidate)))
-            return candidate;
+        {
+            email = candidate;
+            return true;
+        }
 
         for (var counter = 2; counter < 1000; counter++)
         {
             var local = TruncateLocalPart($"{baseLocal}{counter}");
             candidate = $"{local}@{cleanedDomain}";
             if (IsValidEmail(candidate) && (usedEmails == null || !usedEmails.Contains(candidate)))
-                return candidate;
+            {
+                email = candidate;
+                return true;
+            }
         }
 
-        return string.Empty;
+        return false;
     }
 
-    private static string NormalizeDomain(string domain)
+    private static bool TryNormalizeDomain(string? domain, out string normalized)
     {
+        normalized = string.Empty;
         var trimmed = (domain ?? string.Empty).Trim().ToLowerInvariant();
         if (string.IsNullOrWhiteSpace(trimmed) || trimmed.Contains('@'))
-            return string.Empty;
+            return false;
 
         var cleaned = string.Concat(trimmed.Where(ch =>
             char.IsLetterOrDigit(ch) || ch == '.' || ch == '-')).Trim('.');
         if (string.IsNullOrWhiteSpace(cleaned) || !cleaned.Contains('.'))
-            return string.Empty;
+            return false;
 
-        return cleaned;
+        normalized = cleaned;
+        return true;
     }
 
-    private static string ExtractLocalPart(string? preferredEmail)
+    private static bool TryExtractLocalPart(string? preferredEmail, out string localPart)
     {
+        localPart = string.Empty;
         if (string.IsNullOrWhiteSpace(preferredEmail))
-            return string.Empty;
+            return false;
 
         var trimmed = preferredEmail.Trim();
         var at = trimmed.IndexOf('@');
         var local = at > 0 ? trimmed[..at] : trimmed;
-        return NormalizeLocalPart(local);
+        return TryNormalizeLocalPart(local, out localPart);
     }
 
-    private static string NormalizeLocalPart(string? value)
+    private static bool TryNormalizeLocalPart(string? value, out string localPart)
     {
+        localPart = string.Empty;
         if (string.IsNullOrWhiteSpace(value))
-            return string.Empty;
+            return false;
 
         var normalized = value.Normalize(NormalizationForm.FormD);
         var sb = new StringBuilder(normalized.Length);
@@ -105,8 +140,11 @@ public static partial class EmailAddressHelper
         var cleaned = sb.ToString();
         cleaned = MultipleDotsRegex().Replace(cleaned, ".");
         cleaned = cleaned.Trim('.');
+        if (string.IsNullOrWhiteSpace(cleaned))
+            return false;
 
-        return cleaned;
+        localPart = cleaned;
+        return true;
     }
 
     private static string TruncateLocalPart(string local)
