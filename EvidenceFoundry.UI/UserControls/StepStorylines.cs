@@ -9,7 +9,6 @@ public class StepStorylines : UserControl, IWizardStep
     private WizardState _state = null!;
     private Button _btnRegenerate = null!;
     private Panel _editorPanel = null!;
-    private Panel _contentPanel = null!;
     private Panel _emptyStatePanel = null!;
     private Label _lblEmptyState = null!;
     private TextBox _txtStorylineTitle = null!;
@@ -98,7 +97,7 @@ public class StepStorylines : UserControl, IWizardStep
 
         mainLayout.Controls.Add(headerLayout, 0, 0);
 
-        _contentPanel = new Panel
+        var contentPanel = new Panel
         {
             Dock = DockStyle.Fill,
             BackColor = SystemColors.Window
@@ -106,7 +105,7 @@ public class StepStorylines : UserControl, IWizardStep
 
         _editorPanel = BuildStorylineEditorPanel();
         _editorPanel.Dock = DockStyle.Fill;
-        _contentPanel.Controls.Add(_editorPanel);
+        contentPanel.Controls.Add(_editorPanel);
 
         _emptyStatePanel = new Panel
         {
@@ -122,9 +121,9 @@ public class StepStorylines : UserControl, IWizardStep
             Font = new Font(this.Font.FontFamily, 10F, FontStyle.Italic)
         };
         _emptyStatePanel.Controls.Add(_lblEmptyState);
-        _contentPanel.Controls.Add(_emptyStatePanel);
+        contentPanel.Controls.Add(_emptyStatePanel);
 
-        mainLayout.Controls.Add(_contentPanel, 0, 1);
+        mainLayout.Controls.Add(contentPanel, 0, 1);
 
         // Create loading overlay for the editor
         _loadingOverlay = new LoadingOverlay(LoadingOverlay.LoadingType.Storyline);
