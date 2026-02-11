@@ -408,8 +408,8 @@ public class StepStoryBeats : UserControl, IWizardStep
         if (string.IsNullOrWhiteSpace(text))
             return Array.Empty<string>();
 
-        return text
-            .Split(UiTextSplitHelper.LineSeparators, StringSplitOptions.RemoveEmptyEntries)
+        return UiTextSplitHelper
+            .SplitLines(text, StringSplitOptions.RemoveEmptyEntries)
             .Select(p => p.Trim())
             .Where(p => p.Length > 0);
     }
