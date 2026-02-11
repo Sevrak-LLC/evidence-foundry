@@ -22,7 +22,6 @@ public class WorldModelGenerator
 {
     private readonly OpenAIService _openAI;
     private readonly Random _rng;
-    private const string RandomIndustryPreference = "Random";
     private static readonly JsonSerializerOptions WorldModelSerializerOptions = JsonSerializationDefaults.CaseInsensitiveWithEnums;
     private static readonly Dictionary<string, UsState> UsStateAbbreviations = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -102,10 +101,10 @@ public class WorldModelGenerator
         if (string.IsNullOrWhiteSpace(request.IssueDescription))
             throw new ArgumentException("Issue description is required.", nameof(request.IssueDescription));
 
-        var normalizedPlaintiffIndustry = NormalizeIndustryPreference(request.PlaintiffIndustry);
-        var normalizedDefendantIndustry = NormalizeIndustryPreference(request.DefendantIndustry);
-        var normalizedPlaintiffCount = NormalizePartyCount(request.PlaintiffOrganizationCount);
-        var normalizedDefendantCount = NormalizePartyCount(request.DefendantOrganizationCount);
+        var normalizedPlaintiffIndustry = GenerationRequestNormalizer.NormalizeIndustryPreference(request.PlaintiffIndustry);
+        var normalizedDefendantIndustry = GenerationRequestNormalizer.NormalizeIndustryPreference(request.DefendantIndustry);
+        var normalizedPlaintiffCount = GenerationRequestNormalizer.NormalizePartyCount(request.PlaintiffOrganizationCount);
+        var normalizedDefendantCount = GenerationRequestNormalizer.NormalizePartyCount(request.DefendantOrganizationCount);
 
         var industriesForPrompt = ResolveIndustriesForPrompt(normalizedPlaintiffIndustry, normalizedDefendantIndustry, _rng);
         if (industriesForPrompt.Count == 0)
@@ -591,7 +590,7 @@ Generate the world model ONLY: organizations + minimal directly-involved key peo
         ArgumentNullException.ThrowIfNull(rng);
         var industries = new List<Industry>();
 
-        if (IsRandomIndustry(plaintiffIndustry))
+        if (GenerationRequestNormalizer.IsRandomIndustry(plaintiffIndustry))
         {
             industries.Add(GetRandomIndustry(rng));
         }
@@ -600,7 +599,7 @@ Generate the world model ONLY: organizations + minimal directly-involved key peo
             industries.Add(plaintiff);
         }
 
-        if (IsRandomIndustry(defendantIndustry))
+        if (GenerationRequestNormalizer.IsRandomIndustry(defendantIndustry))
         {
             industries.Add(GetRandomIndustry(rng));
         }
@@ -623,29 +622,6 @@ Generate the world model ONLY: organizations + minimal directly-involved key peo
         return involvement.Equals("Actor", StringComparison.OrdinalIgnoreCase)
             || involvement.Equals("Target", StringComparison.OrdinalIgnoreCase)
             || involvement.Equals("Intermediary", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool IsRandomIndustry(string industry)
-    {
-        return string.Equals(industry, RandomIndustryPreference, StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static string NormalizeIndustryPreference(string? preference)
-    {
-        if (string.IsNullOrWhiteSpace(preference))
-            return RandomIndustryPreference;
-
-        var trimmed = preference.Trim();
-        return IsRandomIndustry(trimmed) ? RandomIndustryPreference : trimmed;
-    }
-
-    private static int NormalizePartyCount(int value)
-    {
-        if (value < 1)
-            return 1;
-        if (value > 3)
-            return 3;
-        return value;
     }
 
     private static string FormatIndustryOptions(IEnumerable<Industry> industries)

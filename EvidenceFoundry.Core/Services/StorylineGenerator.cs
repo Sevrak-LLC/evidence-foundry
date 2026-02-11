@@ -11,7 +11,6 @@ public class StorylineGenerator
     private readonly StoryBeatGenerator _beatGenerator;
     private readonly EmailThreadGenerator _threadGenerator;
     private readonly Random _rng;
-    private const string RandomIndustryPreference = "Random";
 
     public StorylineGenerator(OpenAIService openAI, Random rng)
     {
@@ -36,13 +35,13 @@ public class StorylineGenerator
         var issueDescription = request.IssueDescription;
         var additionalInstructions = request.AdditionalInstructions ?? string.Empty;
         var mediaHints = BuildMediaHints(request.WantsDocuments, request.WantsImages, request.WantsVoicemails);
-        var normalizedPlaintiffCount = NormalizePartyCount(request.PlaintiffOrganizationCount);
-        var normalizedDefendantCount = NormalizePartyCount(request.DefendantOrganizationCount);
+        var normalizedPlaintiffCount = GenerationRequestNormalizer.NormalizePartyCount(request.PlaintiffOrganizationCount);
+        var normalizedDefendantCount = GenerationRequestNormalizer.NormalizePartyCount(request.DefendantOrganizationCount);
 
         progress?.Report("Generating storyline...");
         var issueContext = string.IsNullOrWhiteSpace(issueDescription) ? topic : issueDescription;
-        var normalizedPlaintiffIndustry = NormalizeIndustryPreference(request.PlaintiffIndustry);
-        var normalizedDefendantIndustry = NormalizeIndustryPreference(request.DefendantIndustry);
+        var normalizedPlaintiffIndustry = GenerationRequestNormalizer.NormalizeIndustryPreference(request.PlaintiffIndustry);
+        var normalizedDefendantIndustry = GenerationRequestNormalizer.NormalizeIndustryPreference(request.DefendantIndustry);
         var includeOtherIndustry = string.Equals(normalizedPlaintiffIndustry, nameof(Industry.Other), StringComparison.OrdinalIgnoreCase)
             || string.Equals(normalizedDefendantIndustry, nameof(Industry.Other), StringComparison.OrdinalIgnoreCase);
 
@@ -269,28 +268,6 @@ REQUIREMENTS:
             .Select(name => $"{name} ({EnumHelper.HumanizeEnumName(name)})");
 
         return string.Join(", ", options);
-    }
-
-    private static string NormalizeIndustryPreference(string? preference)
-    {
-        if (string.IsNullOrWhiteSpace(preference))
-        {
-            return RandomIndustryPreference;
-        }
-
-        var trimmed = preference.Trim();
-        return string.Equals(trimmed, RandomIndustryPreference, StringComparison.OrdinalIgnoreCase)
-            ? RandomIndustryPreference
-            : trimmed;
-    }
-
-    private static int NormalizePartyCount(int value)
-    {
-        if (value < 1)
-            return 1;
-        if (value > 3)
-            return 3;
-        return value;
     }
 
     private static List<string> FilterAndTrimList(IEnumerable<string>? values)
