@@ -90,23 +90,7 @@ Respond with JSON:
 
         var response = await _openAI.GetJsonCompletionAsync<ThemeApiResponse>(systemPrompt, userPrompt, "Theme Generation", ct);
 
-        if (response?.Themes != null)
-        {
-            foreach (var t in response.Themes.Where(t => !string.IsNullOrEmpty(t.Domain)))
-            {
-                themes[t.Domain] = new OrganizationTheme
-                {
-                    Domain = t.Domain,
-                    OrganizationName = t.OrganizationName ?? domainOrgs.GetValueOrDefault(t.Domain, "Organization"),
-                    ThemeName = t.ThemeName ?? "Corporate",
-                    PrimaryColor = SanitizeHexColor(t.PrimaryColor) ?? "2B579A",
-                    SecondaryColor = SanitizeHexColor(t.SecondaryColor) ?? "5B9BD5",
-                    AccentColor = SanitizeHexColor(t.AccentColor) ?? "ED7D31",
-                    HeadingFont = SanitizeFont(t.HeadingFont) ?? "Segoe UI Semibold",
-                    BodyFont = SanitizeFont(t.BodyFont) ?? "Segoe UI"
-                };
-            }
-        }
+        ApplyThemeResponse(themes, domainOrgs, response);
 
         // Ensure all domains have a theme (use defaults for any missing)
         foreach (var domain in domainOrgs.Keys)
@@ -147,13 +131,46 @@ Respond with JSON:
         return color.ToUpperInvariant();
     }
 
-    private sealed class ThemeApiResponse
+    internal static void ApplyThemeResponse(
+        Dictionary<string, OrganizationTheme> themes,
+        IReadOnlyDictionary<string, string> domainOrgs,
+        ThemeApiResponse? response)
+    {
+        if (response?.Themes == null || response.Themes.Count == 0)
+            return;
+
+        var normalizedDomains = BuildNormalizedDomainMap(domainOrgs.Keys);
+
+        foreach (var t in response.Themes)
+        {
+            var normalizedDomain = NormalizeDomainKey(t.Domain);
+            if (string.IsNullOrWhiteSpace(normalizedDomain))
+                continue;
+
+            if (!normalizedDomains.TryGetValue(normalizedDomain, out var allowedDomain))
+                continue;
+
+            themes[allowedDomain] = new OrganizationTheme
+            {
+                Domain = allowedDomain,
+                OrganizationName = domainOrgs[allowedDomain],
+                ThemeName = t.ThemeName ?? "Corporate",
+                PrimaryColor = SanitizeHexColor(t.PrimaryColor) ?? "2B579A",
+                SecondaryColor = SanitizeHexColor(t.SecondaryColor) ?? "5B9BD5",
+                AccentColor = SanitizeHexColor(t.AccentColor) ?? "ED7D31",
+                HeadingFont = SanitizeFont(t.HeadingFont) ?? "Segoe UI Semibold",
+                BodyFont = SanitizeFont(t.BodyFont) ?? "Segoe UI"
+            };
+        }
+    }
+
+    internal sealed class ThemeApiResponse
     {
         [JsonPropertyName("themes")]
         public List<ThemeDto> Themes { get; set; } = new();
     }
 
-    private sealed class ThemeDto
+    internal sealed class ThemeDto
     {
         [JsonPropertyName("domain")]
         public string Domain { get; set; } = string.Empty;
@@ -207,5 +224,48 @@ Respond with JSON:
         // Try to find a close match (case-insensitive)
         var match = AllowedFonts.FirstOrDefault(f => f.Equals(font, StringComparison.OrdinalIgnoreCase));
         return match;
+    }
+
+    private static Dictionary<string, string> BuildNormalizedDomainMap(IEnumerable<string> domains)
+    {
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var domain in domains)
+        {
+            var normalized = NormalizeDomainKey(domain);
+            if (string.IsNullOrWhiteSpace(normalized))
+                continue;
+
+            if (!map.ContainsKey(normalized))
+            {
+                map[normalized] = domain;
+            }
+        }
+
+        return map;
+    }
+
+    private static string NormalizeDomainKey(string? domain)
+    {
+        if (string.IsNullOrWhiteSpace(domain))
+            return string.Empty;
+
+        var trimmed = domain.Trim();
+        if ((trimmed.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+                || trimmed.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            && Uri.TryCreate(trimmed, UriKind.Absolute, out var uri)
+            && !string.IsNullOrWhiteSpace(uri.Host))
+        {
+            trimmed = uri.Host;
+        }
+        else
+        {
+            var slashIndex = trimmed.IndexOf('/');
+            if (slashIndex >= 0)
+            {
+                trimmed = trimmed[..slashIndex];
+            }
+        }
+
+        return trimmed.Trim().Trim('.');
     }
 }
