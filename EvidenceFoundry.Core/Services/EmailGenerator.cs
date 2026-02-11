@@ -215,7 +215,9 @@ public class EmailGenerator
                 ex,
                 "Email generation failed after {DurationMs} ms.",
                 stopwatch.ElapsedMilliseconds);
-            throw new InvalidOperationException($"Email generation failed: {ex.Message}", ex);
+            result.ElapsedTime = stopwatch.Elapsed;
+            result.AddError($"Email generation failed: {ex.Message}");
+            return result;
         }
     }
 
@@ -318,9 +320,11 @@ public class EmailGenerator
         }
         catch (Exception ex)
         {
-            throw new InvalidOperationException(
-                $"Storyline '{storyline.Title}' failed during email generation: {ex.Message}",
-                ex);
+            _logger.LogError(
+                ex,
+                "Storyline '{StorylineTitle}' failed during email generation.",
+                storyline.Title);
+            context.Result.AddError($"Storyline '{storyline.Title}' failed during email generation: {ex.Message}");
         }
     }
 
