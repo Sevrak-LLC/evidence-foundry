@@ -44,6 +44,16 @@ public static class EnumHelper
             return false;
         }
 
-        return Enum.TryParse(value.Trim(), ignoreCase: true, out result);
+        if (Enum.TryParse(value.Trim(), ignoreCase: true, out result))
+            return true;
+
+        var normalized = new string(value.Where(char.IsLetterOrDigit).ToArray());
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            result = default;
+            return false;
+        }
+
+        return Enum.TryParse(normalized, ignoreCase: true, out result);
     }
 }

@@ -6,7 +6,7 @@ using Serilog;
 
 namespace EvidenceFoundry;
 
-internal static class Program
+internal sealed class Program
 {
     [STAThread]
     static void Main()
