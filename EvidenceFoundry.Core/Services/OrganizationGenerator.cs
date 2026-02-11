@@ -174,7 +174,6 @@ Rules:
 
         var userPrompt = BuildOrganizationPrompt(
             storyline,
-            seed,
             new OrganizationPromptOptions(
                 orgJson,
                 departments,
@@ -197,7 +196,6 @@ Rules:
 
     private static string BuildOrganizationPrompt(
         Storyline storyline,
-        Organization seed,
         OrganizationPromptOptions options)
     {
         return $@"Storyline title: {storyline.Title}
