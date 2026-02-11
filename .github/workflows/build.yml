@@ -55,21 +55,24 @@ jobs:
             "tag=$tag" >> $env:GITHUB_OUTPUT
           }
       - name: Create GitHub release
+        id: release-info
         if: steps.release-tag.outputs.tag != ''
         uses: actions/github-script@v7
         with:
           script: |
             const tag = '${{ steps.release-tag.outputs.tag }}';
+            let release;
             try {
-              await github.rest.repos.getReleaseByTag({
+              const response = await github.rest.repos.getReleaseByTag({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 tag
               });
-              core.info(`Release for ${tag} already exists; skipping.`);
+              release = response.data;
+              core.info(`Release for ${tag} already exists; reusing.`);
             } catch (error) {
               if (error.status !== 404) throw error;
-              await github.rest.repos.createRelease({
+              const response = await github.rest.repos.createRelease({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 tag_name: tag,
@@ -77,4 +80,34 @@ jobs:
                 draft: false,
                 prerelease: false
               });
+              release = response.data;
             }
+            core.setOutput('upload_url', release.upload_url);
+            core.setOutput('id', release.id.toString());
+      - name: Publish release binary
+        id: package-release
+        if: steps.release-tag.outputs.tag != ''
+        shell: powershell
+        run: |
+          $publishDir = Join-Path $env:RUNNER_TEMP 'publish'
+          dotnet publish EvidenceFoundry.UI/EvidenceFoundry.UI.csproj -c Release -r win-x64 -p:PublishSingleFile=true -p:SelfContained=true -o $publishDir
+          $binaryPath = Join-Path $publishDir 'EvidenceFoundry.exe'
+          if (-not (Test-Path $binaryPath)) {
+            throw "EvidenceFoundry.exe not found at $binaryPath"
+          }
+          $archivePath = Join-Path $env:RUNNER_TEMP 'EvidenceFoundry-win-x64.zip'
+          if (Test-Path $archivePath) {
+            Remove-Item $archivePath
+          }
+          Compress-Archive -Path $binaryPath -DestinationPath $archivePath
+          "archive=$archivePath" >> $env:GITHUB_OUTPUT
+      - name: Upload release asset
+        if: steps.release-tag.outputs.tag != ''
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.release-info.outputs.upload_url }}
+          asset_path: ${{ steps.package-release.outputs.archive }}
+          asset_name: EvidenceFoundry-win-x64.zip
+          asset_content_type: application/zip
