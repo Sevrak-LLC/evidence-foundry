@@ -11,16 +11,18 @@ public static class ApiKeyStore
 {
     private const string SettingsFileName = "evidencefoundry.apikey";
     private const string LegacySettingsFileName = "reeldiscovery.settings";
+    private const string EvidenceFoundryName = "EvidenceFoundry";
+    private const string ApiKeyProtectorPurpose = EvidenceFoundryName + ".ApiKey.v1";
 
     private static readonly Lazy<IDataProtector> Protector = new(() =>
     {
         var appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        var keyDirectory = new DirectoryInfo(Path.Combine(appData, "EvidenceFoundry", "keys"));
+        var keyDirectory = new DirectoryInfo(Path.Combine(appData, EvidenceFoundryName, "keys"));
         Directory.CreateDirectory(keyDirectory.FullName);
         TryHardenKeyDirectoryPermissions(keyDirectory.FullName);
         var services = new ServiceCollection();
         var builder = services.AddDataProtection()
-            .SetApplicationName("EvidenceFoundry")
+            .SetApplicationName(EvidenceFoundryName)
             .PersistKeysToFileSystem(keyDirectory);
 
         if (OperatingSystem.IsWindows())
@@ -30,7 +32,7 @@ public static class ApiKeyStore
 
         var provider = services.BuildServiceProvider();
         return provider.GetRequiredService<IDataProtectionProvider>()
-            .CreateProtector("EvidenceFoundry.ApiKey.v1");
+            .CreateProtector(ApiKeyProtectorPurpose);
     });
 
     public static bool TryLoad(out string apiKey)
@@ -122,7 +124,7 @@ public static class ApiKeyStore
     private static string GetSettingsPath()
     {
         var appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        var folder = Path.Combine(appData, "EvidenceFoundry");
+        var folder = Path.Combine(appData, EvidenceFoundryName);
         Directory.CreateDirectory(folder);
         return Path.Combine(folder, SettingsFileName);
     }
@@ -130,7 +132,7 @@ public static class ApiKeyStore
     private static string GetLegacySettingsPath()
     {
         var appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        var folder = Path.Combine(appData, "EvidenceFoundry");
+        var folder = Path.Combine(appData, EvidenceFoundryName);
         Directory.CreateDirectory(folder);
         return Path.Combine(folder, LegacySettingsFileName);
     }
