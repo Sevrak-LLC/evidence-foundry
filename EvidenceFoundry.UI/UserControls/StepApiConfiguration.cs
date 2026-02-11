@@ -10,7 +10,6 @@ public class StepApiConfiguration : UserControl, IWizardStep
     private TextBox _txtApiKey = null!;
     private ComboBox _cboModel = null!;
     private Button _btnTestConnection = null!;
-    private Button _btnConfigureModels = null!;
     private CheckBox _chkRememberKey = null!;
     private Button _btnClearSavedKey = null!;
     private Label _lblStatus = null!;
@@ -124,10 +123,10 @@ public class StepApiConfiguration : UserControl, IWizardStep
         _cboModel.SelectedIndexChanged += CboModel_SelectedIndexChanged;
         modelPanel.Controls.Add(_cboModel);
 
-        _btnConfigureModels = ButtonHelper.CreateButton("Configure Models...", 160, 32, ButtonStyle.Default);
-        _btnConfigureModels.Location = new Point(230, 8);
-        _btnConfigureModels.Click += BtnConfigureModels_Click;
-        modelPanel.Controls.Add(_btnConfigureModels);
+        var btnConfigureModels = ButtonHelper.CreateButton("Configure Models...", 160, 32, ButtonStyle.Default);
+        btnConfigureModels.Location = new Point(230, 8);
+        btnConfigureModels.Click += BtnConfigureModels_Click;
+        modelPanel.Controls.Add(btnConfigureModels);
         mainLayout.Controls.Add(modelPanel, 1, 2);
 
         // Pricing info label
