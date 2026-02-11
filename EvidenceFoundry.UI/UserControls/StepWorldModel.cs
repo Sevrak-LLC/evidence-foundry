@@ -579,17 +579,19 @@ public class StepWorldModel : UserControl, IWizardStep
                 _lblStatus.ForeColor = Color.Blue;
             });
 
-            var world = await generator.GenerateWorldModelAsync(
-                _state.CaseArea,
-                _state.MatterType,
-                _state.Issue,
-                _state.IssueDescription,
-                _state.PlaintiffIndustry,
-                _state.DefendantIndustry,
-                _state.PlaintiffOrganizationCount,
-                _state.DefendantOrganizationCount,
-                _state.AdditionalInstructions,
-                progress);
+            var request = new WorldModelRequest
+            {
+                CaseArea = _state.CaseArea,
+                MatterType = _state.MatterType,
+                Issue = _state.Issue,
+                IssueDescription = _state.IssueDescription,
+                PlaintiffIndustry = _state.PlaintiffIndustry,
+                DefendantIndustry = _state.DefendantIndustry,
+                PlaintiffOrganizationCount = _state.PlaintiffOrganizationCount,
+                DefendantOrganizationCount = _state.DefendantOrganizationCount,
+                AdditionalUserContext = _state.AdditionalInstructions
+            };
+            var world = await generator.GenerateWorldModelAsync(request, progress);
 
             _state.WorldModel = world;
             UpdateWorldModelDisplay();

@@ -5,10 +5,24 @@ using EvidenceFoundry.Models;
 
 namespace EvidenceFoundry.Services;
 
+public sealed class WorldModelRequest
+{
+    public string? CaseArea { get; set; }
+    public string? MatterType { get; set; }
+    public string? Issue { get; set; }
+    public string? IssueDescription { get; set; }
+    public string? PlaintiffIndustry { get; set; }
+    public string? DefendantIndustry { get; set; }
+    public int PlaintiffOrganizationCount { get; set; }
+    public int DefendantOrganizationCount { get; set; }
+    public string? AdditionalUserContext { get; set; }
+}
+
 public class WorldModelGenerator
 {
     private readonly OpenAIService _openAI;
     private const string RandomIndustryPreference = "Random";
+    private static readonly JsonSerializerOptions WorldModelSerializerOptions = CreateWorldModelSerializerOptions();
     private static readonly Dictionary<string, UsState> UsStateAbbreviations = new(StringComparer.OrdinalIgnoreCase)
     {
         ["AL"] = UsState.Alabama,
@@ -70,31 +84,25 @@ public class WorldModelGenerator
     }
 
     public async Task<World> GenerateWorldModelAsync(
-        string caseArea,
-        string matterType,
-        string issue,
-        string issueDescription,
-        string plaintiffIndustry,
-        string defendantIndustry,
-        int plaintiffOrganizationCount,
-        int defendantOrganizationCount,
-        string additionalUserContext,
+        WorldModelRequest request,
         IProgress<string>? progress = null,
         CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(caseArea))
-            throw new ArgumentException("Case area is required.", nameof(caseArea));
-        if (string.IsNullOrWhiteSpace(matterType))
-            throw new ArgumentException("Matter type is required.", nameof(matterType));
-        if (string.IsNullOrWhiteSpace(issue))
-            throw new ArgumentException("Issue is required.", nameof(issue));
-        if (string.IsNullOrWhiteSpace(issueDescription))
-            throw new ArgumentException("Issue description is required.", nameof(issueDescription));
+        if (request == null)
+            throw new ArgumentNullException(nameof(request));
+        if (string.IsNullOrWhiteSpace(request.CaseArea))
+            throw new ArgumentException("Case area is required.", nameof(request.CaseArea));
+        if (string.IsNullOrWhiteSpace(request.MatterType))
+            throw new ArgumentException("Matter type is required.", nameof(request.MatterType));
+        if (string.IsNullOrWhiteSpace(request.Issue))
+            throw new ArgumentException("Issue is required.", nameof(request.Issue));
+        if (string.IsNullOrWhiteSpace(request.IssueDescription))
+            throw new ArgumentException("Issue description is required.", nameof(request.IssueDescription));
 
-        var normalizedPlaintiffIndustry = NormalizeIndustryPreference(plaintiffIndustry);
-        var normalizedDefendantIndustry = NormalizeIndustryPreference(defendantIndustry);
-        var normalizedPlaintiffCount = NormalizePartyCount(plaintiffOrganizationCount);
-        var normalizedDefendantCount = NormalizePartyCount(defendantOrganizationCount);
+        var normalizedPlaintiffIndustry = NormalizeIndustryPreference(request.PlaintiffIndustry);
+        var normalizedDefendantIndustry = NormalizeIndustryPreference(request.DefendantIndustry);
+        var normalizedPlaintiffCount = NormalizePartyCount(request.PlaintiffOrganizationCount);
+        var normalizedDefendantCount = NormalizePartyCount(request.DefendantOrganizationCount);
 
         var industriesForPrompt = ResolveIndustriesForPrompt(normalizedPlaintiffIndustry, normalizedDefendantIndustry);
         if (industriesForPrompt.Count == 0)
@@ -160,10 +168,10 @@ Output Rules (Strict)
 - Double quotes for all JSON strings/property names.";
 
         var userPrompt = $@"CASE INPUTS
-- Case Area: {caseArea}
-- Matter Type: {matterType}
-- Issue: {issue}
-- Issue Description (scenario ground truth): {issueDescription}
+- Case Area: {request.CaseArea}
+- Matter Type: {request.MatterType}
+- Issue: {request.Issue}
+- Issue Description (scenario ground truth): {request.IssueDescription}
 
 ORG REQUIREMENTS
 - Plaintiff Industry: {normalizedPlaintiffIndustry}
@@ -172,7 +180,7 @@ ORG REQUIREMENTS
 - Number of Defendant Orgs: {normalizedDefendantCount}
 
 ADDITIONAL CONTEXT
-{(string.IsNullOrWhiteSpace(additionalUserContext) ? "None" : additionalUserContext)}
+{(string.IsNullOrWhiteSpace(request.AdditionalUserContext) ? "None" : request.AdditionalUserContext)}
 
 ALLOWED INDUSTRIES (use exact values only)
 {industries}
@@ -268,13 +276,7 @@ OUTPUT JSON SCHEMA (respond with JSON that matches this exactly)
 
     internal static World ParseWorldModelJson(string json, int plaintiffCount, int defendantCount)
     {
-        var options = new JsonSerializerOptions
-        {
-            PropertyNameCaseInsensitive = true
-        };
-        options.Converters.Add(new JsonStringEnumConverter());
-
-        var response = JsonSerializer.Deserialize<WorldModelResponse>(json, options);
+        var response = JsonSerializer.Deserialize<WorldModelResponse>(json, WorldModelSerializerOptions);
         if (response == null)
             throw new InvalidOperationException("World model JSON could not be parsed.");
 
@@ -308,23 +310,25 @@ OUTPUT JSON SCHEMA (respond with JSON that matches this exactly)
             throw new InvalidOperationException($"Expected {defendantCount} defendant organization(s) but received {world.Defendants.Count}.");
 
         var orgNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var org in world.Plaintiffs.Concat(world.Defendants))
-        {
-            if (!orgNames.Add(org.Name))
-                throw new InvalidOperationException($"Duplicate organization name detected: '{org.Name}'.");
-        }
+        var duplicateOrg = world.Plaintiffs
+            .Concat(world.Defendants)
+            .Where(org => !orgNames.Add(org.Name))
+            .Select(org => org.Name)
+            .FirstOrDefault();
+        if (!string.IsNullOrWhiteSpace(duplicateOrg))
+            throw new InvalidOperationException($"Duplicate organization name detected: '{duplicateOrg}'.");
 
         var seenEmails = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         world.KeyPeople.Clear();
-        foreach (var org in world.Plaintiffs.Concat(world.Defendants))
-        {
-            foreach (var assignment in org.EnumerateCharacters())
-            {
-                if (!seenEmails.Add(assignment.Character.Email))
-                    throw new InvalidOperationException($"Duplicate key person email detected: '{assignment.Character.Email}'.");
-                world.KeyPeople.Add(assignment.Character);
-            }
-        }
+        var characters = world.Plaintiffs
+            .Concat(world.Defendants)
+            .SelectMany(org => org.EnumerateCharacters())
+            .Select(assignment => assignment.Character)
+            .ToList();
+        var duplicateCharacter = characters.FirstOrDefault(character => !seenEmails.Add(character.Email));
+        if (duplicateCharacter != null)
+            throw new InvalidOperationException($"Duplicate key person email detected: '{duplicateCharacter.Email}'.");
+        world.KeyPeople.AddRange(characters);
 
         return world;
     }
@@ -399,7 +403,7 @@ OUTPUT JSON SCHEMA (respond with JSON that matches this exactly)
             OrganizationType = organizationType,
             Industry = industry,
             State = state,
-            Founded = new DateTime(foundedYear, 1, 1),
+            Founded = new DateTime(foundedYear, 1, 1, 0, 0, 0, DateTimeKind.Unspecified),
             IsPlaintiff = isPlaintiff,
             IsDefendant = isDefendant
         };
@@ -603,6 +607,16 @@ OUTPUT JSON SCHEMA (respond with JSON that matches this exactly)
             .Select(industry => $"{industry} ({EnumHelper.HumanizeEnumName(industry.ToString())})");
 
         return string.Join(", ", options);
+    }
+
+    private static JsonSerializerOptions CreateWorldModelSerializerOptions()
+    {
+        var options = new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true
+        };
+        options.Converters.Add(new JsonStringEnumConverter());
+        return options;
     }
 
     public class WorldModelResponse
