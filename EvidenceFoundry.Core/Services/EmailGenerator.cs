@@ -2441,7 +2441,7 @@ Email body preview: {email.BodyPlain[..Math.Min(300, email.BodyPlain.Length)]}..
             return;
 
         // Generate the image using DALL-E with the planned description
-        var imagePrompt = $"A vivid, realistic image in the style/universe of {state.Topic}: {email.PlannedImageDescription}. High quality, detailed.";
+        var imagePrompt = BuildPlannedImagePrompt(state.Topic, email.PlannedImageDescription);
 
         var imageBytes = await _openAI.GenerateImageAsync(imagePrompt, "Image Generation", ct);
 
@@ -2449,7 +2449,21 @@ Email body preview: {email.BodyPlain[..Math.Min(300, email.BodyPlain.Length)]}..
             return;
 
         var contentId = $"img_{Guid.NewGuid():N}";
-        var attachment = new Attachment
+        var attachment = BuildPlannedImageAttachment(email, imageBytes, contentId);
+
+        email.Attachments.Add(attachment);
+
+        InsertInlineImageIfNeeded(email, contentId);
+    }
+
+    private static string BuildPlannedImagePrompt(string topic, string plannedDescription)
+    {
+        return $"A vivid, realistic image in the style/universe of {topic}: {plannedDescription}. High quality, detailed.";
+    }
+
+    private static Attachment BuildPlannedImageAttachment(EmailMessage email, byte[] imageBytes, string contentId)
+    {
+        return new Attachment
         {
             Type = AttachmentType.Image,
             Content = imageBytes,
@@ -2458,55 +2472,56 @@ Email body preview: {email.BodyPlain[..Math.Min(300, email.BodyPlain.Length)]}..
             ContentId = contentId,
             FileName = $"image_{email.SentDate:yyyyMMdd}_{Guid.NewGuid().ToString("N")[..6]}.png"
         };
+    }
 
-        email.Attachments.Add(attachment);
-
+    private static void InsertInlineImageIfNeeded(EmailMessage email, string contentId)
+    {
         // If inline, update the HTML body to include the image in the main content (before quoted text)
-        if (email.PlannedIsImageInline && !string.IsNullOrEmpty(email.BodyHtml))
+        if (!email.PlannedIsImageInline || string.IsNullOrEmpty(email.BodyHtml))
+            return;
+
+        var caption = email.PlannedImageDescription.Length > 100
+            ? email.PlannedImageDescription[..100] + "..."
+            : email.PlannedImageDescription;
+
+        var imageHtml = $@"<div style=""text-align: center; margin: 15px 0;""><img src=""cid:{contentId}"" alt=""{System.Net.WebUtility.HtmlEncode(caption)}"" style=""max-width: 600px; height: auto; border-radius: 4px;"" /></div>";
+
+        // Try to insert the image BEFORE the quoted content (reply or forward sections)
+        // This ensures the image appears in the new email content, not after the quoted text
+        var insertionPoints = new[]
         {
-            var caption = email.PlannedImageDescription.Length > 100
-                ? email.PlannedImageDescription[..100] + "..."
-                : email.PlannedImageDescription;
+            "<div class=\"quoted-content\">",  // Reply quoted content
+            "<div class=\"forward-header\">",   // Forwarded message header
+            "<div class=\"signature\">"         // Before signature if no quoted content
+        };
 
-            var imageHtml = $@"<div style=""text-align: center; margin: 15px 0;""><img src=""cid:{contentId}"" alt=""{System.Net.WebUtility.HtmlEncode(caption)}"" style=""max-width: 600px; height: auto; border-radius: 4px;"" /></div>";
-
-            // Try to insert the image BEFORE the quoted content (reply or forward sections)
-            // This ensures the image appears in the new email content, not after the quoted text
-            var insertionPoints = new[]
+        bool inserted = false;
+        foreach (var marker in insertionPoints)
+        {
+            var markerIndex = email.BodyHtml.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (markerIndex > 0)
             {
-                "<div class=\"quoted-content\">",  // Reply quoted content
-                "<div class=\"forward-header\">",   // Forwarded message header
-                "<div class=\"signature\">"         // Before signature if no quoted content
-            };
-
-            bool inserted = false;
-            foreach (var marker in insertionPoints)
-            {
-                var markerIndex = email.BodyHtml.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
-                if (markerIndex > 0)
-                {
-                    email.BodyHtml = email.BodyHtml.Insert(markerIndex, imageHtml);
-                    inserted = true;
-                    break;
-                }
+                email.BodyHtml = email.BodyHtml.Insert(markerIndex, imageHtml);
+                inserted = true;
+                break;
             }
+        }
 
-            // If no insertion point found, insert before the closing div/body
-            if (!inserted)
+        // If no insertion point found, insert before the closing div/body
+        if (!inserted)
+        {
+            if (email.BodyHtml.Contains("</div>\n</body>"))
             {
-                if (email.BodyHtml.Contains("</div>\n</body>"))
-                {
-                    // Insert before closing email-body div
-                    email.BodyHtml = email.BodyHtml.Replace("</div>\n</body>", imageHtml + "</div>\n</body>");
-                }
-                else if (email.BodyHtml.Contains("</body>"))
-                {
-                    email.BodyHtml = email.BodyHtml.Replace("</body>", imageHtml + "</body>");
-                }
-                else
-                {
-                    email.BodyHtml += imageHtml;
-                }
+                // Insert before closing email-body div
+                email.BodyHtml = email.BodyHtml.Replace("</div>\n</body>", imageHtml + "</div>\n</body>");
+            }
+            else if (email.BodyHtml.Contains("</body>"))
+            {
+                email.BodyHtml = email.BodyHtml.Replace("</body>", imageHtml + "</body>");
+            }
+            else
+            {
+                email.BodyHtml += imageHtml;
             }
         }
     }
@@ -2947,38 +2962,47 @@ Respond with JSON:
         if (response.IsInline && !string.IsNullOrEmpty(email.BodyHtml))
         {
             var safeContext = System.Net.WebUtility.HtmlEncode(response.ImageContext ?? "Attached image");
-            var imageHtml = $@"<div style=""margin: 15px 0;""><p><em>{safeContext}</em></p><div style=""text-align: center;""><img src=""cid:{contentId}"" alt=""{safeContext}"" style=""max-width: 600px; height: auto; border-radius: 4px;"" /></div></div>";
+            var imageHtml = BuildInlineImageHtml(safeContext, contentId);
+            InsertInlineImageHtml(email, imageHtml);
+        }
+    }
 
-            // Try to insert the image BEFORE the quoted content (reply or forward sections)
-            var insertionPoints = new[]
-            {
-                "<div class=\"quoted-content\">",
-                "<div class=\"forward-header\">",
-                "<div class=\"signature\">"
-            };
+    private static string BuildInlineImageHtml(string safeContext, string contentId)
+    {
+        return $@"<div style=""margin: 15px 0;""><p><em>{safeContext}</em></p><div style=""text-align: center;""><img src=""cid:{contentId}"" alt=""{safeContext}"" style=""max-width: 600px; height: auto; border-radius: 4px;"" /></div></div>";
+    }
 
-            bool inserted = false;
-            foreach (var marker in insertionPoints)
+    private static void InsertInlineImageHtml(EmailMessage email, string imageHtml)
+    {
+        // Try to insert the image BEFORE the quoted content (reply or forward sections)
+        var insertionPoints = new[]
+        {
+            "<div class=\"quoted-content\">",
+            "<div class=\"forward-header\">",
+            "<div class=\"signature\">"
+        };
+
+        bool inserted = false;
+        foreach (var marker in insertionPoints)
+        {
+            var markerIndex = email.BodyHtml.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (markerIndex > 0)
             {
-                var markerIndex = email.BodyHtml.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
-                if (markerIndex > 0)
-                {
-                    email.BodyHtml = email.BodyHtml.Insert(markerIndex, imageHtml);
-                    inserted = true;
-                    break;
-                }
+                email.BodyHtml = email.BodyHtml.Insert(markerIndex, imageHtml);
+                inserted = true;
+                break;
             }
+        }
 
-            if (!inserted)
+        if (!inserted)
+        {
+            if (email.BodyHtml.Contains("</body>"))
             {
-                if (email.BodyHtml.Contains("</body>"))
-                {
-                    email.BodyHtml = email.BodyHtml.Replace("</body>", imageHtml + "</body>");
-                }
-                else
-                {
-                    email.BodyHtml += imageHtml;
-                }
+                email.BodyHtml = email.BodyHtml.Replace("</body>", imageHtml + "</body>");
+            }
+            else
+            {
+                email.BodyHtml += imageHtml;
             }
         }
     }
