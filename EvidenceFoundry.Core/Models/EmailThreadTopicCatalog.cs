@@ -8,6 +8,11 @@ public static class EmailThreadTopicCatalog
     private const string ResourceName = "EvidenceFoundry.Resources.EmailThreadTopicCatalog.json";
 
     private static readonly Lazy<EmailThreadTopicCatalogData> CatalogLazy = new(LoadCatalog);
+    private static readonly JsonSerializerOptions CatalogSerializerOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        Converters = { new JsonStringEnumConverter() }
+    };
 
     public static IReadOnlyList<string> GetTopics(Industry industry, OrganizationType organizationType)
     {
@@ -70,20 +75,14 @@ public static class EmailThreadTopicCatalog
         using var reader = new StreamReader(stream);
         var json = reader.ReadToEnd();
 
-        var options = new JsonSerializerOptions
-        {
-            PropertyNameCaseInsensitive = true
-        };
-        options.Converters.Add(new JsonStringEnumConverter());
-
-        var catalog = JsonSerializer.Deserialize<EmailThreadTopicCatalogData>(json, options);
+        var catalog = JsonSerializer.Deserialize<EmailThreadTopicCatalogData>(json, CatalogSerializerOptions);
         if (catalog == null)
             throw new InvalidOperationException("Email thread topic catalog is empty or invalid.");
 
         return catalog;
     }
 
-    private static IReadOnlyList<string> GetTopicsInternal(
+    private static List<string> GetTopicsInternal(
         Industry industry,
         OrganizationType organizationType,
         DepartmentName? department,
@@ -145,7 +144,7 @@ public static class EmailThreadTopicCatalog
             : null;
     }
 
-    private static IReadOnlyList<string> BuildTopicList(TopicGroup group)
+    private static List<string> BuildTopicList(TopicGroup group)
     {
         var topics = new List<string>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
