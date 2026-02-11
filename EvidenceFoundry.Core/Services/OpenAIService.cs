@@ -19,6 +19,10 @@ public class OpenAIService
     private readonly TokenUsageTracker? _usageTracker;
     private const int MaxRetries = 4;
     private static readonly int[] TransientStatusCodes = { 408, 429, 500, 502, 503, 504 };
+    private static readonly JsonSerializerOptions JsonCaseInsensitiveOptions = new JsonSerializerOptions
+    {
+        PropertyNameCaseInsensitive = true
+    };
 
     private static OpenAIClient CreateClient(string apiKey)
     {
@@ -71,7 +75,7 @@ public class OpenAIService
         string? operationName = null,
         CancellationToken ct = default)
     {
-        Exception? lastException = null;
+        Exception lastException = null!;
         for (int attempt = 0; attempt < MaxRetries; attempt++)
         {
             try
@@ -107,7 +111,7 @@ public class OpenAIService
         }
 
         throw new InvalidOperationException(
-            $"Failed to get response from OpenAI after multiple attempts. {lastException?.Message}",
+            $"Failed to get response from OpenAI after multiple attempts. {lastException.Message}",
             lastException);
     }
 
@@ -117,7 +121,7 @@ public class OpenAIService
         string? operationName = null,
         CancellationToken ct = default) where T : class
     {
-        Exception? lastException = null;
+        Exception lastException = null!;
         for (int attempt = 0; attempt < MaxRetries; attempt++)
         {
             try
@@ -142,10 +146,7 @@ public class OpenAIService
                     TrackUsage(operationName ?? "JSON Completion", response.Value.Usage);
 
                     var json = response.Value.Content[0].Text;
-                    return JsonSerializer.Deserialize<T>(json, new JsonSerializerOptions
-                    {
-                        PropertyNameCaseInsensitive = true
-                    });
+                    return JsonSerializer.Deserialize<T>(json, JsonCaseInsensitiveOptions);
                 }
 
                 throw new InvalidOperationException("Empty response from OpenAI");
@@ -167,7 +168,7 @@ public class OpenAIService
         }
 
         throw new InvalidOperationException(
-            $"Failed to get valid JSON response from OpenAI after multiple attempts. {lastException?.Message}",
+            $"Failed to get valid JSON response from OpenAI after multiple attempts. {lastException.Message}",
             lastException);
     }
 
