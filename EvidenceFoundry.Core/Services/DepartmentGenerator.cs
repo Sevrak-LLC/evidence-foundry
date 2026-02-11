@@ -4,7 +4,7 @@ using EvidenceFoundry.Models;
 
 namespace EvidenceFoundry.Services;
 
-public class DepartmentGenerator
+public static class DepartmentGenerator
 {
     private static OrganizationStructureCatalogData.OrganizationTypeStructure? GetOrganizationTypeStructure(
         Industry industry,
