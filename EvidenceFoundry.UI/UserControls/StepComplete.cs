@@ -8,7 +8,6 @@ public class StepComplete : UserControl, IWizardStep
 {
     private WizardState _state = null!;
     private Label _lblSummary = null!;
-    private Button _btnOpenFolder = null!;
     private DataGridView _gridStats = null!;
 
     public string StepTitle => "Complete";
@@ -91,10 +90,10 @@ public class StepComplete : UserControl, IWizardStep
         // Open folder button
         var buttonPanel = new Panel { Dock = DockStyle.Fill };
 
-        _btnOpenFolder = ButtonHelper.CreateButton("Open Output Folder", 180, 40, ButtonStyle.Success);
-        _btnOpenFolder.Location = new Point(0, 10);
-        _btnOpenFolder.Click += BtnOpenFolder_Click;
-        buttonPanel.Controls.Add(_btnOpenFolder);
+        var btnOpenFolder = ButtonHelper.CreateButton("Open Output Folder", 180, 40, ButtonStyle.Success);
+        btnOpenFolder.Location = new Point(0, 10);
+        btnOpenFolder.Click += BtnOpenFolder_Click;
+        buttonPanel.Controls.Add(btnOpenFolder);
 
         mainLayout.Controls.Add(buttonPanel, 0, 2);
 
