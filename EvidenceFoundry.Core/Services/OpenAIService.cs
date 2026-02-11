@@ -130,7 +130,7 @@ public class OpenAIService
             {
                 var messages = new List<ChatMessage>
                 {
-                    new SystemChatMessage(systemPrompt + "\n\nIMPORTANT: Respond ONLY with valid JSON. No markdown, no explanations, just the JSON object."),
+                    new SystemChatMessage(PromptScaffolding.AppendJsonOnlyInstruction(systemPrompt)),
                     new UserChatMessage(userPrompt)
                 };
 

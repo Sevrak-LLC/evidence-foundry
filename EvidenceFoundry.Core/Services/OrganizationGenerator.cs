@@ -29,18 +29,17 @@ public class OrganizationGenerator
         Storyline storyline,
         CancellationToken ct)
     {
-        var systemPrompt = @"You are the EvidenceFoundry Organization Extractor.
+        var systemPrompt = PromptScaffolding.AppendJsonOnlyInstruction(@"You are the EvidenceFoundry Organization Extractor.
 Extract ONLY organizations that are explicitly mentioned or clearly implied in the storyline description.
 Do NOT invent characters. Do NOT add speculative details.
 
 Rules:
-- Return ONLY valid JSON matching the specified schema.
 - Entities must be type ""Organization"".
 - If an org is plaintiff or defendant, set that boolean; otherwise set both false.
 - plaintiff and defendant cannot both be true.
 - Include departments/roles ONLY if they are explicitly stated in the storyline.
 - Use only the provided enum values for department/role names.
-- If an industry can be reasonably inferred from the description, include it; otherwise use ""Other"".";
+ - If an industry can be reasonably inferred from the description, include it; otherwise use ""Other"".");
 
         var departments = EnumHelper.FormatEnumOptions<DepartmentName>();
         var roles = EnumHelper.FormatEnumOptions<RoleName>();
@@ -48,7 +47,36 @@ Rules:
         var industries = EnumHelper.FormatEnumOptions<Industry>();
         var states = EnumHelper.FormatEnumOptions<UsState>();
 
-        var userPrompt = $@"Topic: {topic}
+        var schema = """
+{
+  "entities": [
+    {
+      "type": "Organization",
+      "name": "string",
+      "domain": "string (only if explicitly mentioned, otherwise empty)",
+      "description": "string (only if explicitly stated, otherwise empty)",
+      "organizationType": "OrganizationType enum value (only if explicitly stated, otherwise empty)",
+      "industry": "Industry enum value (only if explicitly stated or reasonably inferred, otherwise Other)",
+      "state": "UsState enum value (only if explicitly stated, otherwise empty)",
+      "plaintiff": true|false,
+      "defendant": true|false,
+      "departments": [
+        {
+          "name": "DepartmentName enum value",
+          "roles": [
+            {
+              "name": "RoleName enum value",
+              "reportsToRole": "RoleName enum value or null"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+""";
+
+        var userPrompt = PromptScaffolding.JoinSections($@"Topic: {topic}
 
 Storyline title: {storyline.Title}
 Storyline summary:
@@ -70,34 +98,7 @@ Allowed US states (use exact values only):
 {states}
 
 Enum values are shown as Raw (Humanized). Return only the Raw enum value.
-
-Respond with JSON in this exact format:
-{{
-  ""entities"": [
-    {{
-      ""type"": ""Organization"",
-      ""name"": ""string"",
-      ""domain"": ""string (only if explicitly mentioned, otherwise empty)"",
-      ""description"": ""string (only if explicitly stated, otherwise empty)"",
-      ""organizationType"": ""OrganizationType enum value (only if explicitly stated, otherwise empty)"",
-      ""industry"": ""Industry enum value (only if explicitly stated or reasonably inferred, otherwise Other)"",
-      ""state"": ""UsState enum value (only if explicitly stated, otherwise empty)"",
-      ""plaintiff"": true|false,
-      ""defendant"": true|false,
-      ""departments"": [
-        {{
-          ""name"": ""DepartmentName enum value"",
-          ""roles"": [
-            {{
-              ""name"": ""RoleName enum value"",
-              ""reportsToRole"": ""RoleName enum value or null""
-            }}
-          ]
-        }}
-      ]
-    }}
-  ]
-}}";
+", PromptScaffolding.JsonSchemaSection(schema));
 
         var response = await _openAI.GetJsonCompletionAsync<OrganizationSeedResponse>(
             systemPrompt,
@@ -131,11 +132,10 @@ Respond with JSON in this exact format:
         Organization seed,
         CancellationToken ct)
     {
-        var systemPrompt = @"You are the EvidenceFoundry Organization Builder.
+        var systemPrompt = PromptScaffolding.AppendJsonOnlyInstruction(@"You are the EvidenceFoundry Organization Builder.
 Fill in missing organization details and build out a realistic department/role structure.
 
 Rules:
-- Return ONLY valid JSON matching the schema.
 - Use ONLY the provided department/role enum values.
 - Keep existing departments/roles; add missing ones as appropriate.
 - Departments must align with the industry and organization type guidance.
@@ -143,7 +143,7 @@ Rules:
 - Do NOT include characters.
 - Founded date must be at least 1 year prior to the storyline start date.
 - OrganizationType, Industry, and State must be provided using enum values.
-- plaintiff and defendant cannot both be true.";
+ - plaintiff and defendant cannot both be true.");
 
         var allowedDepartmentsJson = DepartmentGenerator.BuildAllowedDepartmentsJson(seed.Industry, seed.OrganizationType);
         var allowedDepartmentRoleMapJson = DepartmentGenerator.BuildAllowedDepartmentRoleMapJson(seed.Industry, seed.OrganizationType);
@@ -200,7 +200,32 @@ Rules:
         Storyline storyline,
         OrganizationPromptOptions options)
     {
-        return $@"Storyline title: {storyline.Title}
+        var schema = """
+{
+  "name": "string",
+  "domain": "string",
+  "description": "string",
+  "organizationType": "OrganizationType enum value",
+  "industry": "Industry enum value",
+  "state": "UsState enum value",
+  "founded": "YYYY-MM-DD",
+  "plaintiff": true|false,
+  "defendant": true|false,
+  "departments": [
+    {
+      "name": "DepartmentName enum value",
+      "roles": [
+        {
+          "name": "RoleName enum value",
+          "reportsToRole": "RoleName enum value or null"
+        }
+      ]
+    }
+  ]
+}
+""";
+
+        return PromptScaffolding.JoinSections($@"Storyline title: {storyline.Title}
 Storyline summary:
 {storyline.Summary}
 Storyline start date: {storyline.StartDate:yyyy-MM-dd}
@@ -233,30 +258,7 @@ Allowed US states (use exact values only):
 {options.States}
 
 Enum values are shown as Raw (Humanized). Return only the Raw enum value.
-
-Respond with JSON in this exact format:
-{{
-  ""name"": ""string"",
-  ""domain"": ""string"",
-  ""description"": ""string"",
-  ""organizationType"": ""OrganizationType enum value"",
-  ""industry"": ""Industry enum value"",
-  ""state"": ""UsState enum value"",
-  ""founded"": ""YYYY-MM-DD"",
-  ""plaintiff"": true|false,
-  ""defendant"": true|false,
-  ""departments"": [
-    {{
-      ""name"": ""DepartmentName enum value"",
-      ""roles"": [
-        {{
-          ""name"": ""RoleName enum value"",
-          ""reportsToRole"": ""RoleName enum value or null""
-        }}
-      ]
-    }}
-  ]
-}}";
+", PromptScaffolding.JsonSchemaSection(schema));
     }
 
     private sealed record OrganizationPromptOptions(

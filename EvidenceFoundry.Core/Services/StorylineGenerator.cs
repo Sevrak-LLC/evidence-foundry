@@ -44,7 +44,7 @@ public class StorylineGenerator
         var includeOtherIndustry = string.Equals(normalizedPlaintiffIndustry, nameof(Industry.Other), StringComparison.OrdinalIgnoreCase)
             || string.Equals(normalizedDefendantIndustry, nameof(Industry.Other), StringComparison.OrdinalIgnoreCase);
 
-        var systemPrompt = @"You are the EvidenceFoundry Narrative Generator.
+        var systemPrompt = PromptScaffolding.AppendJsonOnlyInstruction(@"You are the EvidenceFoundry Narrative Generator.
 
 Your job: produce fictional, narrative-driven pre-dispute setups that can be expanded into realistic corporate email corpora for eDiscovery testing.
 
@@ -81,11 +81,9 @@ Each narrative should be rich enough to generate many realistic emails without f
 - Plausible motives (fear, ambition, resentment, loyalty, confusion, burnout) and believable misunderstandings.
 
 OUTPUT REQUIREMENTS (STRICT)
-- Return ONLY valid JSON that matches the specified schema exactly.
-- No markdown, no commentary, no extra keys, no trailing commas.
-- Use double quotes for all JSON strings and property names.
+- Output must match the specified schema exactly.
 - Ensure internal consistency of names/titles/relationships/sequence of events within each narrative.
-- The summary field MUST clearly state the core pre-dispute situation, who is involved, and the tensions/risks that later lead to a dispute. Do NOT mention any dispute, claim, lawsuit, litigation, arbitration, investigation, subpoena, enforcement action, discovery process, or legal proceedings.";
+- The summary field MUST clearly state the core pre-dispute situation, who is involved, and the tensions/risks that later lead to a dispute. Do NOT mention any dispute, claim, lawsuit, litigation, arbitration, investigation, subpoena, enforcement action, discovery process, or legal proceedings.");
 
         var industryOptions = FormatIndustryOptionsForStorylines(includeOtherIndustry);
         var worldContext = BuildWorldModelContext(request.WorldModel);
@@ -97,7 +95,24 @@ OUTPUT REQUIREMENTS (STRICT)
 - You may reference additional unnamed roles/teams if needed, but do not add named individuals beyond the world model."
             : string.Empty;
 
-        var userPrompt = $@"Selected Case Issue: {topic}
+        var schema = """
+{
+  "storylines": [
+    {
+      "title": "string",
+      "logline": "string (1-2 sentences)",
+      "summary": "string (10-15 sentences: the pre-dispute situation, who is involved, and any ambiguity)",
+      "plotOutline": ["string (3-7 bullets, short sentences)"]],
+      "tensionDrivers": ["string (3-6 items)"],
+      "ambiguities": ["string (3-6 items)"],
+      "redHerrings": ["string (2-4 items)"],
+      "evidenceThemes": ["string (3-6 items)"]
+    }
+  ]
+}
+""";
+
+        var userPrompt = PromptScaffolding.JoinSections($@"Selected Case Issue: {topic}
 Issue Description: {issueContext}
 
 Additional Instructions: {(string.IsNullOrWhiteSpace(additionalInstructions) ? "None" : additionalInstructions)}
@@ -129,23 +144,7 @@ REQUIREMENTS:
 - Use any applicable media hints to create natural opportunities for documents, images, or voicemails.
 - Keep content professional and non-explicit; avoid edgy content.
 - The narrative MUST describe only the pre-dispute events and communications that lead up to the issue described above.
-- Do NOT mention any dispute, claim, lawsuit, litigation, arbitration, investigation, regulator, subpoena, enforcement action, discovery process, preservation, or legal proceedings (other than the required plaintiff/defendant role labels).
-
-Respond with JSON in this exact format:
-{{
-  ""storylines"": [
-    {{
-      ""title"": ""string"",
-      ""logline"": ""string (1-2 sentences)"",
-      ""summary"": ""string (10-15 sentences: the pre-dispute situation, who is involved, and any ambiguity)"",
-      ""plotOutline"": [""string (3-7 bullets, short sentences)""]],
-      ""tensionDrivers"": [""string (3-6 items)""],
-      ""ambiguities"": [""string (3-6 items)""],
-      ""redHerrings"": [""string (2-4 items)""],
-      ""evidenceThemes"": [""string (3-6 items)""]
-    }}
-  ]
-}}";
+- Do NOT mention any dispute, claim, lawsuit, litigation, arbitration, investigation, regulator, subpoena, enforcement action, discovery process, preservation, or legal proceedings (other than the required plaintiff/defendant role labels).", PromptScaffolding.JsonSchemaSection(schema));
 
         var response = await _openAI.GetJsonCompletionAsync<StorylineApiResponse>(systemPrompt, userPrompt, "Storyline Generation", ct);
 
@@ -373,36 +372,37 @@ Respond with JSON in this exact format:
 
         progress?.Report("Suggesting storyline date range...");
 
-        var systemPrompt = @"You are the EvidenceFoundry Date Range Assistant.
+        var systemPrompt = PromptScaffolding.AppendJsonOnlyInstruction(@"You are the EvidenceFoundry Date Range Assistant.
 
 Your job: assign a reasonable start and end date for the storyline based on the narrative summary provided.
 
 RULES (STRICT)
-- Return ONLY valid JSON matching the specified schema.
 - Use YYYY-MM-DD format for dates.
 - End date must be on or after start date.
 - If the narratives imply a time period, align to it; otherwise choose a plausible range within the past 2-4 years.
 - Prefer the shortest reasonable range that the storyline could plausibly occur within.
 - Avoid starting on the 1st of a month or ending on the last day of a month unless explicitly implied (e.g., quarter-end, fiscal year).
 - Do NOT default to January 1 through December 31 ranges.
-- Keep spans under 6 months unless the narrative explicitly requires longer (still keep it as short as plausible).";
+ - Keep spans under 6 months unless the narrative explicitly requires longer (still keep it as short as plausible).");
 
         ct.ThrowIfCancellationRequested();
 
         var storyline = result.Storyline;
 
-        var userPrompt = $@"Topic: {topic}
+        var dateSchema = """
+{
+  "startDate": "YYYY-MM-DD",
+  "endDate": "YYYY-MM-DD"
+}
+""";
+
+        var userPrompt = PromptScaffolding.JoinSections($@"Topic: {topic}
 Additional Instructions: {(string.IsNullOrWhiteSpace(additionalInstructions) ? "None" : additionalInstructions)}
 
 Storyline:
 Title: {storyline.Title}
 Summary: {storyline.Summary}
-
-Return JSON in this exact format:
-{{
-  ""startDate"": ""YYYY-MM-DD"",
-  ""endDate"": ""YYYY-MM-DD""
-}}";
+", PromptScaffolding.JsonSchemaSection(dateSchema));
 
         var response = await _openAI.GetJsonCompletionAsync<StorylineDateRangeSingleResponse>(
             systemPrompt,

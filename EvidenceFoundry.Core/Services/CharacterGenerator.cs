@@ -76,18 +76,35 @@ public class CharacterGenerator
         HashSet<string> usedEmails,
         CancellationToken ct)
     {
-        var systemPrompt = @"You are the EvidenceFoundry Character Mapper.
+        var systemPrompt = PromptScaffolding.AppendJsonOnlyInstruction(@"You are the EvidenceFoundry Character Mapper.
 Identify explicitly named people in the storyline who belong to the given organization and map them to roles.
 
 Rules:
 - Only include characters explicitly named in the storyline description.
 - Use ONLY roles present in the organization.
 - Do NOT invent new people.
-- Use the organization's domain for email addresses.";
+ - Use the organization's domain for email addresses.");
 
         var orgJson = SerializeOrganizationForPrompt(organization, includeCharacters: false);
 
-        var userPrompt = $@"Topic: {topic}
+        var rolesSchema = """
+{
+  "roles": [
+    {
+      "name": "RoleName enum value (must exist in org)",
+      "characters": [
+        {
+          "firstName": "string",
+          "lastName": "string",
+          "email": "string"
+        }
+      ]
+    }
+  ]
+}
+""";
+
+        var userPrompt = PromptScaffolding.JoinSections($@"Topic: {topic}
 Storyline title: {storyline.Title}
 Storyline summary:
 {storyline.Summary}
@@ -102,22 +119,7 @@ Organization type/state (Raw -> Humanized):
 
 Role/Department legend (Raw -> Humanized):
 {RoleGenerator.BuildRoleDepartmentLegend(organization)}
-
-Respond with JSON in this exact format:
-{{
-  ""roles"": [
-    {{
-      ""name"": ""RoleName enum value (must exist in org)"",
-      ""characters"": [
-        {{
-          ""firstName"": ""string"",
-          ""lastName"": ""string"",
-          ""email"": ""string""
-        }}
-      ]
-    }}
-  ]
-}}";
+", PromptScaffolding.JsonSchemaSection(rolesSchema));
 
         var response = await _openAI.GetJsonCompletionAsync<RoleCharactersResponse>(
             systemPrompt,
@@ -143,14 +145,14 @@ Respond with JSON in this exact format:
         if (existingCount >= MaxCharactersPerOrganization)
             return;
 
-        var systemPrompt = @"You are the EvidenceFoundry Character Generator.
+        var systemPrompt = PromptScaffolding.AppendJsonOnlyInstruction(@"You are the EvidenceFoundry Character Generator.
 Generate additional key characters for the organization.
 
 Rules:
 - Use ONLY roles that exist in the organization.
 - Do NOT create characters for single-occupant roles if already filled.
 - Avoid duplicate names or emails.
-- Return up to the requested number of characters.";
+ - Return up to the requested number of characters.");
 
         var orgJson = SerializeOrganizationForPrompt(organization, includeCharacters: true);
         var existingNames = string.Join(", ", usedNames.OrderBy(n => n));
@@ -158,7 +160,24 @@ Rules:
             $"{r} ({EnumHelper.HumanizeEnumName(r.ToString())})"));
         var remaining = MaxCharactersPerOrganization - existingCount;
 
-        var userPrompt = $@"Topic: {topic}
+        var additionalSchema = """
+{
+  "roles": [
+    {
+      "name": "RoleName enum value (must exist in org)",
+      "characters": [
+        {
+          "firstName": "string",
+          "lastName": "string",
+          "email": "string"
+        }
+      ]
+    }
+  ]
+}
+""";
+
+        var userPrompt = PromptScaffolding.JoinSections($@"Topic: {topic}
 Storyline title: {storyline.Title}
 Storyline summary:
 {storyline.Summary}
@@ -181,21 +200,7 @@ Existing character names (do not reuse):
 {existingNames}
 
 Generate up to {remaining} additional characters for this organization.
-Respond with JSON in this exact format:
-{{
-  ""roles"": [
-    {{
-      ""name"": ""RoleName enum value (must exist in org)"",
-      ""characters"": [
-        {{
-          ""firstName"": ""string"",
-          ""lastName"": ""string"",
-          ""email"": ""string""
-        }}
-      ]
-    }}
-  ]
-}}";
+", PromptScaffolding.JsonSchemaSection(additionalSchema));
 
         var response = await _openAI.GetJsonCompletionAsync<RoleCharactersResponse>(
             systemPrompt,
@@ -219,7 +224,7 @@ Respond with JSON in this exact format:
         if (assignments.Count == 0)
             return;
 
-        var systemPrompt = @"You are the EvidenceFoundry Character Detailer.
+        var systemPrompt = PromptScaffolding.AppendJsonOnlyInstruction(@"You are the EvidenceFoundry Character Detailer.
 Fill in personality notes, communication style, and signature blocks for each character.
 
 Rules:
@@ -227,7 +232,7 @@ Rules:
 - Personality notes must be EXACTLY 3 sentences about the individual only (no relationships/tensions or other characters).
 - Communication style should align with the personality notes and role; describe how they write emails.
 - Signature blocks should be consistent with organization name and role.
-- Return JSON matching the schema exactly.";
+ - Return JSON matching the schema exactly.");
 
         var characterJson = JsonSerializer.Serialize(assignments.Select(a => new
         {
@@ -239,7 +244,21 @@ Rules:
             organization = organization.Name
         }), JsonSerializationDefaults.Indented);
 
-        var userPrompt = $@"Topic: {topic}
+        var detailSchema = """
+{
+  "characters": [
+    {
+      "email": "string",
+      "gender": "male|female|unspecified",
+      "personalityNotes": "string (exactly 3 sentences about the character's personality with a mix of positive and negative traits to varying degrees.)",
+      "communicationStyle": "string (1-2 sentences describing their email communication style aligned with personality)",
+      "signatureBlock": "string (use \\n for line breaks)"
+    }
+  ]
+}
+""";
+
+        var userPrompt = PromptScaffolding.JoinSections($@"Topic: {topic}
 Storyline title: {storyline.Title}
 Storyline summary:
 {storyline.Summary}
@@ -247,20 +266,7 @@ Storyline summary:
 Organization: {organization.Name} ({organization.Domain})
 
 Characters (JSON):
-{characterJson}
-
-Respond with JSON in this exact format:
-{{
-  ""characters"": [
-    {{
-      ""email"": ""string"",
-      ""gender"": ""male|female|unspecified"",
-      ""personalityNotes"": ""string (exactly 3 sentences about the character's personality with a mix of positive and negative traits to varying degrees.)"",
-      ""communicationStyle"": ""string (1-2 sentences describing their email communication style aligned with personality)"",
-      ""signatureBlock"": ""string (use \\n for line breaks)""
-    }}
-  ]
-}}";
+{characterJson}", PromptScaffolding.JsonSchemaSection(detailSchema));
 
         var response = await _openAI.GetJsonCompletionAsync<CharacterDetailResponse>(
             systemPrompt,
@@ -307,7 +313,7 @@ Respond with JSON in this exact format:
 
         progress?.Report("Assessing character relevance...");
 
-        var systemPrompt = @"You are the EvidenceFoundry Character Relevance Analyst.
+        var systemPrompt = PromptScaffolding.AppendJsonOnlyInstruction(@"You are the EvidenceFoundry Character Relevance Analyst.
 Determine whether each character is likely to communicate in email threads relevant to the storyline overall.
 
 Rules:
@@ -315,7 +321,7 @@ Rules:
 - Consider the storyline summary and all story beats.
 - Mark isKeyCharacter true only if the character would likely generate relevant communications for the overall storyline.
 - storylineRelevance must be exactly two concise sentences.
-- plotRelevance must include an entry for EVERY story beat ID, each with exactly two concise sentences (even if tangential).";
+ - plotRelevance must include an entry for EVERY story beat ID, each with exactly two concise sentences (even if tangential).");
 
         var assignments = organizations
             .SelectMany(o => o.EnumerateCharacters())
@@ -344,7 +350,22 @@ Rules:
             plot = b.Plot
         }), JsonSerializationDefaults.Indented);
 
-        var userPrompt = $@"Topic: {topic}
+        var relevanceSchema = """
+{
+  "characters": [
+    {
+      "email": "string",
+      "isKeyCharacter": true|false,
+      "storylineRelevance": "string (exactly two concise sentences)",
+      "plotRelevance": {
+        "beatId": "string (exactly two concise sentences)"
+      }
+    }
+  ]
+}
+""";
+
+        var userPrompt = PromptScaffolding.JoinSections($@"Topic: {topic}
 
 Storyline title: {storyline.Title}
 Storyline summary:
@@ -354,21 +375,7 @@ Story beats (JSON):
 {beatsJson}
 
 Characters (JSON):
-{characterJson}
-
-Respond with JSON in this exact format:
-{{
-  ""characters"": [
-    {{
-      ""email"": ""string"",
-      ""isKeyCharacter"": true|false,
-      ""storylineRelevance"": ""string (exactly two concise sentences)"",
-      ""plotRelevance"": {{
-        ""beatId"": ""string (exactly two concise sentences)""
-      }}
-    }}
-  ]
-}}";
+{characterJson}", PromptScaffolding.JsonSchemaSection(relevanceSchema));
 
         var response = await _openAI.GetJsonCompletionAsync<CharacterRelevanceResponse>(
             systemPrompt,

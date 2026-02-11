@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using EvidenceFoundry.Helpers;
 using EvidenceFoundry.Models;
 
 namespace EvidenceFoundry.Services;
@@ -38,7 +39,7 @@ public class ThemeGenerator
         progress?.Report($"Generating organization themes for {domainOrgs.Count} organizations...");
 
 
-        var systemPrompt = @"You are a brand designer creating professional color schemes and typography for fictional corporate documents.
+        var systemPrompt = PromptScaffolding.AppendJsonOnlyInstruction(@"You are a brand designer creating professional color schemes and typography for fictional corporate documents.
 Given fictional organizations, create appropriate themes that match each organization's industry and personality.
 
 Guidelines:
@@ -55,13 +56,29 @@ Font Guidelines - choose fonts that match the organization's personality:
 - Government, formal institutions: Traditional like 'Times New Roman', 'Book Antiqua'
 - Healthcare, scientific: Clean professional like 'Calibri', 'Arial'
 - The heading font should be bolder/more distinctive than the body font
-
-Respond with valid JSON only.";
+");
 
         var orgList = string.Join("\n", domainOrgs.Select(kv => $"- {kv.Value} ({kv.Key})"));
 
 
-        var userPrompt = $@"Topic: {topic}
+        var schema = """
+{
+  "themes": [
+    {
+      "domain": "string (the email domain)",
+      "organizationName": "string",
+      "themeName": "string (descriptive name like 'Corporate Navy' or 'Tech Vibrant')",
+      "primaryColor": "RRGGBB (hex without #, main brand color)",
+      "secondaryColor": "RRGGBB (complementary color)",
+      "accentColor": "RRGGBB (highlight/emphasis color)",
+      "headingFont": "string (font for titles/headings)",
+      "bodyFont": "string (font for body text)"
+    }
+  ]
+}
+""";
+
+        var userPrompt = PromptScaffolding.JoinSections($@"Topic: {topic}
 
 Generate unique color themes for the following fictional organizations:
 {orgList}
@@ -71,22 +88,7 @@ Each theme should reflect the organization's industry and personality. Do not re
 Available fonts (use ONLY these - they are commonly installed):
 Serif: Georgia, Times New Roman, Garamond, Book Antiqua, Palatino Linotype
 Sans-serif: Segoe UI, Arial, Calibri, Trebuchet MS, Century Gothic, Verdana, Tahoma
-
-Respond with JSON:
-{{
-  ""themes"": [
-    {{
-      ""domain"": ""string (the email domain)"",
-      ""organizationName"": ""string"",
-      ""themeName"": ""string (descriptive name like 'Corporate Navy' or 'Tech Vibrant')"",
-      ""primaryColor"": ""RRGGBB (hex without #, main brand color)"",
-      ""secondaryColor"": ""RRGGBB (complementary color)"",
-      ""accentColor"": ""RRGGBB (highlight/emphasis color)"",
-      ""headingFont"": ""string (font for titles/headings)"",
-      ""bodyFont"": ""string (font for body text)""
-    }}
-  ]
-}}";
+", PromptScaffolding.JsonSchemaSection(schema));
 
         var response = await _openAI.GetJsonCompletionAsync<ThemeApiResponse>(systemPrompt, userPrompt, "Theme Generation", ct);
 

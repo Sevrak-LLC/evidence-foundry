@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using EvidenceFoundry.Helpers;
 
 namespace EvidenceFoundry.Services;
 
@@ -25,10 +26,13 @@ public class SuggestedSearchTermGenerator
             ? "HIGH PRECISION: Use specific phrases or unique names from the email. Minimize false positives."
             : "MODERATE PRECISION: Use terms likely to find the email but allow some ambiguity or false positives.";
 
-        var systemPrompt = @"You are an eDiscovery search expert who writes dtSearch query strings for email discovery.
-Return ONLY valid JSON matching the schema; no markdown or commentary.";
+        var systemPrompt = PromptScaffolding.AppendJsonOnlyInstruction(@"You are an eDiscovery search expert who writes dtSearch query strings for email discovery.");
 
-        var userPrompt = $@"Storyline summary:
+        var schema = """
+{ "terms": ["query1", "query2"] }
+""";
+
+        var userPrompt = PromptScaffolding.JoinSections($@"Storyline summary:
 {storylineSummary}
 
 Story beat plot:
@@ -45,10 +49,7 @@ Instructions:
 - Use only terms that appear in the email content.
 - {precisionGuidance}
 - Prefer quoted phrases for specificity and use AND/OR or w/n when helpful.
-- Avoid message-id strings or raw header tokens.
-
-Respond with JSON in this exact format:
-{{ ""terms"": [""query1"", ""query2""] }}";
+- Avoid message-id strings or raw header tokens.", PromptScaffolding.JsonSchemaSection(schema));
 
         var response = await _openAI.GetJsonCompletionAsync<SuggestedSearchTermsResponse>(
             systemPrompt,

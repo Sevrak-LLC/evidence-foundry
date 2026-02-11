@@ -29,12 +29,11 @@ public class StoryBeatGenerator
 
         progress?.Report("Generating story beats...");
 
-        var systemPrompt = @"You are the EvidenceFoundry Narrative Enricher.
+        var systemPrompt = PromptScaffolding.AppendJsonOnlyInstruction(@"You are the EvidenceFoundry Narrative Enricher.
 
 Your job: expand a storyline summary into a structured, ordered list of story beats suitable for generating realistic fictional emails.
 
 Rules (strict):
-- Return ONLY valid JSON matching the specified schema.
 - Do NOT write dialog or email content.
 - Use only fictional people and organizations provided in the context.
 - Use realistic corporate narrative beats with ambiguity and plausible motivations.
@@ -45,12 +44,25 @@ Rules (strict):
 - The last beat MUST end on the storyline end date.
 - The end date of a beat MUST be strictly before the next beat's start date.
 - Choose the number of beats based on story complexity and date range; keep it reasonable.
-- Include characters from the provided pool, especially those named in the summary, but do NOT force every character into the story.";
+ - Include characters from the provided pool, especially those named in the summary, but do NOT force every character into the story.");
 
         var orgJson = SerializeOrganizationsForPrompt(organizations);
         var characterJson = SerializeCharactersForPrompt(organizations);
 
-        var userPrompt = $@"Topic: {topic}
+        var schema = """
+{
+  "beats": [
+    {
+      "name": "string (friendly beat name)",
+      "plot": "string (2-4 short paragraphs separated by \\n; no dialog or email content)",
+      "startDate": "YYYY-MM-DD",
+      "endDate": "YYYY-MM-DD"
+    }
+  ]
+}
+""";
+
+        var userPrompt = PromptScaffolding.JoinSections($@"Topic: {topic}
 
 Storyline title: {storyline.Title}
 Storyline summary:
@@ -62,19 +74,7 @@ Organizations (JSON):
 {orgJson}
 
 Character pool (JSON):
-{characterJson}
-
-Return JSON in this exact format:
-{{
-  ""beats"": [
-    {{
-      ""name"": ""string (friendly beat name)"",
-      ""plot"": ""string (2-4 short paragraphs separated by \\n; no dialog or email content)"",
-      ""startDate"": ""YYYY-MM-DD"",
-      ""endDate"": ""YYYY-MM-DD""
-    }}
-  ]
-}}";
+{characterJson}", PromptScaffolding.JsonSchemaSection(schema));
 
         var response = await _openAI.GetJsonCompletionAsync<StoryBeatApiResponse>(
             systemPrompt,
@@ -283,21 +283,32 @@ Return JSON in this exact format:
             endDate = b.EndDate.ToString("yyyy-MM-dd")
         }), JsonSerializationDefaults.Indented);
 
-        var systemPrompt = @"You are the EvidenceFoundry Timeline Repair Agent.
+        var systemPrompt = PromptScaffolding.AppendJsonOnlyInstruction(@"You are the EvidenceFoundry Timeline Repair Agent.
 
 Your job: repair ONLY the dates for the story beats provided, keeping their order, names, and plots unchanged.
 
 Rules (strict):
-- Return ONLY valid JSON matching the specified schema.
 - Do NOT change beat names or plots.
 - Dates must be chronological and non-overlapping.
 - If a previous beat end date is provided, the first repaired beat must start AFTER that date (strictly).
 - The last repaired beat MUST end on the storyline end date.
-- Keep durations realistic based on each beat's plot.";
+ - Keep durations realistic based on each beat's plot.");
 
         var previousEndText = previousEnd.HasValue ? previousEnd.Value.ToString("yyyy-MM-dd") : "(none)";
 
-        var userPrompt = $@"Topic: {topic}
+        var repairSchema = """
+{
+  "beats": [
+    {
+      "name": "string (same as input)",
+      "startDate": "YYYY-MM-DD",
+      "endDate": "YYYY-MM-DD"
+    }
+  ]
+}
+""";
+
+        var userPrompt = PromptScaffolding.JoinSections($@"Topic: {topic}
 
 Storyline title: {storyline.Title}
 Storyline summary:
@@ -310,18 +321,7 @@ Fixed beats (do NOT change):
 {fixedJson}
 
 Beats to re-date (preserve order, names, plots):
-{tailJson}
-
-Return JSON in this exact format for the beats to re-date ONLY:
-{{
-  ""beats"": [
-    {{
-      ""name"": ""string (same as input)"",
-      ""startDate"": ""YYYY-MM-DD"",
-      ""endDate"": ""YYYY-MM-DD""
-    }}
-  ]
-}}";
+{tailJson}", PromptScaffolding.JsonSchemaSection(repairSchema, "Beats to re-date ONLY."));
 
         var response = await _openAI.GetJsonCompletionAsync<StoryBeatDateRepairResponse>(
             systemPrompt,

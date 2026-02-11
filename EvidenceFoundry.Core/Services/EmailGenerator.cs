@@ -1617,7 +1617,7 @@ public class EmailGenerator
     private static string BuildEmailSystemPrompt()
     {
 
-        return @"You are generating realistic corporate email/message threads for a fictional eDiscovery dataset.
+        return PromptScaffolding.AppendJsonOnlyInstruction(@"You are generating realistic corporate email/message threads for a fictional eDiscovery dataset.
 These should read like authentic workplace communications between the provided characters.
 
 CORE RULES (NON-NEGOTIABLE)
@@ -1665,7 +1665,7 @@ For longer threads (5+ emails), include branching and side conversations:
 
 Use replyToIndex to specify which email is being replied to or forwarded (0-based within the batch).
 
-Respond with valid JSON only.";
+");
     }
 
     /// <summary>
@@ -1828,7 +1828,60 @@ The first email in this batch should be a reply or forward continuing the conver
             ? "- Do NOT fully resolve the core dispute; keep open questions or pending decisions."
             : "- Avoid referencing any storyline dispute; keep tensions mundane and unrelated.";
 
-        return $@"{storylineHeader}
+        var schema = $@"{{
+  {subjectInstruction},
+  ""emails"": [
+    {{
+      ""fromEmail"": ""string (must be one of the character emails)"",
+      ""toEmails"": [""string""],
+      ""ccEmails"": [""string""] (optional, can be empty array),
+      ""sentDateTime"": ""ISO 8601 format"",
+      ""bodyPlain"": ""string (full email body including greeting and signature)"",
+      ""isReply"": boolean,
+      ""isForward"": boolean,
+      ""replyToIndex"": number (0-based index WITHIN THIS BATCH of which email this replies to/forwards; use -1 for first email),
+      ""hasDocument"": boolean (true if this email has a document attachment),
+      ""documentType"": ""word"" | ""excel"" | ""powerpoint"" (only if hasDocument is true),
+      ""documentDescription"": ""string describing document content (only if hasDocument is true)"",
+      ""hasImage"": boolean (true if this email includes an image),
+      ""imageDescription"": ""string describing what the image shows (only if hasImage is true)"",
+      ""isImageInline"": boolean (true = image embedded in email body, false = regular attachment),
+      ""hasVoicemail"": boolean (true if a voicemail accompanies this email),
+      ""voicemailContext"": ""string describing voicemail context (only if hasVoicemail is true)""
+    }}
+  ]
+}}";
+
+        var criticalRules = $@"CRITICAL RULES:
+- Generate EXACTLY {batchSize} emails
+- All email addresses must match exactly one of the characters listed above
+- Dates must be within the specified range and in chronological order
+{firstEmailNote}
+- Use replyToIndex to create branching within this batch
+- Forwards bring new people into the conversation
+- DO NOT include '> ' quoted text or 'On [date] wrote:' sections - the system adds those automatically
+- Write only the NEW content the sender is adding (their message + signature)
+- When an email has an attachment, the body MUST reference it naturally
+
+EMAIL BODY FORMAT - IMPORTANT:
+- The bodyPlain field should contain ONLY the email message content
+- NEVER start bodyPlain with 'Subject:', 'RE:', 'FW:', or any header-like text
+- The subject is a SEPARATE field - do not repeat it in the body
+- bodyPlain should start with a greeting or jump straight into the message
+
+SIGNATURE BLOCK RULES - EXTREMELY IMPORTANT:
+- The signature at the end of bodyPlain MUST belong to the person in fromEmail
+- NEVER put one character's signature on another character's email
+- Copy the EXACT signature block for that character from the list above - character by character
+- This is a DATA INTEGRITY issue - wrong signatures make the emails invalid
+
+ATTACHMENT REMINDER:
+- If the instructions say to include N images, you MUST set hasImage: true for exactly N emails
+- If the instructions say to include N documents, you MUST set hasDocument: true for exactly N emails
+- If the instructions say to include N voicemails, you MUST set hasVoicemail: true for exactly N emails
+- Do NOT skip attachments - they are REQUIRED if specified in the instructions above";
+
+        return PromptScaffolding.JoinSections($@"{storylineHeader}
 
 NARRATIVE PHASE: {narrativeLabel}
 
@@ -1864,61 +1917,7 @@ For threads with 5+ emails, include at least ONE of these realistic patterns:
 - A private side conversation (someone forwards to an ally asking for their take)
 - Someone brings in another character via forward
 - A reply that only goes to one person instead of the whole group
-- Someone who was CC'd jumps into the conversation
-
-Respond with JSON in this exact format:
-{{
-  {subjectInstruction},
-  ""emails"": [
-    {{
-      ""fromEmail"": ""string (must be one of the character emails)"",
-      ""toEmails"": [""string""],
-      ""ccEmails"": [""string""] (optional, can be empty array),
-      ""sentDateTime"": ""ISO 8601 format"",
-      ""bodyPlain"": ""string (full email body including greeting and signature)"",
-      ""isReply"": boolean,
-      ""isForward"": boolean,
-      ""replyToIndex"": number (0-based index WITHIN THIS BATCH of which email this replies to/forwards; use -1 for first email),
-      ""hasDocument"": boolean (true if this email has a document attachment),
-      ""documentType"": ""word"" | ""excel"" | ""powerpoint"" (only if hasDocument is true),
-      ""documentDescription"": ""string describing document content (only if hasDocument is true)"",
-      ""hasImage"": boolean (true if this email includes an image),
-      ""imageDescription"": ""string describing what the image shows (only if hasImage is true)"",
-      ""isImageInline"": boolean (true = image embedded in email body, false = regular attachment),
-      ""hasVoicemail"": boolean (true if a voicemail accompanies this email),
-      ""voicemailContext"": ""string describing voicemail context (only if hasVoicemail is true)""
-    }}
-  ]
-}}
-
-CRITICAL RULES:
-- Generate EXACTLY {batchSize} emails
-- All email addresses must match exactly one of the characters listed above
-- Dates must be within the specified range and in chronological order
-{firstEmailNote}
-- Use replyToIndex to create branching within this batch
-- Forwards bring new people into the conversation
-- DO NOT include '> ' quoted text or 'On [date] wrote:' sections - the system adds those automatically
-- Write only the NEW content the sender is adding (their message + signature)
-- When an email has an attachment, the body MUST reference it naturally
-
-EMAIL BODY FORMAT - IMPORTANT:
-- The bodyPlain field should contain ONLY the email message content
-- NEVER start bodyPlain with 'Subject:', 'RE:', 'FW:', or any header-like text
-- The subject is a SEPARATE field - do not repeat it in the body
-- bodyPlain should start with a greeting or jump straight into the message
-
-SIGNATURE BLOCK RULES - EXTREMELY IMPORTANT:
-- The signature at the end of bodyPlain MUST belong to the person in fromEmail
-- NEVER put one character's signature on another character's email
-- Copy the EXACT signature block for that character from the list above - character by character
-- This is a DATA INTEGRITY issue - wrong signatures make the emails invalid
-
-ATTACHMENT REMINDER:
-- If the instructions say to include N images, you MUST set hasImage: true for exactly N emails
-- If the instructions say to include N documents, you MUST set hasDocument: true for exactly N emails
-- If the instructions say to include N voicemails, you MUST set hasVoicemail: true for exactly N emails
-- Do NOT skip attachments - they are REQUIRED if specified in the instructions above";
+- Someone who was CC'd jumps into the conversation", PromptScaffolding.JsonSchemaSection(schema), criticalRules);
     }
 
     private static readonly string[] NonResponsiveTopicHints =
@@ -2570,12 +2569,11 @@ Email body preview: {email.BodyPlain[..Math.Min(300, email.BodyPlain.Length)]}..
 
         // Generate a voicemail script using the planned context
 
-        var systemPrompt = @"You are creating a voicemail message that relates to a fictional corporate email.
+        var systemPrompt = PromptScaffolding.AppendJsonOnlyInstruction(@"You are creating a voicemail message that relates to a fictional corporate email.
 The voicemail should sound natural and conversational, as if someone called and left a message.
 Keep the voicemail BRIEF - 15-30 seconds when spoken (about 40-80 words).
 Do not use real company names or real people.
-
-Respond with JSON only.";
+");
 
         var context = $@"Email subject: {email.Subject}
 Sender: {email.From.FullName}
@@ -2583,7 +2581,13 @@ Voicemail context: {email.PlannedVoicemailContext ?? "A follow-up or urgent mess
 Narrative topic: {state.Topic}";
 
 
-        var userPrompt = $@"{context}
+        var schema = """
+{
+  "voicemailScript": "string (the voicemail transcript)"
+}
+""";
+
+        var userPrompt = PromptScaffolding.JoinSections($@"{context}
 
 Create a voicemail that {email.From.FirstName} might leave related to this email.
 The voicemail should:
@@ -2592,12 +2596,7 @@ The voicemail should:
 - Start with a greeting ('Hey, it's [name]...' or 'Hi, this is [name] calling about...')
 - End naturally ('...call me back when you get this' or 'talk soon')
 - Be 40-80 words total
-- Keep all names and organizations fictional
-
-Respond with JSON:
-{{
-  ""voicemailScript"": ""string (the voicemail transcript)""
-}}";
+- Keep all names and organizations fictional", PromptScaffolding.JsonSchemaSection(schema));
 
         var response = await _openAI.GetJsonCompletionAsync<VoicemailScriptResponse>(systemPrompt, userPrompt, "Voicemail Script", ct);
 
@@ -2753,10 +2752,10 @@ Respond with JSON:
         string context, EmailMessage email, bool detailed, WizardState state, CancellationToken ct, DocumentChainState? chainState = null)
     {
 
-        var systemPrompt = @"Generate content for a fictional corporate Word document attachment.
+        var systemPrompt = PromptScaffolding.AppendJsonOnlyInstruction(@"Generate content for a fictional corporate Word document attachment.
 The content should be realistic, workplace-appropriate, and related to the email context.
 Do not use real company names or real people.
-Respond with valid JSON only.";
+");
 
         var detailLevel = detailed
             ? "Generate a detailed document with 4-6 paragraphs, including an introduction, main content with 2-3 key points, and a conclusion."
@@ -2777,18 +2776,20 @@ Make realistic revisions:
         }
 
 
-        var userPrompt = $@"Context:
+        var schema = """
+{
+  "title": "string (document title)",
+  "content": "string (full document content, paragraphs separated by double newlines)"
+}
+""";
+
+        var userPrompt = PromptScaffolding.JoinSections($@"Context:
 {context}
 {versionNote}
 {detailLevel}
 
 Use only fictional names and organizations. If names are needed, derive them from the email context.
-
-Respond with JSON:
-{{
-  ""title"": ""string (document title)"",
-  ""content"": ""string (full document content, paragraphs separated by double newlines)""
-}}";
+", PromptScaffolding.JsonSchemaSection(schema));
 
         var response = await _openAI.GetJsonCompletionAsync<WordDocResponse>(systemPrompt, userPrompt, "Word Attachment", ct);
 
@@ -2825,33 +2826,32 @@ Respond with JSON:
         string context, EmailMessage email, bool detailed, CancellationToken ct)
     {
 
-        var systemPrompt = @"Generate data for a fictional corporate Excel spreadsheet attachment.
+        var systemPrompt = PromptScaffolding.AppendJsonOnlyInstruction(@"Generate data for a fictional corporate Excel spreadsheet attachment.
 The data should be realistic and related to the email context.
 Do not use real company names or real people.
 IMPORTANT: All values in the rows array MUST be strings, even if they represent numbers.
 For example: use ""1234"" instead of 1234, use ""$5,000"" instead of 5000.
-Respond with valid JSON only.";
+");
 
         var rowCount = detailed ? "10-15" : "5-8";
 
 
-        var userPrompt = $@"Context:
+        var schema = """
+{
+  "title": "string (spreadsheet title)",
+  "headers": ["string"],
+  "rows": [["string (ALL values must be strings, even numbers)"]]
+}
+""";
+
+        var userPrompt = PromptScaffolding.JoinSections($@"Context:
 {context}
 
 Generate spreadsheet data with:
 - Appropriate column headers (3-6 columns)
 - {rowCount} rows of realistic data
 - Format numeric values as strings (e.g., ""$1,234"", ""500"", ""12.5%"")
-- Use only fictional names and organizations
-
-Respond with JSON:
-{{
-  ""title"": ""string (spreadsheet title)"",
-  ""headers"": [""string""],
-  ""rows"": [[""string (ALL values must be strings, even numbers)""]]
-}}
-
-CRITICAL: Every cell value in rows must be a JSON string, not a number. Use quotes around all values.";
+- Use only fictional names and organizations", PromptScaffolding.JsonSchemaSection(schema), "CRITICAL: Every cell value in rows must be a JSON string, not a number. Use quotes around all values.");
 
         var response = await _openAI.GetJsonCompletionAsync<ExcelDocResponseRaw>(systemPrompt, userPrompt, "Excel Attachment", ct);
 
@@ -2895,33 +2895,34 @@ CRITICAL: Every cell value in rows must be a JSON string, not a number. Use quot
         string context, EmailMessage email, bool detailed, WizardState state, CancellationToken ct)
     {
 
-        var systemPrompt = @"Generate content for a fictional corporate PowerPoint presentation attachment.
+        var systemPrompt = PromptScaffolding.AppendJsonOnlyInstruction(@"Generate content for a fictional corporate PowerPoint presentation attachment.
 The content should be realistic and related to the email context.
 Do not use real company names or real people.
-Respond with valid JSON only.";
+");
 
         var slideCount = detailed ? "5-8" : "3-4";
 
 
-        var userPrompt = $@"Context:
+        var schema = """
+{
+  "title": "string (presentation title)",
+  "slides": [
+    {
+      "slideTitle": "string",
+      "content": "string (bullet points or paragraph)"
+    }
+  ]
+}
+""";
+
+        var userPrompt = PromptScaffolding.JoinSections($@"Context:
 {context}
 
 Generate presentation content with:
 - A main title
 - {slideCount} content slides
 - Each slide should have a title and bullet points or brief content
-- Use only fictional names and organizations
-
-Respond with JSON:
-{{
-  ""title"": ""string (presentation title)"",
-  ""slides"": [
-    {{
-      ""slideTitle"": ""string"",
-      ""content"": ""string (bullet points or paragraph)""
-    }}
-  ]
-}}";
+- Use only fictional names and organizations", PromptScaffolding.JsonSchemaSection(schema));
 
         var response = await _openAI.GetJsonCompletionAsync<PowerPointDocResponse>(systemPrompt, userPrompt, "PowerPoint Attachment", ct);
 
@@ -2954,33 +2955,33 @@ Respond with JSON:
     {
         // First, get AI to describe what image would be appropriate for this email
 
-        var systemPrompt = @"You are helping generate an image for a fictional corporate email.
+        var systemPrompt = PromptScaffolding.AppendJsonOnlyInstruction(@"You are helping generate an image for a fictional corporate email.
 Based on the email content, suggest a single image that someone might attach or embed in this email.
 The image should feel authentic to a workplace setting and relevant to the email's content.
 Do not include real logos, real brands, or identifiable real people.
-
-Respond with JSON only.";
+");
 
         var context = $@"Email subject: {email.Subject}
 Email body: {email.BodyPlain[..Math.Min(500, email.BodyPlain.Length)]}
 Narrative topic: {state.Topic}";
 
 
-        var userPrompt = $@"{context}
+        var schema = """
+{
+  "shouldIncludeImage": boolean (false if no image makes sense for this email),
+  "imageDescription": "string (detailed description for image generation, 2-3 sentences)",
+  "imageContext": "string (brief caption or how it's referenced in email, e.g., 'Attached: Photo from the banquet')",
+  "isInline": boolean (true if image should display in email body, false for attachment)
+}
+""";
+
+        var userPrompt = PromptScaffolding.JoinSections($@"{context}
 
 Suggest ONE image that would be realistic to include with this email. Consider:
 - Photos someone might share ('Here's a picture from the event')
 - Screenshots or diagrams being discussed
 - Images that add context to the storyline
-- Office-appropriate visuals only (no sensitive or explicit content)
-
-Respond with JSON:
-{{
-  ""shouldIncludeImage"": boolean (false if no image makes sense for this email),
-  ""imageDescription"": ""string (detailed description for image generation, 2-3 sentences)"",
-  ""imageContext"": ""string (brief caption or how it's referenced in email, e.g., 'Attached: Photo from the banquet')"",
-  ""isInline"": boolean (true if image should display in email body, false for attachment)
-}}";
+- Office-appropriate visuals only (no sensitive or explicit content)", PromptScaffolding.JsonSchemaSection(schema));
 
         var response = await _openAI.GetJsonCompletionAsync<ImageSuggestionResponse>(systemPrompt, userPrompt, "Image Suggestion", ct);
 
@@ -3088,7 +3089,7 @@ Respond with JSON:
     {
         // Ask AI if this email mentions a meeting that should have a calendar invite
 
-        var systemPrompt = @"You analyze emails to detect if they are scheduling or confirming a meeting/event that should have a calendar invite attached.
+        var systemPrompt = PromptScaffolding.AppendJsonOnlyInstruction(@"You analyze emails to detect if they are scheduling or confirming a meeting/event that should have a calendar invite attached.
 
 Look for:
 - Specific dates and times mentioned ('tomorrow at 3pm', 'Friday at noon', 'next week Monday')
@@ -3097,26 +3098,28 @@ Look for:
 - Scheduled calls or gatherings
 
 If there is no clear meeting date/time, set hasMeeting to false.
-Respond with JSON only.";
+");
 
 
-        var userPrompt = $@"Email subject: {email.Subject}
+        var schema = """
+{
+  "hasMeeting": boolean,
+  "meetingTitle": "string (title for the calendar invite)",
+  "meetingDescription": "string (brief description)",
+  "location": "string (meeting location or 'Virtual' or 'TBD')",
+  "suggestedDate": "YYYY-MM-DD (the date of the meeting, based on context)",
+  "suggestedStartTime": "HH:MM (24-hour format)",
+  "durationMinutes": number (30, 60, 90, 120, etc.)
+}
+""";
+
+        var userPrompt = PromptScaffolding.JoinSections($@"Email subject: {email.Subject}
 Email body: {email.BodyPlain[..Math.Min(800, email.BodyPlain.Length)]}
 Email sent date: {email.SentDate:yyyy-MM-dd}
 
 Does this email mention a specific meeting, event, or call that should have a calendar invite?
 If details are vague or missing, set hasMeeting to false.
-
-Respond with JSON:
-{{
-  ""hasMeeting"": boolean,
-  ""meetingTitle"": ""string (title for the calendar invite)"",
-  ""meetingDescription"": ""string (brief description)"",
-  ""location"": ""string (meeting location or 'Virtual' or 'TBD')"",
-  ""suggestedDate"": ""YYYY-MM-DD (the date of the meeting, based on context)"",
-  ""suggestedStartTime"": ""HH:MM (24-hour format)"",
-  ""durationMinutes"": number (30, 60, 90, 120, etc.)
-}}";
+", PromptScaffolding.JsonSchemaSection(schema));
 
         var response = await _openAI.GetJsonCompletionAsync<MeetingDetectionResponse>(systemPrompt, userPrompt, "Meeting Detection", ct);
 
@@ -3197,14 +3200,13 @@ Respond with JSON:
     {
         // Ask AI to create a voicemail script related to this email thread
 
-        var systemPrompt = @"You are creating a voicemail message that relates to a fictional corporate email thread.
+        var systemPrompt = PromptScaffolding.AppendJsonOnlyInstruction(@"You are creating a voicemail message that relates to a fictional corporate email thread.
 The voicemail should sound natural and conversational, as if someone called and left a message.
 It should relate to the email content but not simply read the email aloud.
 Do not use real company names or real people.
 
 Keep the voicemail BRIEF - 15-30 seconds when spoken (about 40-80 words).
-
-Respond with JSON only.";
+");
 
         var context = $@"Email subject: {email.Subject}
 Email body preview: {email.BodyPlain[..Math.Min(400, email.BodyPlain.Length)]}
@@ -3212,7 +3214,15 @@ Sender: {email.From.FullName}
 Narrative topic: {state.Topic}";
 
 
-        var userPrompt = $@"{context}
+        var schema = """
+{
+  "shouldCreateVoicemail": boolean (false if voicemail doesn't make sense),
+  "voicemailScript": "string (the voicemail transcript)",
+  "recipientName": "string (who the voicemail is for)"
+}
+""";
+
+        var userPrompt = PromptScaffolding.JoinSections($@"{context}
 
 Create a voicemail that {email.From.FirstName} might leave that relates to this email thread.
 The voicemail should:
@@ -3221,14 +3231,7 @@ The voicemail should:
 - Start with a greeting ('Hey, it's [name]...' or 'Hi, this is [name] calling about...')
 - End naturally ('...call me back when you get this' or 'talk soon')
 - Be 40-80 words total
-- Keep all names and organizations fictional
-
-Respond with JSON:
-{{
-  ""shouldCreateVoicemail"": boolean (false if voicemail doesn't make sense),
-  ""voicemailScript"": ""string (the voicemail transcript)"",
-  ""recipientName"": ""string (who the voicemail is for)""
-}}";
+- Keep all names and organizations fictional", PromptScaffolding.JsonSchemaSection(schema));
 
         var response = await _openAI.GetJsonCompletionAsync<VoicemailScriptResponse>(systemPrompt, userPrompt, "Voicemail Script", ct);
 

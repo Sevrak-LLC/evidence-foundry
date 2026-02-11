@@ -118,7 +118,7 @@ public class WorldModelGenerator
         var industries = FormatIndustryOptions(industriesForPrompt);
         var states = EnumHelper.FormatEnumOptions<UsState>();
 
-        var systemPrompt = @"You are the EvidenceFoundry World Model Generator.
+        var systemPrompt = PromptScaffolding.AppendJsonOnlyInstruction(@"You are the EvidenceFoundry World Model Generator.
 
 Purpose
 Create an extremely realistic, entirely fictional corporate world model (organizations + a minimal set of directly-involved people) for a pre-dispute scenario. This output will be used as immutable input to downstream generators that create the storyline, beats, scenes, and synthetic evidence.
@@ -166,11 +166,72 @@ Additional Constraints
 - Do not write the storyline here; do not add beats/scenes/timeline.
 
 Output Rules (Strict)
-- Return ONLY valid JSON that matches the USER-provided schema exactly.
-- No markdown, no commentary, no extra keys, no trailing commas.
-- Double quotes for all JSON strings/property names.";
+- Output must match the USER-provided schema exactly.");
 
-        var userPrompt = $@"CASE INPUTS
+        var schema = """
+{
+   "worldModel":{
+      "caseContext":{
+         "caseArea":"string",
+         "matterType":"string",
+         "issue":"string",
+         "issueDescription":"string"
+      },
+      "organizations":{
+         "plaintiffs":[
+            {
+               "name":"string",
+               "domain":"string",
+               "description":"string",
+               "organizationType":"string",
+               "industry":"string",
+               "state":"string",
+               "founded":0,
+               "keyPeople":[
+                  {
+                     "role":"string",
+                     "department":"string",
+                     "firstName":"string",
+                     "lastName":"string",
+                     "email":"string",
+                     "personality":"string",
+                     "communicationStyle":"string",
+                     "involvement":"Actor|Target|Intermediary",
+                     "involvementSummary":"string"
+                  }
+               ]
+            }
+         ],
+         "defendants":[
+            {
+               "name":"string",
+               "domain":"string",
+               "description":"string",
+               "organizationType":"string",
+               "industry":"string",
+               "state":"string",
+               "founded":0,
+               "keyPeople":[
+                  {
+                     "role":"string",
+                     "department":"string",
+                     "firstName":"string",
+                     "lastName":"string",
+                     "email":"string",
+                     "personality":"string",
+                     "communicationStyle":"string",
+                     "involvement":"Actor|Target|Intermediary",
+                     "involvementSummary":"string"
+                  }
+               ]
+            }
+         ]
+      }
+   }
+}
+""";
+
+        var userPrompt = PromptScaffolding.JoinSections($@"CASE INPUTS
 - Case Area: {request.CaseArea}
 - Matter Type: {request.MatterType}
 - Issue: {request.Issue}
@@ -199,69 +260,7 @@ DEPARTMENTS AND ROLES (select only roles from these for each key person)
 
 TASK
 Generate the world model ONLY: organizations + minimal directly-involved key people. No storyline.
-
-OUTPUT JSON SCHEMA (respond with JSON that matches this exactly)
-{{
-   ""worldModel"":{{
-      ""caseContext"":{{
-         ""caseArea"":""string"",
-         ""matterType"":""string"",
-         ""issue"":""string"",
-         ""issueDescription"":""string""
-      }},
-      ""organizations"":{{
-         ""plaintiffs"":[
-            {{
-               ""name"":""string"",
-               ""domain"":""string"",
-               ""description"":""string"",
-               ""organizationType"":""string"",
-               ""industry"":""string"",
-               ""state"":""string"",
-               ""founded"":0,
-               ""keyPeople"":[
-                  {{
-                     ""role"":""string"",
-                     ""department"":""string"",
-                     ""firstName"":""string"",
-                     ""lastName"":""string"",
-                     ""email"":""string"",
-                     ""personality"":""string"",
-                     ""communicationStyle"":""string"",
-                     ""involvement"":""Actor|Target|Intermediary"",
-                     ""involvementSummary"":""string""
-                  }}
-               ]
-            }}
-         ],
-         ""defendants"":[
-            {{
-               ""name"":""string"",
-               ""domain"":""string"",
-               ""description"":""string"",
-               ""organizationType"":""string"",
-               ""industry"":""string"",
-               ""state"":""string"",
-               ""founded"":0,
-               ""keyPeople"":[
-                  {{
-                     ""role"":""string"",
-                     ""department"":""string"",
-                     ""firstName"":""string"",
-                     ""lastName"":""string"",
-                     ""email"":""string"",
-                     ""personality"":""string"",
-                     ""communicationStyle"":""string"",
-                     ""involvement"":""Actor|Target|Intermediary"",
-                     ""involvementSummary"":""string""
-                  }}
-               ]
-            }}
-         ]
-      }}
-   }}
-}}
-";
+", PromptScaffolding.JsonSchemaSection(schema));
 
         progress?.Report("Generating world model...");
 
