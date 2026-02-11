@@ -961,7 +961,7 @@ public class EmailGenerator
             return;
 
         await GenerateThreadAssetsAsync(thread, context.State, context.Result, context.ProgressData, context.Progress, context.ProgressLock, ct);
-        await SaveThreadAsync(thread, context.Config, context.EmlService, context.ProgressData, context.Progress, context.ProgressLock, context.SaveSemaphore, context.Result, context.SavedThreads, ct);
+        await SaveThreadAsync(thread, context, ct);
         threads[plan.Index] = thread;
     }
 
@@ -1199,58 +1199,51 @@ public class EmailGenerator
 
     private async Task SaveThreadAsync(
         EmailThread thread,
-        GenerationConfig config,
-        EmlFileService emlService,
-        GenerationProgress progressData,
-        IProgress<GenerationProgress> progress,
-        object progressLock,
-        SemaphoreSlim saveSemaphore,
-        GenerationResult result,
-        ConcurrentDictionary<Guid, bool> savedThreads,
+        ThreadPlanContext context,
         CancellationToken ct)
     {
         var subject = GetThreadSubject(thread);
 
-        await saveSemaphore.WaitAsync(ct);
+        await context.SaveSemaphore.WaitAsync(ct);
         try
         {
-            ReportProgress(progress, progressData, progressLock, p =>
+            ReportProgress(context.Progress, context.ProgressData, context.ProgressLock, p =>
             {
                 p.CurrentOperation = $"Saving EML files for thread: {subject}";
             });
 
             var emlProgress = new Progress<(int completed, int total, string currentFile)>(p =>
             {
-                ReportProgress(progress, progressData, progressLock, pd =>
+                ReportProgress(context.Progress, context.ProgressData, context.ProgressLock, pd =>
                 {
                     pd.CurrentOperation = $"Saving: {p.currentFile}";
                 });
             });
 
-            await emlService.SaveThreadEmailsAsync(
+            await context.EmlService.SaveThreadEmailsAsync(
                 thread,
-                config.OutputFolder,
-                config.OrganizeBySender,
+                context.Config.OutputFolder,
+                context.Config.OrganizeBySender,
                 emlProgress,
                 ct,
                 releaseAttachmentContent: true);
 
-            savedThreads.TryAdd(thread.Id, true);
+            context.SavedThreads.TryAdd(thread.Id, true);
         }
         catch (Exception ex)
         {
-            lock (progressLock)
+            lock (context.ProgressLock)
             {
-                result.Errors.Add($"Failed to save EML files for thread '{subject}': {ex.Message}");
+                context.Result.Errors.Add($"Failed to save EML files for thread '{subject}': {ex.Message}");
                 if (ex.InnerException != null)
                 {
-                    result.Errors.Add($"  Inner error: {ex.InnerException.Message}");
+                    context.Result.Errors.Add($"  Inner error: {ex.InnerException.Message}");
                 }
             }
         }
         finally
         {
-            saveSemaphore.Release();
+            context.SaveSemaphore.Release();
         }
     }
 
