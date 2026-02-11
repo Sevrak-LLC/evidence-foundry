@@ -42,18 +42,22 @@ public class CharacterGenerator
         var lowerName = firstName.ToLowerInvariant();
         var lowerNotes = personalityNotes?.ToLowerInvariant() ?? "";
 
-        var likelyFemale = lowerNotes.Contains("she ") || lowerNotes.Contains("her ") ||
-                           lowerNotes.Contains("woman") || lowerNotes.Contains("female");
-        var likelyMale = lowerNotes.Contains("he ") || lowerNotes.Contains("his ") ||
-                         lowerNotes.Contains(" man") || lowerNotes.Contains("male");
+        var likelyFemale = lowerNotes.Contains("she ", StringComparison.Ordinal)
+            || lowerNotes.Contains("her ", StringComparison.Ordinal)
+            || lowerNotes.Contains("woman", StringComparison.Ordinal)
+            || lowerNotes.Contains("female", StringComparison.Ordinal);
+        var likelyMale = lowerNotes.Contains("he ", StringComparison.Ordinal)
+            || lowerNotes.Contains("his ", StringComparison.Ordinal)
+            || lowerNotes.Contains(" man", StringComparison.Ordinal)
+            || lowerNotes.Contains("male", StringComparison.Ordinal);
 
         var femalePatterns = new[] { "a", "ie", "y", "elle", "ine", "ette", "lyn", "een", "is" };
         var malePatterns = new[] { "ew", "ck", "on", "er", "rd", "ld", "ke" };
 
         if (!likelyMale && !likelyFemale)
         {
-            likelyFemale = femalePatterns.Any(p => lowerName.EndsWith(p));
-            likelyMale = malePatterns.Any(p => lowerName.EndsWith(p));
+            likelyFemale = femalePatterns.Any(p => lowerName.EndsWith(p, StringComparison.Ordinal));
+            likelyMale = malePatterns.Any(p => lowerName.EndsWith(p, StringComparison.Ordinal));
         }
 
         if (likelyFemale && !likelyMale)

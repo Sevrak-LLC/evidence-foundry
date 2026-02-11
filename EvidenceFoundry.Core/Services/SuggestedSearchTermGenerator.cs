@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 using EvidenceFoundry.Helpers;
 
@@ -139,7 +140,7 @@ Instructions:
                 continue;
             if (OperatorTokens.Contains(lower))
                 continue;
-            if (int.TryParse(lower, out _))
+            if (int.TryParse(lower, NumberStyles.Integer, CultureInfo.InvariantCulture, out _))
                 continue;
 
             hasLiteral = true;

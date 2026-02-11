@@ -9,7 +9,7 @@ public class EmailGeneratorNarrativePhaseTests
     {
         var phase = EmailGenerator.GetNarrativePhase(0, 1);
 
-        Assert.Contains("SINGLE-BATCH", phase);
+        Assert.Contains("SINGLE-BATCH", phase, StringComparison.Ordinal);
         Assert.Contains("unresolved", phase, StringComparison.OrdinalIgnoreCase);
     }
 

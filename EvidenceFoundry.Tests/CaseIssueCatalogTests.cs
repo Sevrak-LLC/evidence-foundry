@@ -30,6 +30,6 @@ public class CaseIssueCatalogTests
         var exception = Assert.Throws<ArgumentException>(() =>
             CaseIssueCatalog.GetIssueDescription("Unknown", "Contracts", "Breach"));
 
-        Assert.Contains("Unknown case area", exception.Message);
+        Assert.Contains("Unknown case area", exception.Message, StringComparison.Ordinal);
     }
 }

@@ -62,7 +62,7 @@ public class StorylineDateRangeNormalizationTests
         var normalized = DateHelper.NormalizeStorylineDateRange(storyline, start, end);
 
         Assert.Equal(normalized.start.AddMonths(6).Date, normalized.end);
-        Assert.Contains("Capped to 6 months", normalized.note);
+        Assert.Contains("Capped to 6 months", normalized.note, StringComparison.Ordinal);
     }
 
     private static bool IsWeekday(DateTime date)

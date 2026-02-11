@@ -2481,12 +2481,12 @@ Email body preview: {email.BodyPlain[..Math.Min(300, email.BodyPlain.Length)]}..
         // If no insertion point found, insert before the closing div/body
         if (!inserted)
         {
-            if (email.BodyHtml.Contains("</div>\n</body>"))
+            if (email.BodyHtml.Contains("</div>\n</body>", StringComparison.Ordinal))
             {
                 // Insert before closing email-body div
                 email.BodyHtml = email.BodyHtml.Replace("</div>\n</body>", imageHtml + "</div>\n</body>");
             }
-            else if (email.BodyHtml.Contains("</body>"))
+            else if (email.BodyHtml.Contains("</body>", StringComparison.Ordinal))
             {
                 email.BodyHtml = email.BodyHtml.Replace("</body>", imageHtml + "</body>");
             }
@@ -3010,7 +3010,7 @@ Suggest ONE image that would be realistic to include with this email. Consider:
 
         if (!inserted)
         {
-            if (email.BodyHtml.Contains("</body>"))
+            if (email.BodyHtml.Contains("</body>", StringComparison.Ordinal))
             {
                 email.BodyHtml = email.BodyHtml.Replace("</body>", imageHtml + "</body>");
             }
@@ -3086,8 +3086,11 @@ If details are vague or missing, set hasMeeting to false.
         }
 
         var timeParts = (response.SuggestedStartTime ?? "10:00").Split(':');
-        var hour = int.TryParse(timeParts[0], out var h) ? h : 10;
-        var minute = timeParts.Length > 1 && int.TryParse(timeParts[1], out var m) ? m : 0;
+        var hour = int.TryParse(timeParts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var h) ? h : 10;
+        var minute = timeParts.Length > 1
+            && int.TryParse(timeParts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var m)
+                ? m
+                : 0;
 
         var startTime = new DateTime(meetingDate.Year, meetingDate.Month, meetingDate.Day, hour, minute, 0);
         var endTime = startTime.AddMinutes(response.DurationMinutes > 0 ? response.DurationMinutes : 60);

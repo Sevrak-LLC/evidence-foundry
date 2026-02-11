@@ -19,10 +19,10 @@ public class SuggestedSearchTermGeneratorTests
         var filtered = SuggestedSearchTermGenerator.FilterTermsAgainstEmail(terms, email, 3);
 
         Assert.Equal(2, filtered.Count);
-        Assert.Contains("\"budget review\"", filtered);
-        Assert.Contains("Q3 AND forecast", filtered);
-        Assert.DoesNotContain("\"customer churn\"", filtered);
-        Assert.DoesNotContain("review AND invoice", filtered);
+        Assert.Contains(filtered, item => string.Equals(item, "\"budget review\"", StringComparison.Ordinal));
+        Assert.Contains(filtered, item => string.Equals(item, "Q3 AND forecast", StringComparison.Ordinal));
+        Assert.DoesNotContain(filtered, item => string.Equals(item, "\"customer churn\"", StringComparison.Ordinal));
+        Assert.DoesNotContain(filtered, item => string.Equals(item, "review AND invoice", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -42,7 +42,7 @@ public class SuggestedSearchTermGeneratorTests
         Assert.Equal(2, filtered.Count);
         Assert.Equal("Alpha AND beta", filtered[0]);
         Assert.Equal("\"alpha beta\"", filtered[1]);
-        Assert.DoesNotContain("gamma", filtered);
+        Assert.DoesNotContain(filtered, item => string.Equals(item, "gamma", StringComparison.Ordinal));
     }
 
     [Fact]

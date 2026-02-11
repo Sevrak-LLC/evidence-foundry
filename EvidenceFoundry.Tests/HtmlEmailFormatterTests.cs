@@ -24,11 +24,20 @@ Alice
 
         var html = HtmlEmailFormatter.ConvertToHtml(input);
 
-        Assert.Contains("<div class=\"forward-header-title\">---------- Forwarded message ----------</div>", html);
-        Assert.Contains("<span class=\"forward-header-label\">From:</span> Alice &lt;alice@example.com&gt;", html);
-        Assert.Contains("<span class=\"forward-header-label\">Subject:</span> Status", html);
-        Assert.Contains("<p>The build is green.</p>", html);
-        Assert.Contains("<p>Thanks,</p>", html);
+        Assert.Contains(
+            "<div class=\"forward-header-title\">---------- Forwarded message ----------</div>",
+            html,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "<span class=\"forward-header-label\">From:</span> Alice &lt;alice@example.com&gt;",
+            html,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "<span class=\"forward-header-label\">Subject:</span> Status",
+            html,
+            StringComparison.Ordinal);
+        Assert.Contains("<p>The build is green.</p>", html, StringComparison.Ordinal);
+        Assert.Contains("<p>Thanks,</p>", html, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -50,11 +59,11 @@ Senior Analyst
 
         var html = HtmlEmailFormatter.ConvertToHtml(input);
 
-        Assert.Contains("<ul>", html);
-        Assert.Contains("<li>First item</li>", html);
-        Assert.Contains("<ol>", html);
-        Assert.Contains("<li>One</li>", html);
-        Assert.Contains("<div class=\"signature\"", html);
-        Assert.Contains("Jane Doe", html);
+        Assert.Contains("<ul>", html, StringComparison.Ordinal);
+        Assert.Contains("<li>First item</li>", html, StringComparison.Ordinal);
+        Assert.Contains("<ol>", html, StringComparison.Ordinal);
+        Assert.Contains("<li>One</li>", html, StringComparison.Ordinal);
+        Assert.Contains("<div class=\"signature\"", html, StringComparison.Ordinal);
+        Assert.Contains("Jane Doe", html, StringComparison.Ordinal);
     }
 }

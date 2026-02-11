@@ -134,9 +134,11 @@ public static partial class HtmlEmailFormatter
     private static string GetFontStack(string fontName)
     {
         // Serif fonts
-        if (fontName.Contains("Georgia") || fontName.Contains("Times") ||
-            fontName.Contains("Garamond") || fontName.Contains("Palatino") ||
-            fontName.Contains("Book Antiqua"))
+        if (fontName.Contains("Georgia", StringComparison.Ordinal)
+            || fontName.Contains("Times", StringComparison.Ordinal)
+            || fontName.Contains("Garamond", StringComparison.Ordinal)
+            || fontName.Contains("Palatino", StringComparison.Ordinal)
+            || fontName.Contains("Book Antiqua", StringComparison.Ordinal))
         {
             return $"'{fontName}', Georgia, 'Times New Roman', serif";
         }
@@ -454,18 +456,22 @@ public static partial class HtmlEmailFormatter
         var trimmed = line.TrimStart();
 
         // Check for common bullet patterns: - , * , • , ○ , ▪
-        if (trimmed.StartsWith("- ") || trimmed.StartsWith("* ") ||
-            trimmed.StartsWith("• ") || trimmed.StartsWith("○ ") ||
-            trimmed.StartsWith("▪ "))
+        if (trimmed.StartsWith("- ", StringComparison.Ordinal)
+            || trimmed.StartsWith("* ", StringComparison.Ordinal)
+            || trimmed.StartsWith("• ", StringComparison.Ordinal)
+            || trimmed.StartsWith("○ ", StringComparison.Ordinal)
+            || trimmed.StartsWith("▪ ", StringComparison.Ordinal))
         {
             content = trimmed[2..].Trim();
             return true;
         }
 
         // Check for checkbox patterns: [ ], [x], [X]
-        if (trimmed.StartsWith("[ ] ") || trimmed.StartsWith("[x] ") || trimmed.StartsWith("[X] "))
+        if (trimmed.StartsWith("[ ] ", StringComparison.Ordinal)
+            || trimmed.StartsWith("[x] ", StringComparison.Ordinal)
+            || trimmed.StartsWith("[X] ", StringComparison.Ordinal))
         {
-            var prefix = trimmed.StartsWith("[ ] ") ? "☐ " : "☑ ";
+            var prefix = trimmed.StartsWith("[ ] ", StringComparison.Ordinal) ? "☐ " : "☑ ";
             content = prefix + trimmed[4..].Trim();
             return true;
         }
@@ -484,7 +490,7 @@ public static partial class HtmlEmailFormatter
             var patterns = new[] { $"{num}. ", $"{num}) ", $"({num}) " };
             foreach (var pattern in patterns)
             {
-                if (trimmed.StartsWith(pattern))
+                if (trimmed.StartsWith(pattern, StringComparison.Ordinal))
                 {
                     content = trimmed[pattern.Length..].Trim();
                     return true;
@@ -543,7 +549,10 @@ public static partial class HtmlEmailFormatter
         var line = lines[index].Trim();
 
         // Common signature delimiters
-        if (line == "--" || line == "---" || line == "- -" || line.StartsWith("--"))
+        if (string.Equals(line, "--", StringComparison.Ordinal)
+            || string.Equals(line, "---", StringComparison.Ordinal)
+            || string.Equals(line, "- -", StringComparison.Ordinal)
+            || line.StartsWith("--", StringComparison.Ordinal))
             return true;
 
         // Look for patterns like "Best regards," "Sincerely," etc. followed by a name
@@ -574,7 +583,7 @@ public static partial class HtmlEmailFormatter
                 if (index + 1 < lines.Length)
                 {
                     var nextLine = lines[index + 1].Trim();
-                    if (!string.IsNullOrEmpty(nextLine) && !nextLine.StartsWith(">"))
+                    if (!string.IsNullOrEmpty(nextLine) && !nextLine.StartsWith(">", StringComparison.Ordinal))
                     {
                         return true;
                     }
@@ -599,7 +608,9 @@ public static partial class HtmlEmailFormatter
             var line = rawLine.Trim();
 
             // First line with "On ... wrote:" becomes the header
-            if (!headerWritten && line.StartsWith("On ") && line.Contains(" wrote:"))
+            if (!headerWritten
+                && line.StartsWith("On ", StringComparison.Ordinal)
+                && line.Contains(" wrote:", StringComparison.Ordinal))
             {
                 html.AppendLine($"<div class=\"quoted-header\">{System.Net.WebUtility.HtmlEncode(line)}</div>");
                 headerWritten = true;
@@ -680,7 +691,8 @@ public static partial class HtmlEmailFormatter
 
     private static bool IsForwardedMarker(string line)
     {
-        return line.Contains("Forwarded message") || line.Contains("Begin forwarded message");
+        return line.Contains("Forwarded message", StringComparison.Ordinal)
+            || line.Contains("Begin forwarded message", StringComparison.Ordinal);
     }
 
     private static bool IsHeaderTerminator(string line)
