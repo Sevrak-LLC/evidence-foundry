@@ -5,12 +5,8 @@ namespace EvidenceFoundry.UserControls;
 
 public class ModelConfigurationDialog : Form
 {
+    private const string ValidationErrorTitle = "Validation Error";
     private DataGridView _gridModels = null!;
-    private Button _btnAdd = null!;
-    private Button _btnRemove = null!;
-    private Button _btnOk = null!;
-    private Button _btnCancel = null!;
-    private Button _btnResetDefaults = null!;
     private BindingSource _bindingSource = null!;
 
     public List<AIModelConfig> Models { get; private set; }
@@ -135,18 +131,18 @@ public class ModelConfigurationDialog : Form
             Padding = new Padding(5, 0, 0, 0)
         };
 
-        _btnAdd = ButtonHelper.CreateButton("Add Model", 100, 30, ButtonStyle.Primary);
-        _btnAdd.Click += BtnAdd_Click;
-        gridButtonPanel.Controls.Add(_btnAdd);
+        var btnAdd = ButtonHelper.CreateButton("Add Model", 100, 30, ButtonStyle.Primary);
+        btnAdd.Click += BtnAdd_Click;
+        gridButtonPanel.Controls.Add(btnAdd);
 
-        _btnRemove = ButtonHelper.CreateButton("Remove", 100, 30, ButtonStyle.Danger);
-        _btnRemove.Click += BtnRemove_Click;
-        gridButtonPanel.Controls.Add(_btnRemove);
+        var btnRemove = ButtonHelper.CreateButton("Remove", 100, 30, ButtonStyle.Danger);
+        btnRemove.Click += BtnRemove_Click;
+        gridButtonPanel.Controls.Add(btnRemove);
 
-        _btnResetDefaults = ButtonHelper.CreateButton("Reset Defaults", 100, 30, ButtonStyle.Secondary);
-        _btnResetDefaults.Margin = new Padding(0, 20, 0, 0);
-        _btnResetDefaults.Click += BtnResetDefaults_Click;
-        gridButtonPanel.Controls.Add(_btnResetDefaults);
+        var btnResetDefaults = ButtonHelper.CreateButton("Reset Defaults", 100, 30, ButtonStyle.Secondary);
+        btnResetDefaults.Margin = new Padding(0, 20, 0, 0);
+        btnResetDefaults.Click += BtnResetDefaults_Click;
+        gridButtonPanel.Controls.Add(btnResetDefaults);
 
         gridPanel.Controls.Add(_gridModels);
         gridPanel.Controls.Add(gridButtonPanel);
@@ -160,20 +156,20 @@ public class ModelConfigurationDialog : Form
             Padding = new Padding(0, 5, 0, 0)
         };
 
-        _btnCancel = ButtonHelper.CreateButton("Cancel", 80, 30, ButtonStyle.Default);
-        _btnCancel.DialogResult = DialogResult.Cancel;
-        bottomPanel.Controls.Add(_btnCancel);
+        var btnCancel = ButtonHelper.CreateButton("Cancel", 80, 30, ButtonStyle.Default);
+        btnCancel.DialogResult = DialogResult.Cancel;
+        bottomPanel.Controls.Add(btnCancel);
 
-        _btnOk = ButtonHelper.CreateButton("OK", 80, 30, ButtonStyle.Primary);
-        _btnOk.Margin = new Padding(0, 0, 10, 0);
-        _btnOk.Click += BtnOk_Click;
-        bottomPanel.Controls.Add(_btnOk);
+        var btnOk = ButtonHelper.CreateButton("OK", 80, 30, ButtonStyle.Primary);
+        btnOk.Margin = new Padding(0, 0, 10, 0);
+        btnOk.Click += BtnOk_Click;
+        bottomPanel.Controls.Add(btnOk);
 
         mainLayout.Controls.Add(bottomPanel, 0, 2);
 
         this.Controls.Add(mainLayout);
-        this.AcceptButton = _btnOk;
-        this.CancelButton = _btnCancel;
+        this.AcceptButton = btnOk;
+        this.CancelButton = btnCancel;
     }
 
     private void GridModels_CurrentCellDirtyStateChanged(object? sender, EventArgs e)
@@ -201,7 +197,7 @@ public class ModelConfigurationDialog : Form
         ClearDefaultFromOtherRows(e.RowIndex);
     }
 
-    private bool IsDefaultCheckboxChange(DataGridViewCellEventArgs e)
+    private static bool IsDefaultCheckboxChange(DataGridViewCellEventArgs e)
     {
         return e.ColumnIndex == 0 && e.RowIndex >= 0;
     }
@@ -297,31 +293,31 @@ public class ModelConfigurationDialog : Form
         {
             if (string.IsNullOrWhiteSpace(model.ModelId))
             {
-                MessageBox.Show("All models must have a Model ID.", "Validation Error",
+                MessageBox.Show("All models must have a Model ID.", ValidationErrorTitle,
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
             if (!AIModelConfig.IsValidModelId(model.ModelId))
             {
                 MessageBox.Show("Model ID contains invalid characters. Use letters, numbers, dots, hyphens, underscores, or colons.",
-                    "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    ValidationErrorTitle, MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
             if (!modelIds.Add(model.ModelId.Trim()))
             {
-                MessageBox.Show("Model IDs must be unique.", "Validation Error",
+                MessageBox.Show("Model IDs must be unique.", ValidationErrorTitle,
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
             if (string.IsNullOrWhiteSpace(model.DisplayName))
             {
-                MessageBox.Show("All models must have a Display Name.", "Validation Error",
+                MessageBox.Show("All models must have a Display Name.", ValidationErrorTitle,
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
             if (model.InputTokenPricePerMillion < 0 || model.OutputTokenPricePerMillion < 0)
             {
-                MessageBox.Show("Token pricing must be zero or greater.", "Validation Error",
+                MessageBox.Show("Token pricing must be zero or greater.", ValidationErrorTitle,
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
