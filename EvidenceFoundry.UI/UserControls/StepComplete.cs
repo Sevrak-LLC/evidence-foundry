@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 using EvidenceFoundry.Helpers;
 using EvidenceFoundry.Models;
 
@@ -130,11 +131,25 @@ public class StepComplete : UserControl, IWizardStep
 
         var result = _state.Result;
 
+        AddStatRow("Planned Emails", result.PlannedEmails.ToString());
+        AddStatRow("Planned Threads", result.PlannedThreads.ToString());
+        AddStatRow("Succeeded Emails", result.SucceededEmails.ToString());
+        AddStatRow("Succeeded Threads", result.SucceededThreads.ToString());
+        if (result.FailedEmails > 0 || result.FailedThreads > 0)
+        {
+            AddStatRow("Failed Emails", result.FailedEmails.ToString());
+            AddStatRow("Failed Threads", result.FailedThreads.ToString());
+        }
+        if (result.SkippedEmails > 0 || result.SkippedThreads > 0)
+        {
+            AddStatRow("Skipped Emails", result.SkippedEmails.ToString());
+            AddStatRow("Skipped Threads", result.SkippedThreads.ToString());
+        }
         AddStatRow("Total Emails Generated", result.TotalEmailsGenerated.ToString());
         AddStatRow("Email Threads Created", result.TotalThreadsGenerated.ToString());
         AddStatRow("", "");
         AddStatRow("--- Attachments ---", "");
-        AddStatRow("Document Attachments", result.TotalAttachmentsGenerated.ToString());
+        AddStatRow("Total Attachments Generated", result.TotalAttachmentsGenerated.ToString());
         AddStatRow("  - Word Documents", result.WordDocumentsGenerated.ToString());
         AddStatRow("  - Excel Spreadsheets", result.ExcelDocumentsGenerated.ToString());
         AddStatRow("  - PowerPoint Presentations", result.PowerPointDocumentsGenerated.ToString());
@@ -144,6 +159,8 @@ public class StepComplete : UserControl, IWizardStep
             AddStatRow("Calendar Invites", result.CalendarInvitesGenerated.ToString());
         if (result.VoicemailsGenerated > 0)
             AddStatRow("Voicemails Generated", result.VoicemailsGenerated.ToString());
+        if (result.Errors.Count > 0)
+            AddStatRow("Errors", result.Errors.Count.ToString());
         AddStatRow("", "");
         AddStatRow("Topic", _state.TopicDisplayName);
         AddStatRow("Storyline Used", _state.Storyline != null ? "1" : "0");
@@ -160,10 +177,31 @@ public class StepComplete : UserControl, IWizardStep
         AddStatRow("Total Tokens", TokenUsageFormatter.FormatTokenCount(usageSummary.TotalTokens));
         AddStatRow("Estimated Cost", TokenUsageFormatter.FormatCost(usageSummary.TotalCost));
 
-        _lblSummary.Text = "Your email dataset is ready for import into your e-discovery platform.\n\n" +
-                          "The .EML files contain proper threading headers (Message-ID, In-Reply-To, References)\n" +
-                          "so email threads will be grouped correctly when imported.\n\n" +
-                          "Click 'Finish' to close this wizard, or 'Open Output Folder' to view the generated files.";
+        var summaryBuilder = new StringBuilder();
+        summaryBuilder.AppendLine("Your email dataset is ready for import into your e-discovery platform.");
+        summaryBuilder.AppendLine();
+        summaryBuilder.AppendLine("The .EML files contain proper threading headers (Message-ID, In-Reply-To, References)");
+        summaryBuilder.AppendLine("so email threads will be grouped correctly when imported.");
+
+        if (result.Errors.Count > 0)
+        {
+            summaryBuilder.AppendLine();
+            summaryBuilder.AppendLine($"Errors recorded: {result.Errors.Count}");
+            foreach (var error in result.Errors.Take(3))
+            {
+                summaryBuilder.AppendLine($"- {error}");
+            }
+
+            if (result.Errors.Count > 3)
+            {
+                summaryBuilder.AppendLine("- (see logs for full error list)");
+            }
+        }
+
+        summaryBuilder.AppendLine();
+        summaryBuilder.AppendLine("Click 'Finish' to close this wizard, or 'Open Output Folder' to view the generated files.");
+
+        _lblSummary.Text = summaryBuilder.ToString();
     }
 
     private void AddStatRow(string metric, string value)

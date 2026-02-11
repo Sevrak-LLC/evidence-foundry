@@ -4,6 +4,15 @@ public class GenerationResult
 {
     private readonly List<string> _errors = new();
 
+    public int PlannedEmails { get; set; }
+    public int PlannedThreads { get; set; }
+    public int PlannedAttachments { get; set; }
+    public int SucceededEmails { get; set; }
+    public int SucceededThreads { get; set; }
+    public int FailedEmails { get; set; }
+    public int FailedThreads { get; set; }
+    public int SkippedEmails { get; set; }
+    public int SkippedThreads { get; set; }
     public int TotalEmailsGenerated { get; set; }
     public int TotalThreadsGenerated { get; set; }
     public int TotalAttachmentsGenerated { get; set; }

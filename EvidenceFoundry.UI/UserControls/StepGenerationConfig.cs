@@ -66,7 +66,7 @@ public class StepGenerationConfig : UserControl, IWizardStep
             _numParallelThreads = new NumericUpDown
             {
                 Minimum = 1,
-                Maximum = 10,
+                Maximum = 32,
                 Value = 3,
                 Width = 70,
                 Font = new Font(this.Font.FontFamily, 10F),
@@ -416,7 +416,7 @@ public class StepGenerationConfig : UserControl, IWizardStep
     public Task OnEnterStepAsync()
     {
         // Load from state
-        _numParallelThreads.Value = Math.Max(1, Math.Min(10, _state.Config.ParallelThreads));
+        _numParallelThreads.Value = Math.Max(1, Math.Min(32, _state.Config.ParallelThreads));
         _numAttachmentPercent.Value = _state.Config.AttachmentPercentage;
         _cboAttachmentComplexity.SelectedIndex = _state.Config.AttachmentComplexity == AttachmentComplexity.Detailed ? 1 : 0;
         _chkWord.Checked = _state.Config.IncludeWord;

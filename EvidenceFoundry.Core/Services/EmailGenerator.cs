@@ -96,9 +96,12 @@ public class EmailGenerator
         var runId = Guid.NewGuid();
         var stopwatch = Stopwatch.StartNew();
         var activeStorylines = state.GetActiveStorylines().ToList();
+        var plannedTotals = CalculatePlannedTotals(activeStorylines, state.Config);
         var progressData = new GenerationProgress
         {
-            TotalEmails = activeStorylines.Sum(s => s.EmailCount),
+            TotalEmails = plannedTotals.TotalEmails,
+            TotalAttachments = plannedTotals.TotalAttachments,
+            TotalImages = plannedTotals.TotalImages,
             CurrentOperation = "Initializing..."
         };
 
@@ -126,6 +129,11 @@ public class EmailGenerator
             var progressLock = new object();
             var savedThreads = new ConcurrentDictionary<Guid, bool>();
             var saveSemaphore = new SemaphoreSlim(1, 1);
+            result.PlannedEmails = plannedTotals.TotalEmails;
+            result.PlannedThreads = plannedTotals.TotalThreads;
+            result.PlannedAttachments = plannedTotals.TotalAttachments;
+
+            ReportProgress(progress, progressData, progressLock, p => p.CurrentOperation = "Initializing...");
 
             // EML service for incremental saving
             var emlService = new EmlFileService(ResolveLogger<EmlFileService>(null, _loggerFactory));
@@ -166,9 +174,11 @@ public class EmailGenerator
                 threadsList,
                 state,
                 processContext,
+                result,
                 ct);
 
             var suggestedSearchContext = new SuggestedSearchTermsContext(
+                result,
                 progressData,
                 progress,
                 progressLock);
@@ -181,9 +191,14 @@ public class EmailGenerator
                 ct);
 
             // Finalize results
-            result.TotalEmailsGenerated = threadsList.Sum(t => t.EmailMessages.Count);
-            result.TotalThreadsGenerated = threadsList.Count;
-            result.TotalAttachmentsGenerated = result.WordDocumentsGenerated + result.ExcelDocumentsGenerated + result.PowerPointDocumentsGenerated;
+            result.TotalEmailsGenerated = result.SucceededEmails;
+            result.TotalThreadsGenerated = result.SucceededThreads;
+            result.TotalAttachmentsGenerated = result.WordDocumentsGenerated
+                                               + result.ExcelDocumentsGenerated
+                                               + result.PowerPointDocumentsGenerated
+                                               + result.ImagesGenerated
+                                               + result.CalendarInvitesGenerated
+                                               + result.VoicemailsGenerated;
             result.ElapsedTime = stopwatch.Elapsed;
 
             state.GeneratedThreads = threadsList;
@@ -328,10 +343,11 @@ public class EmailGenerator
         }
     }
 
-    private static async Task SaveRemainingEmlAsync(
+    private async Task SaveRemainingEmlAsync(
         List<EmailThread> threadsList,
         WizardState state,
         ProcessStorylineContext context,
+        GenerationResult result,
         CancellationToken ct)
     {
         var unsavedThreads = threadsList.Where(t => !context.SavedThreads.ContainsKey(t.Id)).ToList();
@@ -361,9 +377,14 @@ public class EmailGenerator
                 releaseAttachmentContent: true,
                 ct: ct);
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
-            throw new InvalidOperationException($"Failed to save EML files: {ex.Message}", ex);
+            result.AddError($"Failed to save remaining EML files: {ex.Message}");
+            _logger.LogError(ex, "Failed to save remaining EML files for {ThreadCount} threads.", unsavedThreads.Count);
         }
     }
 
@@ -487,33 +508,48 @@ public class EmailGenerator
                 beatLookup,
                 storylineLookup);
 
-            if (!TryGetSuggestedSearchContext(
-                    thread,
-                    contextOptions,
-                    out var beat,
-                    out var storyline,
-                    out var largestEmail))
+            try
             {
-                continue;
+                if (!TryGetSuggestedSearchContext(
+                        thread,
+                        contextOptions,
+                        out var beat,
+                        out var storyline,
+                        out var largestEmail))
+                {
+                    continue;
+                }
+
+                var subject = GetThreadSubject(thread);
+                ReportProgress(context.Progress, context.ProgressData, context.ProgressLock, p =>
+                {
+                    p.CurrentOperation = $"Generating suggested search terms: {subject}";
+                });
+
+                var terms = await GenerateSuggestedSearchTermsForThreadAsync(
+                    new SuggestedSearchTermsRequest(subject, largestEmail, storyline, beat, thread.IsHot),
+                    ct);
+
+                results.Add(new SuggestedSearchTermResult
+                {
+                    ThreadId = thread.Id,
+                    Subject = subject,
+                    IsHot = thread.IsHot,
+                    Terms = terms
+                });
             }
-
-            var subject = GetThreadSubject(thread);
-            ReportProgress(context.Progress, context.ProgressData, context.ProgressLock, p =>
+            catch (Exception ex)
             {
-                p.CurrentOperation = $"Generating suggested search terms: {subject}";
-            });
-
-            var terms = await GenerateSuggestedSearchTermsForThreadAsync(
-                new SuggestedSearchTermsRequest(subject, largestEmail, storyline, beat, thread.IsHot),
-                ct);
-
-            results.Add(new SuggestedSearchTermResult
-            {
-                ThreadId = thread.Id,
-                Subject = subject,
-                IsHot = thread.IsHot,
-                Terms = terms
-            });
+                lock (context.ProgressLock)
+                {
+                    context.Result.AddError(
+                        $"Suggested search terms failed for thread {thread.Id} ({GetThreadSubject(thread)}): {ex.Message}");
+                }
+                _logger.LogError(
+                    ex,
+                    "Suggested search terms failed for thread {ThreadId}.",
+                    thread.Id);
+            }
         }
 
         if (results.Count == 0)
@@ -569,6 +605,7 @@ public class EmailGenerator
         bool IsHot);
 
     private sealed record SuggestedSearchTermsContext(
+        GenerationResult Result,
         GenerationProgress ProgressData,
         IProgress<GenerationProgress> Progress,
         object ProgressLock);
@@ -763,6 +800,71 @@ public class EmailGenerator
         progress.Report(snapshot);
     }
 
+    private void RecordThreadCompletion(
+        ThreadPlanContext context,
+        ThreadPlan plan,
+        EmailThread thread,
+        bool success,
+        string stage)
+    {
+        var subject = GetThreadSubject(thread);
+        GenerationProgress snapshot;
+        lock (context.ProgressLock)
+        {
+            context.ProgressData.CompletedEmails = Math.Min(
+                context.ProgressData.TotalEmails,
+                context.ProgressData.CompletedEmails + plan.EmailCount);
+
+            if (success)
+            {
+                context.Result.SucceededThreads++;
+                context.Result.SucceededEmails += plan.EmailCount;
+            }
+            else
+            {
+                context.Result.FailedThreads++;
+                context.Result.FailedEmails += plan.EmailCount;
+            }
+
+            context.ProgressData.CurrentOperation = success
+                ? $"Generated thread: {subject}"
+                : $"Failed thread: {subject}";
+
+            snapshot = context.ProgressData.Snapshot();
+        }
+
+        context.Progress.Report(snapshot);
+
+        if (success)
+        {
+            _logger.LogInformation(
+                "Thread completed successfully in stage {Stage}: {Subject}.",
+                stage,
+                subject);
+        }
+    }
+
+    private void RecordThreadFailure(
+        ThreadPlanContext context,
+        ThreadPlan plan,
+        string stage,
+        Exception ex)
+    {
+        var subject = GetThreadSubject(plan.Thread);
+        lock (context.ProgressLock)
+        {
+            context.Result.AddError(
+                $"Thread '{subject}' (ThreadId {plan.Thread.Id}) failed during {stage}: {ex.Message}");
+        }
+
+        _logger.LogError(
+            ex,
+            "Thread failed during {Stage}.",
+            stage);
+
+        RecordThreadCompletion(context, plan, plan.Thread, success: false, stage: stage);
+    }
+
     private async Task<List<EmailThread>> GenerateThreadsForStorylineAsync(
         Storyline storyline,
         IReadOnlyList<StoryBeat> beats,
@@ -920,6 +1022,50 @@ public class EmailGenerator
         return threadPlans;
     }
 
+    private sealed record PlannedTotals(int TotalThreads, int TotalEmails, int TotalAttachments, int TotalImages);
+
+    private static PlannedTotals CalculatePlannedTotals(
+        IReadOnlyList<Storyline> storylines,
+        GenerationConfig config)
+    {
+        var totalThreads = 0;
+        var totalEmails = 0;
+        var totalAttachments = 0;
+        var totalImages = 0;
+
+        foreach (var storyline in storylines)
+        {
+            totalThreads += storyline.ThreadCount;
+            totalEmails += storyline.EmailCount;
+
+            foreach (var beat in storyline.Beats ?? Array.Empty<StoryBeat>())
+            {
+                foreach (var thread in beat.Threads ?? Array.Empty<EmailThread>())
+                {
+                    var emailCount = thread.EmailMessages.Count;
+                    if (emailCount <= 0)
+                        continue;
+
+                    var (docCount, imageCount, voicemailCount) = CalculateAttachmentTotals(config, emailCount);
+                    var calendarChecks = CalculateCalendarInviteChecks(config, emailCount);
+
+                    totalAttachments += docCount + imageCount + voicemailCount + calendarChecks;
+                    totalImages += imageCount;
+                }
+            }
+        }
+
+        return new PlannedTotals(totalThreads, totalEmails, totalAttachments, totalImages);
+    }
+
+    private static int CalculateCalendarInviteChecks(GenerationConfig config, int emailCount)
+    {
+        if (!config.IncludeCalendarInvites || config.CalendarInvitePercentage <= 0 || emailCount <= 0)
+            return 0;
+
+        return Math.Max(1, (int)Math.Round(emailCount * config.CalendarInvitePercentage / 100.0));
+    }
+
     private static bool TryPrepareBeatForPlanning(StoryBeat beat)
     {
         if (beat.EmailCount <= 0)
@@ -975,20 +1121,41 @@ public class EmailGenerator
         ThreadPlanContext context,
         CancellationToken ct)
     {
-        var thread = await GenerateThreadWithRetriesAsync(
-            plan,
-            context,
-            ct);
+        var stage = "thread-generation";
 
-        ReportProgress(context.Progress, context.ProgressData, context.ProgressLock, p =>
+        using var scope = _logger.BeginScope(new Dictionary<string, object>
         {
-            p.CompletedEmails = Math.Min(p.TotalEmails, p.CompletedEmails + plan.EmailCount);
-            p.CurrentOperation = $"Generated thread: {GetThreadSubject(thread)}";
+            ["ThreadId"] = plan.Thread.Id,
+            ["StorylineId"] = context.Storyline.Id,
+            ["BeatName"] = plan.BeatName,
+            ["PlannedEmailCount"] = plan.EmailCount
         });
 
-        await GenerateThreadAssetsAsync(thread, context.State, context.Result, context.ProgressData, context.Progress, context.ProgressLock, ct);
-        await SaveThreadAsync(thread, context, ct);
-        threads[plan.Index] = thread;
+        try
+        {
+            var thread = await GenerateThreadWithRetriesAsync(
+                plan,
+                context,
+                ct);
+
+            stage = "attachment-generation";
+            await GenerateThreadAssetsAsync(thread, context.State, context.Result, context.ProgressData, context.Progress, context.ProgressLock, ct);
+
+            stage = "save-eml";
+            await SaveThreadAsync(thread, context, ct);
+
+            threads[plan.Index] = thread;
+
+            RecordThreadCompletion(context, plan, thread, success: true, stage: stage);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            RecordThreadFailure(context, plan, stage, ex);
+        }
     }
 
     private async Task GenerateThreadAssetsAsync(
@@ -1020,11 +1187,6 @@ public class EmailGenerator
         var emailsWithPlannedDocuments = emails.Where(e => e.PlannedHasDocument).ToList();
         if (emailsWithPlannedDocuments.Count == 0)
             return;
-
-        ReportProgress(progress, progressData, progressLock, p =>
-        {
-            p.TotalAttachments += emailsWithPlannedDocuments.Count;
-        });
 
         foreach (var email in emailsWithPlannedDocuments)
         {
@@ -1086,12 +1248,6 @@ public class EmailGenerator
         if (emailsWithPlannedImages.Count == 0)
             return;
 
-        ReportProgress(progress, progressData, progressLock, p =>
-        {
-            p.TotalAttachments += emailsWithPlannedImages.Count;
-            p.TotalImages += emailsWithPlannedImages.Count;
-        });
-
         foreach (var email in emailsWithPlannedImages)
         {
             ct.ThrowIfCancellationRequested();
@@ -1141,14 +1297,6 @@ public class EmailGenerator
             .Take(maxCalendarEmails)
             .ToList();
 
-        if (emailsToCheckForCalendar.Count > 0)
-        {
-            ReportProgress(progress, progressData, progressLock, p =>
-            {
-                p.TotalAttachments += emailsToCheckForCalendar.Count;
-            });
-        }
-
         foreach (var email in emailsToCheckForCalendar)
         {
             ct.ThrowIfCancellationRequested();
@@ -1190,11 +1338,6 @@ public class EmailGenerator
         var emailsWithPlannedVoicemails = emails.Where(e => e.PlannedHasVoicemail).ToList();
         if (emailsWithPlannedVoicemails.Count == 0)
             return;
-
-        ReportProgress(progress, progressData, progressLock, p =>
-        {
-            p.TotalAttachments += emailsWithPlannedVoicemails.Count;
-        });
 
         foreach (var email in emailsWithPlannedVoicemails)
         {
@@ -1588,11 +1731,6 @@ public class EmailGenerator
             {
                 if (IsContractViolation(ex))
                 {
-                    _logger.LogError(
-                        ex,
-                        "Thread generation contract violation for beat {BeatName} (ThreadId {ThreadId}).",
-                        plan.BeatName,
-                        plan.Thread.Id);
                     throw new InvalidOperationException(
                         $"Thread generation contract violation for beat '{plan.BeatName}' (thread {plan.Thread.Id}): {ex.Message}",
                         ex);
@@ -1612,12 +1750,6 @@ public class EmailGenerator
         var failureDetail = lastException == null
             ? "Unknown error."
             : $"{lastException.GetType().Name} - {lastException.Message}";
-        _logger.LogError(
-            lastException,
-            "Thread generation failed after {AttemptCount} attempts for beat {BeatName} (ThreadId {ThreadId}).",
-            MaxThreadGenerationAttempts,
-            plan.BeatName,
-            plan.Thread.Id);
         throw new InvalidOperationException(
             $"Thread generation failed after {MaxThreadGenerationAttempts} attempts for beat '{plan.BeatName}' (thread {plan.Thread.Id}): {failureDetail}",
             lastException);
