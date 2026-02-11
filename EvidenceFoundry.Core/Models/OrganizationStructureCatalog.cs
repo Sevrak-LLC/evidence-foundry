@@ -21,6 +21,7 @@ public sealed class OrganizationStructureCatalogData
 public static class OrganizationStructureCatalog
 {
     private const string ResourceName = "EvidenceFoundry.Resources.OrganizationStructureCatalog.json";
+    private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();
 
     private static readonly Lazy<OrganizationStructureCatalogData> CatalogLazy = new(LoadConfig);
 
@@ -36,16 +37,21 @@ public static class OrganizationStructureCatalog
         using var reader = new StreamReader(stream);
         var json = reader.ReadToEnd();
 
+        var catalog = JsonSerializer.Deserialize<OrganizationStructureCatalogData>(json, JsonOptions);
+        if (catalog == null)
+            throw new InvalidOperationException("Organization structure config is empty or invalid.");
+
+        return catalog;
+    }
+
+    private static JsonSerializerOptions CreateJsonOptions()
+    {
         var options = new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true
         };
         options.Converters.Add(new JsonStringEnumConverter());
 
-        var catalog = JsonSerializer.Deserialize<OrganizationStructureCatalogData>(json, options);
-        if (catalog == null)
-            throw new InvalidOperationException("Organization structure config is empty or invalid.");
-
-        return catalog;
+        return options;
     }
 }
