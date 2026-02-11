@@ -3,7 +3,7 @@ using EvidenceFoundry.Models;
 
 namespace EvidenceFoundry.Services;
 
-public class RoleGenerator
+public static class RoleGenerator
 {
     internal static readonly HashSet<RoleName> SingleOccupantRoles = new()
     {
@@ -56,7 +56,7 @@ public class RoleGenerator
     private static void MoveSingleOccupantRoles(
         Department department,
         Department executive,
-        IDictionary<RoleName, Role> executiveRoles,
+        Dictionary<RoleName, Role> executiveRoles,
         ISet<Guid> executiveCharacterIds,
         Guid organizationId)
     {
@@ -99,7 +99,7 @@ public class RoleGenerator
     private static void AttachRoleToExecutive(
         Role role,
         Department executive,
-        IDictionary<RoleName, Role> executiveRoles,
+        Dictionary<RoleName, Role> executiveRoles,
         ISet<Guid> executiveCharacterIds,
         Guid organizationId)
     {
