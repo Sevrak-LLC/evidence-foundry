@@ -1,14 +1,17 @@
 using System.Globalization;
+using System.Linq;
 using System.Net.Mail;
 using System.Text;
 using System.Text.RegularExpressions;
 
 namespace EvidenceFoundry.Helpers;
 
-public static class EmailAddressHelper
+public static partial class EmailAddressHelper
 {
     private const int MaxLocalPartLength = 64;
-    private static readonly Regex MultipleDotsRegex = new("\\.{2,}", RegexOptions.Compiled);
+
+    [GeneratedRegex("\\.{2,}")]
+    private static partial Regex MultipleDotsRegex();
 
     public static string GenerateEmail(string firstName, string lastName, string domain, string? preferredEmail = null)
     {
@@ -57,14 +60,8 @@ public static class EmailAddressHelper
         if (string.IsNullOrWhiteSpace(trimmed) || trimmed.Contains('@'))
             return string.Empty;
 
-        var sb = new StringBuilder(trimmed.Length);
-        foreach (var ch in trimmed)
-        {
-            if (char.IsLetterOrDigit(ch) || ch == '.' || ch == '-')
-                sb.Append(ch);
-        }
-
-        var cleaned = sb.ToString().Trim('.');
+        var cleaned = string.Concat(trimmed.Where(ch =>
+            char.IsLetterOrDigit(ch) || ch == '.' || ch == '-')).Trim('.');
         if (string.IsNullOrWhiteSpace(cleaned) || !cleaned.Contains('.'))
             return string.Empty;
 
@@ -106,7 +103,7 @@ public static class EmailAddressHelper
         }
 
         var cleaned = sb.ToString();
-        cleaned = MultipleDotsRegex.Replace(cleaned, ".");
+        cleaned = MultipleDotsRegex().Replace(cleaned, ".");
         cleaned = cleaned.Trim('.');
 
         return cleaned;
