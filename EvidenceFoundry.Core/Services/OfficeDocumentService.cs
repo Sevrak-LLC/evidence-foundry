@@ -609,16 +609,7 @@ public class OfficeDocumentService
             var ch = value[i];
             if (char.IsHighSurrogate(ch))
             {
-                if (i + 1 < value.Length && char.IsLowSurrogate(value[i + 1]))
-                {
-                    var codePoint = char.ConvertToUtf32(ch, value[i + 1]);
-                    if (IsValidXmlCodePoint(codePoint))
-                    {
-                        sb.Append(ch);
-                        sb.Append(value[i + 1]);
-                    }
-                    i++;
-                }
+                i += AppendValidSurrogatePair(sb, value, i);
                 continue;
             }
 
@@ -632,6 +623,25 @@ public class OfficeDocumentService
         }
 
         return sb.ToString();
+    }
+
+    private static int AppendValidSurrogatePair(StringBuilder sb, string value, int index)
+    {
+        if (index + 1 >= value.Length)
+            return 0;
+
+        var lowSurrogate = value[index + 1];
+        if (!char.IsLowSurrogate(lowSurrogate))
+            return 0;
+
+        var codePoint = char.ConvertToUtf32(value[index], lowSurrogate);
+        if (IsValidXmlCodePoint(codePoint))
+        {
+            sb.Append(value[index]);
+            sb.Append(lowSurrogate);
+        }
+
+        return 1;
     }
 
     private static bool IsValidXmlCodePoint(int codePoint)
