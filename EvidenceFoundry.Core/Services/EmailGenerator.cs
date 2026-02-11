@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Text;
+using System.Globalization;
 using System.Text.Json.Serialization;
 using EvidenceFoundry.Models;
 using EvidenceFoundry.Helpers;
@@ -2088,7 +2089,7 @@ ATTACHMENT REMINDER:
 
     private static DateTime ResolveSentDate(EmailDto e, DateTime startDate, DateTime endDate)
     {
-        return DateTime.TryParse(e.SentDateTime, out var sentDate)
+        return DateTime.TryParse(e.SentDateTime, CultureInfo.CurrentCulture, DateTimeStyles.None, out var sentDate)
             ? sentDate
             : DateHelper.RandomDateInRange(startDate, endDate);
     }
