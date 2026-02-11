@@ -754,6 +754,20 @@ public class EmailGenerator
 
         var threads = new EmailThread?[threadPlans.Count];
         var systemPrompt = BuildEmailSystemPrompt();
+        var context = new ThreadPlanContext(
+            storyline,
+            domain,
+            config,
+            domainThemes,
+            systemPrompt,
+            state,
+            result,
+            progressData,
+            progress,
+            progressLock,
+            emlService,
+            saveSemaphore,
+            savedThreads);
         var degree = Math.Max(1, config.ParallelThreads);
 
         if (degree == 1)
@@ -764,19 +778,7 @@ public class EmailGenerator
                 await GenerateThreadPlanAsync(
                     plan,
                     threads,
-                    storyline,
-                    domain,
-                    config,
-                    domainThemes,
-                    systemPrompt,
-                    state,
-                    result,
-                    progressData,
-                    progress,
-                    progressLock,
-                    emlService,
-                    saveSemaphore,
-                    savedThreads,
+                    context,
                     ct);
             }
         }
@@ -791,24 +793,42 @@ public class EmailGenerator
                 await GenerateThreadPlanAsync(
                     plan,
                     threads,
-                    storyline,
-                    domain,
-                    config,
-                    domainThemes,
-                    systemPrompt,
-                    state,
-                    result,
-                    progressData,
-                    progress,
-                    progressLock,
-                    emlService,
-                    saveSemaphore,
-                    savedThreads,
+                    context,
                     token);
             });
         }
 
         return threads.Where(t => t != null).Select(t => t!).ToList();
+    }
+
+    private sealed class ThreadPlanContext(
+        Storyline storyline,
+        string domain,
+        GenerationConfig config,
+        Dictionary<string, OrganizationTheme> domainThemes,
+        string systemPrompt,
+        WizardState state,
+        GenerationResult result,
+        GenerationProgress progressData,
+        IProgress<GenerationProgress> progress,
+        object progressLock,
+        EmlFileService emlService,
+        SemaphoreSlim saveSemaphore,
+        ConcurrentDictionary<Guid, bool> savedThreads)
+    {
+        public Storyline Storyline { get; } = storyline;
+        public string Domain { get; } = domain;
+        public GenerationConfig Config { get; } = config;
+        public Dictionary<string, OrganizationTheme> DomainThemes { get; } = domainThemes;
+        public string SystemPrompt { get; } = systemPrompt;
+        public WizardState State { get; } = state;
+        public GenerationResult Result { get; } = result;
+        public GenerationProgress ProgressData { get; } = progressData;
+        public IProgress<GenerationProgress> Progress { get; } = progress;
+        public object ProgressLock { get; } = progressLock;
+        public EmlFileService EmlService { get; } = emlService;
+        public SemaphoreSlim SaveSemaphore { get; } = saveSemaphore;
+        public ConcurrentDictionary<Guid, bool> SavedThreads { get; } = savedThreads;
     }
 
     private List<ThreadPlan> BuildThreadPlans(
@@ -912,40 +932,28 @@ public class EmailGenerator
     private async Task GenerateThreadPlanAsync(
         ThreadPlan plan,
         EmailThread?[] threads,
-        Storyline storyline,
-        string domain,
-        GenerationConfig config,
-        Dictionary<string, OrganizationTheme> domainThemes,
-        string systemPrompt,
-        WizardState state,
-        GenerationResult result,
-        GenerationProgress progressData,
-        IProgress<GenerationProgress> progress,
-        object progressLock,
-        EmlFileService emlService,
-        SemaphoreSlim saveSemaphore,
-        ConcurrentDictionary<Guid, bool> savedThreads,
+        ThreadPlanContext context,
         CancellationToken ct)
     {
         var thread = await GenerateThreadWithRetriesAsync(
-            storyline,
+            context.Storyline,
             plan.Thread,
             plan.Participants,
             plan.ParticipantLookup,
-            domain,
+            context.Domain,
             plan.EmailCount,
             plan.Start,
             plan.End,
-            config,
-            domainThemes,
-            systemPrompt,
+            context.Config,
+            context.DomainThemes,
+            context.SystemPrompt,
             plan.ParticipantList,
             plan.BeatName,
-            result,
-            progressLock,
+            context.Result,
+            context.ProgressLock,
             ct);
 
-        ReportProgress(progress, progressData, progressLock, p =>
+        ReportProgress(context.Progress, context.ProgressData, context.ProgressLock, p =>
         {
             p.CompletedEmails = Math.Min(p.TotalEmails, p.CompletedEmails + plan.EmailCount);
             p.CurrentOperation = thread != null
@@ -956,8 +964,8 @@ public class EmailGenerator
         if (thread == null)
             return;
 
-        await GenerateThreadAssetsAsync(thread, state, result, progressData, progress, progressLock, ct);
-        await SaveThreadAsync(thread, config, emlService, progressData, progress, progressLock, saveSemaphore, result, savedThreads, ct);
+        await GenerateThreadAssetsAsync(thread, context.State, context.Result, context.ProgressData, context.Progress, context.ProgressLock, ct);
+        await SaveThreadAsync(thread, context.Config, context.EmlService, context.ProgressData, context.Progress, context.ProgressLock, context.SaveSemaphore, context.Result, context.SavedThreads, ct);
         threads[plan.Index] = thread;
     }
 
