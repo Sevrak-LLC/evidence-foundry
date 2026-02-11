@@ -4,12 +4,23 @@ using System.Text.RegularExpressions;
 
 namespace EvidenceFoundry.Models;
 
-public class AIModelConfig
+public partial class AIModelConfig
 {
     public const int DefaultMaxOutputTokens = 1200;
     public const int DefaultMaxJsonOutputTokens = 3000;
     private const string DefaultConfigFileName = "model-configs.json";
-    private static readonly Regex ModelIdRegex = new("^[A-Za-z0-9_.:-]+$", RegexOptions.Compiled);
+    private static readonly Regex ModelIdRegex = ModelIdRegexGenerated();
+    private static readonly JsonSerializerOptions WriteIndentedJsonOptions = new()
+    {
+        WriteIndented = true
+    };
+    private static readonly JsonSerializerOptions ReadCaseInsensitiveJsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
+    [GeneratedRegex("^[A-Za-z0-9_.:-]+$", RegexOptions.Compiled)]
+    private static partial Regex ModelIdRegexGenerated();
 
     public string ModelId { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
@@ -86,10 +97,7 @@ public class AIModelConfig
             Directory.CreateDirectory(directory);
         }
 
-        var json = JsonSerializer.Serialize(validated, new JsonSerializerOptions
-        {
-            WriteIndented = true
-        });
+        var json = JsonSerializer.Serialize(validated, WriteIndentedJsonOptions);
 
         File.WriteAllText(path, json);
     }
@@ -156,10 +164,7 @@ public class AIModelConfig
         try
         {
             var json = File.ReadAllText(path);
-            var configs = JsonSerializer.Deserialize<List<AIModelConfig>>(json, new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            });
+            var configs = JsonSerializer.Deserialize<List<AIModelConfig>>(json, ReadCaseInsensitiveJsonOptions);
             return configs ?? new List<AIModelConfig>();
         }
         catch (Exception ex)
@@ -234,7 +239,7 @@ public class AIModelConfig
         return true;
     }
 
-    private static void EnsureSingleDefault(IList<AIModelConfig> configs)
+    private static void EnsureSingleDefault(List<AIModelConfig> configs)
     {
         var defaultIndex = -1;
         for (var i = 0; i < configs.Count; i++)
