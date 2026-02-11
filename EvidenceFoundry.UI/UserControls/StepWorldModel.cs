@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
+using System.Linq;
 using EvidenceFoundry.Helpers;
 using EvidenceFoundry.Models;
 using EvidenceFoundry.Services;
@@ -18,8 +19,11 @@ public class StepWorldModel : UserControl, IWizardStep
     private Panel _emptyStatePanel = null!;
     private Label _lblEmptyState = null!;
     private bool _isLoading = false;
-    private BindingList<WorldOrganizationRow> _organizationRows = null!;
-    private BindingList<WorldPersonRow> _personRows = null!;
+
+    private const string OrganizationDomainColumnName = "Domain";
+    private const string OrganizationFoundedColumnName = "Founded";
+    private const string KeyPeopleInvolvementColumnName = "Involvement";
+    private static readonly string[] InvolvementOptions = { "Actor", "Target", "Intermediary" };
 
     public string StepTitle => "Review World Model";
     public bool CanMoveNext => _state?.WorldModel != null && !_isLoading;
@@ -215,9 +219,9 @@ public class StepWorldModel : UserControl, IWizardStep
 
         grid.Columns.Add(new DataGridViewTextBoxColumn
         {
-            Name = "Domain",
-            HeaderText = "Domain",
-            DataPropertyName = "Domain",
+            Name = OrganizationDomainColumnName,
+            HeaderText = OrganizationDomainColumnName,
+            DataPropertyName = OrganizationDomainColumnName,
             Width = 160
         });
 
@@ -250,9 +254,9 @@ public class StepWorldModel : UserControl, IWizardStep
 
         grid.Columns.Add(new DataGridViewTextBoxColumn
         {
-            Name = "Founded",
-            HeaderText = "Founded",
-            DataPropertyName = "Founded",
+            Name = OrganizationFoundedColumnName,
+            HeaderText = OrganizationFoundedColumnName,
+            DataPropertyName = OrganizationFoundedColumnName,
             Width = 80
         });
 
@@ -338,10 +342,10 @@ public class StepWorldModel : UserControl, IWizardStep
 
         grid.Columns.Add(new DataGridViewComboBoxColumn
         {
-            Name = "Involvement",
-            HeaderText = "Involvement",
-            DataPropertyName = "Involvement",
-            DataSource = new[] { "Actor", "Target", "Intermediary" },
+            Name = KeyPeopleInvolvementColumnName,
+            HeaderText = KeyPeopleInvolvementColumnName,
+            DataPropertyName = KeyPeopleInvolvementColumnName,
+            DataSource = InvolvementOptions,
             Width = 120
         });
 
@@ -443,7 +447,7 @@ public class StepWorldModel : UserControl, IWizardStep
         if (e.RowIndex < 0 || e.ColumnIndex < 0)
             return;
 
-        if (_gridOrganizations.Columns[e.ColumnIndex].Name == "Domain"
+        if (_gridOrganizations.Columns[e.ColumnIndex].Name == OrganizationDomainColumnName
             && _gridOrganizations.Rows[e.RowIndex].DataBoundItem is WorldOrganizationRow row)
         {
             UpdateEmailsForOrganization(row.Organization);
@@ -466,8 +470,8 @@ public class StepWorldModel : UserControl, IWizardStep
         var error = column.Name switch
         {
             "Name" => string.IsNullOrWhiteSpace(value) ? "Name is required." : string.Empty,
-            "Domain" => ValidateDomain(value),
-            "Founded" => ValidateFoundedYear(value),
+            OrganizationDomainColumnName => ValidateDomain(value),
+            OrganizationFoundedColumnName => ValidateFoundedYear(value),
             _ => string.Empty
         };
 
@@ -492,7 +496,7 @@ public class StepWorldModel : UserControl, IWizardStep
         {
             "FirstName" => string.IsNullOrWhiteSpace(value) ? "First name is required." : string.Empty,
             "LastName" => string.IsNullOrWhiteSpace(value) ? "Last name is required." : string.Empty,
-            "Involvement" => string.IsNullOrWhiteSpace(value) ? "Select involvement." : string.Empty,
+            KeyPeopleInvolvementColumnName => string.IsNullOrWhiteSpace(value) ? "Select involvement." : string.Empty,
             _ => string.Empty
         };
 
@@ -621,26 +625,26 @@ public class StepWorldModel : UserControl, IWizardStep
     {
         var world = _state.WorldModel;
 
-        _organizationRows = new BindingList<WorldOrganizationRow>();
-        _personRows = new BindingList<WorldPersonRow>();
+        var organizationRows = new BindingList<WorldOrganizationRow>();
+        var personRows = new BindingList<WorldPersonRow>();
 
         if (world != null)
         {
             foreach (var org in world.Plaintiffs)
             {
-                _organizationRows.Add(CreateOrganizationRow(org, "Plaintiff"));
-                AddKeyPeopleRows(org, _personRows);
+                organizationRows.Add(CreateOrganizationRow(org, "Plaintiff"));
+                AddKeyPeopleRows(org, personRows);
             }
 
             foreach (var org in world.Defendants)
             {
-                _organizationRows.Add(CreateOrganizationRow(org, "Defendant"));
-                AddKeyPeopleRows(org, _personRows);
+                organizationRows.Add(CreateOrganizationRow(org, "Defendant"));
+                AddKeyPeopleRows(org, personRows);
             }
         }
 
-        _gridOrganizations.DataSource = _organizationRows;
-        _gridKeyPeople.DataSource = _personRows;
+        _gridOrganizations.DataSource = organizationRows;
+        _gridKeyPeople.DataSource = personRows;
     }
 
     private static WorldOrganizationRow CreateOrganizationRow(Organization organization, string side)
@@ -658,11 +662,11 @@ public class StepWorldModel : UserControl, IWizardStep
 
     private static void UpdateEmailsForOrganization(Organization organization)
     {
-        foreach (var assignment in organization.EnumerateCharacters())
+        foreach (var character in organization.EnumerateCharacters().Select(assignment => assignment.Character))
         {
-            assignment.Character.Email = EmailAddressHelper.GenerateEmail(
-                assignment.Character.FirstName,
-                assignment.Character.LastName,
+            character.Email = EmailAddressHelper.GenerateEmail(
+                character.FirstName,
+                character.LastName,
                 organization.Domain);
         }
     }
@@ -787,7 +791,7 @@ public class StepWorldModel : UserControl, IWizardStep
             get => Organization.Founded?.Year ?? 0;
             set
             {
-                var newValue = value <= 0 ? (DateTime?)null : new DateTime(value, 1, 1);
+                var newValue = value <= 0 ? (DateTime?)null : new DateTime(value, 1, 1, 0, 0, 0, DateTimeKind.Unspecified);
                 if (Organization.Founded == newValue)
                     return;
                 Organization.Founded = newValue;
