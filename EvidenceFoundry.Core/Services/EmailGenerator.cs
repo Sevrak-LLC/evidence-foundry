@@ -133,8 +133,7 @@ public class EmailGenerator
             var suggestedSearchContext = new SuggestedSearchTermsContext(
                 progressData,
                 progress,
-                progressLock,
-                result);
+                progressLock);
 
             await GenerateSuggestedSearchTermsAsync(
                 threadsList,
@@ -164,9 +163,7 @@ public class EmailGenerator
         }
         catch (Exception ex)
         {
-            result.Errors.Add(ex.Message);
-            result.ElapsedTime = stopwatch.Elapsed;
-            return result;
+            throw new InvalidOperationException($"Email generation failed: {ex.Message}", ex);
         }
     }
 
@@ -251,28 +248,9 @@ public class EmailGenerator
         }
         catch (Exception ex)
         {
-            // Per-storyline error handling: log and continue with others
-            lock (context.ProgressLock)
-            {
-                context.Result.Errors.Add($"Storyline '{storyline.Title}' failed: {ex.Message}");
-            }
-
-            // Still count these emails as "completed" for progress tracking
-            var completedAtFailure = 0;
-            lock (context.ProgressLock)
-            {
-                completedAtFailure = context.ProgressData.CompletedEmails;
-            }
-
-            var completedInStoryline = completedAtFailure - completedAtStart;
-            var remaining = Math.Max(0, emailCount - completedInStoryline);
-            if (remaining > 0)
-            {
-                ReportProgress(context.Progress, context.ProgressData, context.ProgressLock, p =>
-                {
-                    p.CompletedEmails += remaining;
-                });
-            }
+            throw new InvalidOperationException(
+                $"Storyline '{storyline.Title}' failed during email generation: {ex.Message}",
+                ex);
         }
     }
 
@@ -311,14 +289,7 @@ public class EmailGenerator
         }
         catch (Exception ex)
         {
-            lock (context.ProgressLock)
-            {
-                context.Result.Errors.Add($"Failed to save EML files: {ex.Message}");
-                if (ex.InnerException != null)
-                {
-                    context.Result.Errors.Add($"  Inner error: {ex.InnerException.Message}");
-                }
-            }
+            throw new InvalidOperationException($"Failed to save EML files: {ex.Message}", ex);
         }
     }
 
@@ -430,9 +401,7 @@ public class EmailGenerator
 
             var contextOptions = new SuggestedSearchContextOptions(
                 beatLookup,
-                storylineLookup,
-                context.ProgressLock,
-                context.Result);
+                storylineLookup);
 
             if (!TryGetSuggestedSearchContext(
                     thread,
@@ -452,8 +421,6 @@ public class EmailGenerator
 
             var terms = await GenerateSuggestedSearchTermsForThreadAsync(
                 new SuggestedSearchTermsRequest(subject, largestEmail, storyline, beat, thread.IsHot),
-                context.ProgressLock,
-                context.Result,
                 ct);
 
             results.Add(new SuggestedSearchTermResult
@@ -482,46 +449,28 @@ public class EmailGenerator
         }
         catch (Exception ex)
         {
-            lock (context.ProgressLock)
-            {
-                context.Result.Errors.Add($"Failed to write suggested search terms markdown: {ex.Message}");
-            }
+            throw new InvalidOperationException($"Failed to write suggested search terms markdown: {ex.Message}", ex);
         }
     }
 
     private async Task<List<string>> GenerateSuggestedSearchTermsForThreadAsync(
         SuggestedSearchTermsRequest request,
-        object progressLock,
-        GenerationResult result,
         CancellationToken ct)
     {
-        try
+        var exportedEmail = BuildExportedEmailForPrompt(request.LargestEmail);
+        var terms = await _searchTermGenerator.GenerateSuggestedSearchTermsAsync(
+            exportedEmail,
+            request.Storyline.Summary,
+            request.Beat.Plot,
+            request.IsHot,
+            ct);
+        if (terms.Count < 2)
         {
-            var exportedEmail = BuildExportedEmailForPrompt(request.LargestEmail);
-            var terms = await _searchTermGenerator.GenerateSuggestedSearchTermsAsync(
-                exportedEmail,
-                request.Storyline.Summary,
-                request.Beat.Plot,
-                request.IsHot,
-                ct);
-            if (terms.Count < 2)
-            {
-                AddSuggestedTermsError(
-                    progressLock,
-                    result,
-                    $"Suggested terms returned fewer than 2 entries for thread '{request.Subject}'.");
-            }
+            throw new InvalidOperationException(
+                $"Suggested terms returned fewer than 2 entries for thread '{request.Subject}'.");
+        }
 
-            return terms;
-        }
-        catch (Exception ex)
-        {
-            AddSuggestedTermsError(
-                progressLock,
-                result,
-                $"Failed to generate suggested terms for thread '{request.Subject}': {ex.Message}");
-            return new List<string>();
-        }
+        return terms;
     }
 
     private sealed record SuggestedSearchTermsRequest(
@@ -534,14 +483,11 @@ public class EmailGenerator
     private sealed record SuggestedSearchTermsContext(
         GenerationProgress ProgressData,
         IProgress<GenerationProgress> Progress,
-        object ProgressLock,
-        GenerationResult Result);
+        object ProgressLock);
 
     private sealed record SuggestedSearchContextOptions(
         IReadOnlyDictionary<Guid, StoryBeat> BeatLookup,
-        IReadOnlyDictionary<Guid, Storyline> StorylineLookup,
-        object ProgressLock,
-        GenerationResult Result);
+        IReadOnlyDictionary<Guid, Storyline> StorylineLookup);
 
     private static bool TryGetSuggestedSearchContext(
         EmailThread thread,
@@ -556,35 +502,24 @@ public class EmailGenerator
 
         if (!options.BeatLookup.TryGetValue(thread.StoryBeatId, out var resolvedBeat))
         {
-            AddSuggestedTermsError(options.ProgressLock, options.Result, $"Suggested terms skipped: missing story beat for thread {thread.Id}.");
-            return false;
+            throw new InvalidOperationException($"Suggested terms missing story beat for thread {thread.Id}.");
         }
 
         if (!options.StorylineLookup.TryGetValue(thread.StorylineId, out var resolvedStoryline))
         {
-            AddSuggestedTermsError(options.ProgressLock, options.Result, $"Suggested terms skipped: missing storyline for thread {thread.Id}.");
-            return false;
+            throw new InvalidOperationException($"Suggested terms missing storyline for thread {thread.Id}.");
         }
 
         var resolvedEmail = GetLargestEmailInThread(thread);
         if (resolvedEmail == null)
         {
-            AddSuggestedTermsError(options.ProgressLock, options.Result, $"Suggested terms skipped: thread {thread.Id} has no emails.");
-            return false;
+            throw new InvalidOperationException($"Suggested terms skipped: thread {thread.Id} has no emails.");
         }
 
         beat = resolvedBeat;
         storyline = resolvedStoryline;
         largestEmail = resolvedEmail;
         return true;
-    }
-
-    private static void AddSuggestedTermsError(object progressLock, GenerationResult result, string message)
-    {
-        lock (progressLock)
-        {
-            result.Errors.Add(message);
-        }
     }
 
     private static string BuildSuggestedSearchTermsMarkdown(IReadOnlyList<SuggestedSearchTermResult> results)
@@ -943,13 +878,8 @@ public class EmailGenerator
         ReportProgress(context.Progress, context.ProgressData, context.ProgressLock, p =>
         {
             p.CompletedEmails = Math.Min(p.TotalEmails, p.CompletedEmails + plan.EmailCount);
-            p.CurrentOperation = thread != null
-                ? $"Generated thread: {GetThreadSubject(thread)}"
-                : $"Skipped thread after {MaxThreadGenerationAttempts} attempts (beat: {plan.BeatName})";
+            p.CurrentOperation = $"Generated thread: {GetThreadSubject(thread)}";
         });
-
-        if (thread == null)
-            return;
 
         await GenerateThreadAssetsAsync(thread, context.State, context.Result, context.ProgressData, context.Progress, context.ProgressLock, ct);
         await SaveThreadAsync(thread, context, ct);
@@ -1224,14 +1154,7 @@ public class EmailGenerator
         }
         catch (Exception ex)
         {
-            lock (context.ProgressLock)
-            {
-                context.Result.Errors.Add($"Failed to save EML files for thread '{subject}': {ex.Message}");
-                if (ex.InnerException != null)
-                {
-                    context.Result.Errors.Add($"  Inner error: {ex.InnerException.Message}");
-                }
-            }
+            throw new InvalidOperationException($"Failed to save EML files for thread '{subject}': {ex.Message}", ex);
         }
         finally
         {
@@ -1520,7 +1443,7 @@ public class EmailGenerator
         public int VoicemailsAssigned;
     }
 
-    internal async Task<EmailThread?> GenerateThreadWithRetriesAsync(
+    internal async Task<EmailThread> GenerateThreadWithRetriesAsync(
         ThreadPlan plan,
         ThreadPlanContext context,
         CancellationToken ct)
@@ -1556,25 +1479,25 @@ public class EmailGenerator
             {
                 throw;
             }
-            catch (Exception ex) when (!IsContractViolation(ex))
+            catch (Exception ex)
             {
+                if (IsContractViolation(ex))
+                {
+                    throw new InvalidOperationException(
+                        $"Thread generation contract violation for beat '{plan.BeatName}' (thread {plan.Thread.Id}): {ex.Message}",
+                        ex);
+                }
+
                 lastException = ex;
             }
         }
 
-        var message = lastException.Message;
-        var errorLine = $"Thread generation failed after {MaxThreadGenerationAttempts} attempts for beat '{plan.BeatName}' (thread {plan.Thread.Id}): {lastException.GetType().Name} - {message}";
-        lock (context.ProgressLock)
-        {
-            context.Result.Errors.Add(errorLine);
-            if (lastException.InnerException != null)
-            {
-                context.Result.Errors.Add($"  Inner error: {lastException.InnerException.Message}");
-            }
-        }
-
-        _threadGenerator.ResetThreadForRetry(plan.Thread, plan.EmailCount);
-        return null;
+        var failureDetail = lastException == null
+            ? "Unknown error."
+            : $"{lastException.GetType().Name} - {lastException.Message}";
+        throw new InvalidOperationException(
+            $"Thread generation failed after {MaxThreadGenerationAttempts} attempts for beat '{plan.BeatName}' (thread {plan.Thread.Id}): {failureDetail}",
+            lastException);
     }
 
     private static bool IsContractViolation(Exception ex)
@@ -2302,11 +2225,20 @@ For threads with 5+ emails, include at least ONE of these realistic patterns:
     /// </summary>
     private async Task GeneratePlannedDocumentAsync(EmailMessage email, WizardState state, CancellationToken ct)
     {
-        if (!email.PlannedHasDocument || string.IsNullOrEmpty(email.PlannedDocumentType))
+        if (!email.PlannedHasDocument)
             return;
+        if (string.IsNullOrWhiteSpace(email.PlannedDocumentType))
+            throw new InvalidOperationException($"Planned document type is missing for email '{email.Subject ?? "Untitled"}'.");
 
         if (!TryResolvePlannedAttachmentType(email.PlannedDocumentType, state.Config, out var attachmentType))
-            return;
+        {
+            var enabledTypes = state.Config.EnabledAttachmentTypes;
+            var enabledLabel = enabledTypes.Count == 0
+                ? "no attachment types are enabled"
+                : $"enabled types: {string.Join(", ", enabledTypes)}";
+            throw new InvalidOperationException(
+                $"Planned document attachment type '{email.PlannedDocumentType}' is not available ({enabledLabel}).");
+        }
 
         var isDetailed = state.Config.AttachmentComplexity == AttachmentComplexity.Detailed;
 
@@ -2330,7 +2262,7 @@ Email body preview: {email.BodyPlain[..Math.Min(300, email.BodyPlain.Length)]}..
             ct,
             chainState);
         if (attachment == null)
-            return;
+            throw new InvalidOperationException($"Planned {attachmentType} attachment generation failed for email '{email.Subject ?? "Untitled"}'.");
 
         ApplyDocumentChainVersioning(attachment, chainState, reservedVersion, state, email);
 
@@ -2465,8 +2397,10 @@ Email body preview: {email.BodyPlain[..Math.Min(300, email.BodyPlain.Length)]}..
     /// </summary>
     private async Task GeneratePlannedImageAsync(EmailMessage email, WizardState state, CancellationToken ct)
     {
-        if (!email.PlannedHasImage || string.IsNullOrEmpty(email.PlannedImageDescription))
+        if (!email.PlannedHasImage)
             return;
+        if (string.IsNullOrWhiteSpace(email.PlannedImageDescription))
+            throw new InvalidOperationException($"Planned image description is missing for email '{email.Subject ?? "Untitled"}'.");
 
         // Generate the image using DALL-E with the planned description
         var imagePrompt = BuildPlannedImagePrompt(state.Topic, email.PlannedImageDescription);
@@ -2474,7 +2408,7 @@ Email body preview: {email.BodyPlain[..Math.Min(300, email.BodyPlain.Length)]}..
         var imageBytes = await _openAI.GenerateImageAsync(imagePrompt, "Image Generation", ct);
 
         if (imageBytes == null || imageBytes.Length == 0)
-            return;
+            throw new InvalidOperationException($"Planned image generation failed for email '{email.Subject ?? "Untitled"}'.");
 
         var contentIdToken = DeterministicIdHelper.CreateShortToken(
             "inline-image",
@@ -2604,8 +2538,8 @@ The voicemail should:
 
         var response = await _openAI.GetJsonCompletionAsync<VoicemailScriptResponse>(systemPrompt, userPrompt, "Voicemail Script", ct);
 
-        if (response == null || string.IsNullOrEmpty(response.VoicemailScript))
-            return;
+        if (response == null || string.IsNullOrWhiteSpace(response.VoicemailScript))
+            throw new InvalidOperationException($"Voicemail script generation failed for email '{email.Subject ?? "Untitled"}'.");
 
         // Generate the audio using TTS
         var audioBytes = await _openAI.GenerateSpeechAsync(
@@ -2615,7 +2549,7 @@ The voicemail should:
             ct);
 
         if (audioBytes == null || audioBytes.Length == 0)
-            return;
+            throw new InvalidOperationException($"Voicemail audio generation failed for email '{email.Subject ?? "Untitled"}'.");
 
         var attachment = new Attachment
         {
@@ -2650,7 +2584,7 @@ The voicemail should:
             ct,
             chainState);
         if (attachment == null)
-            return;
+            throw new InvalidOperationException($"Attachment generation failed for email '{email.Subject ?? "Untitled"}' (type: {attachmentType}).");
 
         ApplyDocumentChainVersioning(attachment, chainState, reservedVersion, state, email);
 
@@ -2797,6 +2731,9 @@ Use only fictional names and organizations. If names are needed, derive them fro
 
         var response = await _openAI.GetJsonCompletionAsync<WordDocResponse>(systemPrompt, userPrompt, "Word Attachment", ct);
 
+        if (response == null)
+            throw new InvalidOperationException($"Word attachment generation failed for email '{email.Subject ?? "Untitled"}'.");
+
         var title = response?.Title ?? "Document";
 
         // If continuing a chain, keep the original title
@@ -2858,6 +2795,9 @@ Generate spreadsheet data with:
 - Use only fictional names and organizations", PromptScaffolding.JsonSchemaSection(schema), "CRITICAL: Every cell value in rows must be a JSON string, not a number. Use quotes around all values.");
 
         var response = await _openAI.GetJsonCompletionAsync<ExcelDocResponseRaw>(systemPrompt, userPrompt, "Excel Attachment", ct);
+
+        if (response == null)
+            throw new InvalidOperationException($"Excel attachment generation failed for email '{email.Subject ?? "Untitled"}'.");
 
         // Convert JsonElement rows to strings (handles both string and number values)
         var rows = new List<List<string>>();
@@ -2930,6 +2870,9 @@ Generate presentation content with:
 
         var response = await _openAI.GetJsonCompletionAsync<PowerPointDocResponse>(systemPrompt, userPrompt, "PowerPoint Attachment", ct);
 
+        if (response == null)
+            throw new InvalidOperationException($"PowerPoint attachment generation failed for email '{email.Subject ?? "Untitled"}'.");
+
         var slides = response?.Slides?
             .Select(s => (s.SlideTitle, s.Content))
             .ToList() ?? new List<(string, string)> { ("Slide 1", "Content") };
@@ -2989,8 +2932,12 @@ Suggest ONE image that would be realistic to include with this email. Consider:
 
         var response = await _openAI.GetJsonCompletionAsync<ImageSuggestionResponse>(systemPrompt, userPrompt, "Image Suggestion", ct);
 
-        if (response == null || !response.ShouldIncludeImage || string.IsNullOrEmpty(response.ImageDescription))
+        if (response == null)
+            throw new InvalidOperationException($"Image suggestion generation failed for email '{email.Subject ?? "Untitled"}'.");
+        if (!response.ShouldIncludeImage)
             return;
+        if (string.IsNullOrWhiteSpace(response.ImageDescription))
+            throw new InvalidOperationException($"Image suggestion is missing a description for email '{email.Subject ?? "Untitled"}'.");
 
         // Generate the image using DALL-E
         // Craft a safe, descriptive prompt
@@ -3000,7 +2947,7 @@ Suggest ONE image that would be realistic to include with this email. Consider:
         var imageBytes = await _openAI.GenerateImageAsync(imagePrompt, "Image Generation", ct);
 
         if (imageBytes == null || imageBytes.Length == 0)
-            return;
+            throw new InvalidOperationException($"Image generation failed for email '{email.Subject ?? "Untitled"}'.");
 
         var contentIdToken = DeterministicIdHelper.CreateShortToken(
             "inline-image",
@@ -3127,7 +3074,9 @@ If details are vague or missing, set hasMeeting to false.
 
         var response = await _openAI.GetJsonCompletionAsync<MeetingDetectionResponse>(systemPrompt, userPrompt, "Meeting Detection", ct);
 
-        if (response == null || !response.HasMeeting)
+        if (response == null)
+            throw new InvalidOperationException($"Meeting detection failed for email '{email.Subject ?? "Untitled"}'.");
+        if (!response.HasMeeting)
             return;
 
         // Parse the meeting date and time
@@ -3239,8 +3188,12 @@ The voicemail should:
 
         var response = await _openAI.GetJsonCompletionAsync<VoicemailScriptResponse>(systemPrompt, userPrompt, "Voicemail Script", ct);
 
-        if (response == null || !response.ShouldCreateVoicemail || string.IsNullOrEmpty(response.VoicemailScript))
+        if (response == null)
+            throw new InvalidOperationException($"Voicemail suggestion failed for email '{email.Subject ?? "Untitled"}'.");
+        if (!response.ShouldCreateVoicemail)
             return;
+        if (string.IsNullOrWhiteSpace(response.VoicemailScript))
+            throw new InvalidOperationException($"Voicemail script was missing for email '{email.Subject ?? "Untitled"}'.");
 
         // Generate the audio using TTS
         var audioBytes = await _openAI.GenerateSpeechAsync(
@@ -3250,7 +3203,7 @@ The voicemail should:
             ct);
 
         if (audioBytes == null || audioBytes.Length == 0)
-            return;
+            throw new InvalidOperationException($"Voicemail audio generation failed for email '{email.Subject ?? "Untitled"}'.");
 
         var attachment = new Attachment
         {

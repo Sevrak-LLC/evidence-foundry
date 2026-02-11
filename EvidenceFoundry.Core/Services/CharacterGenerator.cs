@@ -129,7 +129,7 @@ Role/Department legend (Raw -> Humanized):
             ct);
 
         if (response?.Roles == null)
-            return;
+            throw new InvalidOperationException($"Known character mapping failed for organization '{organization.Name}' in storyline '{storyline.Title}'.");
 
         AddCharactersToRole(organization, response.Roles, usedNames, usedEmails, allowSingleOccupant: true);
     }
@@ -210,7 +210,7 @@ Generate up to {remaining} additional characters for this organization.
             ct);
 
         if (response?.Roles == null)
-            return;
+            throw new InvalidOperationException($"Additional character generation failed for organization '{organization.Name}' in storyline '{storyline.Title}'.");
 
         AddCharactersToRole(organization, response.Roles, usedNames, usedEmails, allowSingleOccupant: false, maxTotalCharacters: MaxCharactersPerOrganization);
     }
@@ -267,8 +267,8 @@ Characters (JSON):
             $"Character Details: {organization.Name}",
             ct);
 
-        if (response?.Characters == null)
-            return;
+        if (response?.Characters == null || response.Characters.Count == 0)
+            throw new InvalidOperationException($"Character enrichment returned no details for organization '{organization.Name}' in storyline '{storyline.Title}'.");
 
         var lookup = assignments.ToDictionary(a => a.Character.Email, a => a.Character, StringComparer.OrdinalIgnoreCase);
         foreach (var detail in response.Characters)
@@ -379,8 +379,8 @@ Characters (JSON):
             "Character Relevance",
             ct);
 
-        if (response?.Characters == null)
-            return;
+        if (response?.Characters == null || response.Characters.Count == 0)
+            throw new InvalidOperationException($"Character relevance analysis returned no results for storyline '{storyline.Title}'.");
 
         ApplyStorylineRelevance(characters, storyline.Beats, response.Characters);
     }

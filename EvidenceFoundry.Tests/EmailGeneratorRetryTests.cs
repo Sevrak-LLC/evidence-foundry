@@ -47,7 +47,7 @@ public class EmailGeneratorRetryTests
             CancellationToken.None);
 
         Assert.NotNull(output);
-        Assert.Equal(2, output!.EmailMessages.Count);
+        Assert.Equal(2, output.EmailMessages.Count);
         Assert.Equal(2, generator.CallCount);
         Assert.Empty(result.Errors);
     }
@@ -88,15 +88,14 @@ public class EmailGeneratorRetryTests
             result,
             progressLock);
 
-        var output = await generator.GenerateThreadWithRetriesAsync(
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => generator.GenerateThreadWithRetriesAsync(
             plan,
             context,
-            CancellationToken.None);
+            CancellationToken.None));
 
-        Assert.Null(output);
         Assert.Equal(3, generator.CallCount);
-        Assert.Contains(result.Errors, e => e.Contains("failed after 3 attempts", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains(result.Errors, e => e.Contains("Beat 2", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains("failed after 3 attempts", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Beat 2", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     private static List<Character> BuildCharacters()

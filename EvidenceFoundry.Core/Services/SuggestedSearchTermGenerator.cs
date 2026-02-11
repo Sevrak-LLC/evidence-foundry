@@ -59,7 +59,7 @@ Instructions:
             ct);
 
         if (response?.Terms == null || response.Terms.Count == 0)
-            return new List<string>();
+            throw new InvalidOperationException("Suggested search term generation returned no terms.");
 
         return FilterTermsAgainstEmail(response.Terms, exportedEmail, 3);
     }

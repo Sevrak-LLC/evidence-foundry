@@ -111,8 +111,8 @@ Enum values are shown as Raw (Humanized). Return only the Raw enum value.
             "Organization Extraction",
             ct);
 
-        if (response?.Organizations == null)
-            return new List<Organization>();
+        if (response?.Organizations == null || response.Organizations.Count == 0)
+            throw new InvalidOperationException($"Organization extraction returned no organizations for storyline '{storyline.Title}'.");
 
         return ParseSeedOrganizations(response);
     }

@@ -97,6 +97,9 @@ Sans-serif: Segoe UI, Arial, Calibri, Trebuchet MS, Century Gothic, Verdana, Tah
 
         var response = await _openAI.GetJsonCompletionAsync<ThemeApiResponse>(systemPrompt, userPrompt, "Theme Generation", ct);
 
+        if (response?.Themes == null || response.Themes.Count == 0)
+            throw new InvalidOperationException($"Theme generation returned no themes for {domainOrgs.Count} organization(s).");
+
         ApplyThemeResponse(themes, domainOrgs, response);
 
         // Ensure all domains have a theme (use defaults for any missing)
@@ -144,7 +147,7 @@ Sans-serif: Segoe UI, Arial, Calibri, Trebuchet MS, Century Gothic, Verdana, Tah
         ThemeApiResponse? response)
     {
         if (response?.Themes == null || response.Themes.Count == 0)
-            return;
+            throw new InvalidOperationException("Theme generation response was empty.");
 
         var normalizedDomains = BuildNormalizedDomainMap(domainOrgs.Keys);
 

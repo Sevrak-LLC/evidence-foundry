@@ -417,12 +417,12 @@ Summary: {storyline.Summary}
             ct);
 
         if (response == null)
-            return;
+            throw new InvalidOperationException($"Storyline date range generation failed for '{storyline.Title}'.");
 
         if (!DateHelper.TryParseIsoDate(response.StartDate, out var start) ||
             !DateHelper.TryParseIsoDate(response.EndDate, out var end))
         {
-            return;
+            throw new InvalidOperationException($"Storyline date range response contained invalid dates for '{storyline.Title}'.");
         }
 
         var normalized = DateHelper.NormalizeStorylineDateRange(storyline, start, end);
