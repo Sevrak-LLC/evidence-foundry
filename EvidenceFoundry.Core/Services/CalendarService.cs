@@ -7,19 +7,25 @@ public class CalendarService
 {
     private const int MaxIcsLineLength = 75;
 
+    public sealed record CalendarInviteRequest(
+        string Title,
+        string Description,
+        DateTime StartTime,
+        DateTime EndTime,
+        string Location,
+        string OrganizerName,
+        string OrganizerEmail,
+        IReadOnlyList<(string name, string email)> Attendees);
+
     /// <summary>
     /// Creates an ICS calendar invite file
     /// </summary>
-    public byte[] CreateCalendarInvite(
-        string title,
-        string description,
-        DateTime startTime,
-        DateTime endTime,
-        string location,
-        string organizerName,
-        string organizerEmail,
-        List<(string name, string email)> attendees)
+    public static byte[] CreateCalendarInvite(CalendarInviteRequest request)
     {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var startTime = request.StartTime;
+        var endTime = request.EndTime;
         if (endTime <= startTime)
         {
             endTime = startTime.AddMinutes(60);
@@ -27,10 +33,11 @@ public class CalendarService
 
         var uid = Guid.NewGuid().ToString();
         var now = DateTime.UtcNow;
-        var organizerEmailValue = TryNormalizeEmail(organizerEmail, out var normalizedOrganizer)
+        var organizerEmailValue = TryNormalizeEmail(request.OrganizerEmail, out var normalizedOrganizer)
             ? normalizedOrganizer
             : "unknown@invalid.local";
-        var organizerNameValue = EscapeIcsText(SanitizeHeaderText(organizerName));
+        var organizerNameValue = EscapeIcsText(SanitizeHeaderText(request.OrganizerName));
+        var attendees = request.Attendees ?? Array.Empty<(string name, string email)>();
 
         var sb = new StringBuilder();
         AppendFoldedLine(sb, "BEGIN:VCALENDAR");
@@ -43,9 +50,9 @@ public class CalendarService
         AppendFoldedLine(sb, $"DTSTAMP:{FormatDateTime(now)}");
         AppendFoldedLine(sb, $"DTSTART:{FormatDateTime(startTime)}");
         AppendFoldedLine(sb, $"DTEND:{FormatDateTime(endTime)}");
-        AppendFoldedLine(sb, $"SUMMARY:{EscapeIcsText(title)}");
-        AppendFoldedLine(sb, $"DESCRIPTION:{EscapeIcsText(description)}");
-        AppendFoldedLine(sb, $"LOCATION:{EscapeIcsText(location)}");
+        AppendFoldedLine(sb, $"SUMMARY:{EscapeIcsText(request.Title)}");
+        AppendFoldedLine(sb, $"DESCRIPTION:{EscapeIcsText(request.Description)}");
+        AppendFoldedLine(sb, $"LOCATION:{EscapeIcsText(request.Location)}");
         AppendFoldedLine(sb, $"ORGANIZER;CN={organizerNameValue}:mailto:{organizerEmailValue}");
 
         foreach (var (name, email) in attendees)

@@ -13,7 +13,6 @@ public class EmailGenerator
 {
     private readonly OpenAIService _openAI;
     private readonly OfficeDocumentService _officeService;
-    private readonly CalendarService _calendarService;
     private readonly EmailThreadGenerator _threadGenerator;
     private readonly SuggestedSearchTermGenerator _searchTermGenerator;
     private static readonly Random _random = Random.Shared;
@@ -48,7 +47,6 @@ public class EmailGenerator
     {
         _openAI = openAI;
         _officeService = new OfficeDocumentService();
-        _calendarService = new CalendarService();
         _threadGenerator = new EmailThreadGenerator();
         _searchTermGenerator = new SuggestedSearchTermGenerator(openAI);
     }
@@ -3091,7 +3089,7 @@ Respond with JSON:
             .Select(c => (c.FullName, c.Email))
             .ToList();
 
-        var icsContent = _calendarService.CreateCalendarInvite(
+        var icsContent = CalendarService.CreateCalendarInvite(new CalendarService.CalendarInviteRequest(
             response.MeetingTitle ?? email.Subject,
             response.MeetingDescription ?? "",
             startTime,
@@ -3099,7 +3097,7 @@ Respond with JSON:
             response.Location ?? "TBD",
             email.From.FullName,
             email.From.Email,
-            attendees);
+            attendees));
 
         var attachment = new Attachment
         {
