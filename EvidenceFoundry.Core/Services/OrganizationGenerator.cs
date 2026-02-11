@@ -175,15 +175,16 @@ Rules:
         var userPrompt = BuildOrganizationPrompt(
             storyline,
             seed,
-            orgJson,
-            departments,
-            roles,
-            includeScopedMaps,
-            allowedDepartmentsJson,
-            allowedDepartmentRoleMapJson,
-            orgTypes,
-            industries,
-            states);
+            new OrganizationPromptOptions(
+                orgJson,
+                departments,
+                roles,
+                includeScopedMaps,
+                allowedDepartmentsJson,
+                allowedDepartmentRoleMapJson,
+                orgTypes,
+                industries,
+                states));
 
         var response = await _openAI.GetJsonCompletionAsync<OrganizationDto>(
             systemPrompt,
@@ -197,15 +198,7 @@ Rules:
     private static string BuildOrganizationPrompt(
         Storyline storyline,
         Organization seed,
-        string orgJson,
-        string departments,
-        string roles,
-        bool includeScopedMaps,
-        string allowedDepartmentsJson,
-        string allowedDepartmentRoleMapJson,
-        string orgTypes,
-        string industries,
-        string states)
+        OrganizationPromptOptions options)
     {
         return $@"Storyline title: {storyline.Title}
 Storyline summary:
@@ -213,31 +206,31 @@ Storyline summary:
 Storyline start date: {storyline.StartDate:yyyy-MM-dd}
 
 Known organization data (JSON):
-{orgJson}
+{options.OrgJson}
 
 Allowed department names (use exact values only):
-{departments}
+{options.Departments}
 
 Allowed role names (use exact values only):
-{roles}
+{options.Roles}
 
-{(includeScopedMaps
+{(options.IncludeScopedMaps
     ? $@"Allowed departments for this organization (based on current industry/org type):
-{allowedDepartmentsJson}
+{options.AllowedDepartmentsJson}
 
 Allowed roles for those departments:
-{allowedDepartmentRoleMapJson}
+{options.AllowedDepartmentRoleMapJson}
 "
     : string.Empty)}
 
 Allowed organization types (use exact values only):
-{orgTypes}
+{options.OrgTypes}
 
 Allowed industries (use exact values only):
-{industries}
+{options.Industries}
 
 Allowed US states (use exact values only):
-{states}
+{options.States}
 
 Enum values are shown as Raw (Humanized). Return only the Raw enum value.
 
@@ -265,6 +258,17 @@ Respond with JSON in this exact format:
   ]
 }}";
     }
+
+    private sealed record OrganizationPromptOptions(
+        string OrgJson,
+        string Departments,
+        string Roles,
+        bool IncludeScopedMaps,
+        string AllowedDepartmentsJson,
+        string AllowedDepartmentRoleMapJson,
+        string OrgTypes,
+        string Industries,
+        string States);
 
     private static Organization BuildOrganizationFromResponse(Organization seed, OrganizationDto? response)
     {
