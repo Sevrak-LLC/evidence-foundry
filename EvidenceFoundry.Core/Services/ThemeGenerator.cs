@@ -10,6 +10,7 @@ public class ThemeGenerator
 
     public ThemeGenerator(OpenAIService openAI)
     {
+        ArgumentNullException.ThrowIfNull(openAI);
         _openAI = openAI;
     }
 
@@ -22,6 +23,10 @@ public class ThemeGenerator
         IProgress<string>? progress = null,
         CancellationToken ct = default)
     {
+        if (string.IsNullOrWhiteSpace(topic))
+            throw new ArgumentException("Topic is required.", nameof(topic));
+        ArgumentNullException.ThrowIfNull(organizations);
+
         var themes = new Dictionary<string, OrganizationTheme>(StringComparer.OrdinalIgnoreCase);
 
         // Get unique domains and their organization names

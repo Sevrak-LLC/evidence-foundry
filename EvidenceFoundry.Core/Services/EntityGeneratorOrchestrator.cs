@@ -9,6 +9,7 @@ public class EntityGeneratorOrchestrator
 
     public EntityGeneratorOrchestrator(OpenAIService openAI, Random rng)
     {
+        ArgumentNullException.ThrowIfNull(openAI);
         ArgumentNullException.ThrowIfNull(rng);
         _organizationGenerator = new OrganizationGenerator(openAI);
         _characterGenerator = new CharacterGenerator(openAI, rng);
@@ -20,9 +21,11 @@ public class EntityGeneratorOrchestrator
         IProgress<string>? progress = null,
         CancellationToken ct = default)
     {
+        if (string.IsNullOrWhiteSpace(topic))
+            throw new ArgumentException("Topic is required.", nameof(topic));
         ArgumentNullException.ThrowIfNull(storyline);
         if (!storyline.StartDate.HasValue || !storyline.EndDate.HasValue)
-            throw new InvalidOperationException("Storyline must have a start and end date before character generation.");
+            throw new ArgumentException("Storyline must have a start and end date before character generation.", nameof(storyline));
 
         progress?.Report("Extracting known organizations...");
         var seedOrganizations = await _organizationGenerator.GenerateKnownOrganizationsAsync(topic, storyline, ct);

@@ -11,6 +11,7 @@ public class StoryBeatGenerator
 
     public StoryBeatGenerator(OpenAIService openAI)
     {
+        ArgumentNullException.ThrowIfNull(openAI);
         _openAI = openAI;
     }
 
@@ -22,7 +23,7 @@ public class StoryBeatGenerator
         IProgress<string>? progress = null,
         CancellationToken ct = default)
     {
-        ValidateGenerationInputs(storyline, organizations, characters);
+        ValidateGenerationInputs(topic, storyline, organizations, characters);
 
         var (startDate, endDate) = GetStorylineDateRange(storyline);
 
@@ -94,20 +95,24 @@ Character pool (JSON):
     }
 
     private static void ValidateGenerationInputs(
+        string topic,
         Storyline storyline,
         IReadOnlyList<Organization> organizations,
         IReadOnlyList<Character> characters)
     {
-        if (storyline == null)
-            throw new ArgumentNullException(nameof(storyline));
+        if (string.IsNullOrWhiteSpace(topic))
+            throw new ArgumentException("Topic is required.", nameof(topic));
+        ArgumentNullException.ThrowIfNull(storyline);
         if (string.IsNullOrWhiteSpace(storyline.Summary))
-            throw new InvalidOperationException("Storyline summary is required before generating story beats.");
+            throw new ArgumentException("Storyline summary is required before generating story beats.", nameof(storyline));
         if (!storyline.StartDate.HasValue || !storyline.EndDate.HasValue)
-            throw new InvalidOperationException("Storyline must have a start and end date before generating story beats.");
-        if (organizations == null || organizations.Count == 0)
-            throw new InvalidOperationException("At least one organization is required before generating story beats.");
-        if (characters == null || characters.Count < 2)
-            throw new InvalidOperationException("At least two characters are required before generating story beats.");
+            throw new ArgumentException("Storyline must have a start and end date before generating story beats.", nameof(storyline));
+        ArgumentNullException.ThrowIfNull(organizations);
+        if (organizations.Count == 0)
+            throw new ArgumentException("At least one organization is required before generating story beats.", nameof(organizations));
+        ArgumentNullException.ThrowIfNull(characters);
+        if (characters.Count < 2)
+            throw new ArgumentException("At least two characters are required before generating story beats.", nameof(characters));
     }
 
     private static (DateTime startDate, DateTime endDate) GetStorylineDateRange(Storyline storyline)

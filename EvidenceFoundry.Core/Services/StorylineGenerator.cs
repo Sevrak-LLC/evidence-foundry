@@ -15,6 +15,7 @@ public class StorylineGenerator
 
     public StorylineGenerator(OpenAIService openAI, Random rng)
     {
+        ArgumentNullException.ThrowIfNull(openAI);
         ArgumentNullException.ThrowIfNull(rng);
         _openAI = openAI;
         _beatGenerator = new StoryBeatGenerator(openAI);
@@ -28,8 +29,10 @@ public class StorylineGenerator
         CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (string.IsNullOrWhiteSpace(request.Topic))
+            throw new ArgumentException("Topic is required.", nameof(request.Topic));
 
-        var topic = request.Topic ?? string.Empty;
+        var topic = request.Topic;
         var issueDescription = request.IssueDescription;
         var additionalInstructions = request.AdditionalInstructions ?? string.Empty;
         var mediaHints = BuildMediaHints(request.WantsDocuments, request.WantsImages, request.WantsVoicemails);
@@ -192,7 +195,11 @@ REQUIREMENTS:
         IProgress<string>? progress = null,
         CancellationToken ct = default)
     {
+        if (string.IsNullOrWhiteSpace(topic))
+            throw new ArgumentException("Topic is required.", nameof(topic));
         ArgumentNullException.ThrowIfNull(storyline);
+        ArgumentNullException.ThrowIfNull(organizations);
+        ArgumentNullException.ThrowIfNull(characters);
 
         var beats = await _beatGenerator.GenerateStoryBeatsAsync(
             topic,

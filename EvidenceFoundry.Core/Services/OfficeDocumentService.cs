@@ -14,6 +14,11 @@ public class OfficeDocumentService
 {
     public byte[] CreateWordDocument(string title, string content, OrganizationTheme? theme = null)
     {
+        if (string.IsNullOrWhiteSpace(title))
+            throw new ArgumentException("Title is required.", nameof(title));
+        if (string.IsNullOrWhiteSpace(content))
+            throw new ArgumentException("Content is required.", nameof(content));
+
         var t = theme ?? OrganizationTheme.Default;
         var safeTitle = SanitizeXmlText(title);
         var safeContent = SanitizeXmlText(content);
@@ -144,6 +149,13 @@ public class OfficeDocumentService
 
     public byte[] CreateExcelDocument(string title, List<string> headers, List<List<string>> rows)
     {
+        if (string.IsNullOrWhiteSpace(title))
+            throw new ArgumentException("Title is required.", nameof(title));
+        ArgumentNullException.ThrowIfNull(headers);
+        ArgumentNullException.ThrowIfNull(rows);
+        if (headers.Count == 0)
+            throw new ArgumentException("Headers are required.", nameof(headers));
+
         using var stream = new MemoryStream();
         using (var doc = SpreadsheetDocument.Create(stream, SpreadsheetDocumentType.Workbook, true))
         {
@@ -192,6 +204,12 @@ public class OfficeDocumentService
 
     public byte[] CreatePowerPointDocument(string title, List<(string slideTitle, string content)> slides, OrganizationTheme? theme = null)
     {
+        if (string.IsNullOrWhiteSpace(title))
+            throw new ArgumentException("Title is required.", nameof(title));
+        ArgumentNullException.ThrowIfNull(slides);
+        if (slides.Count == 0)
+            throw new ArgumentException("Slides are required.", nameof(slides));
+
         // Use provided theme or default colors
         var t = theme ?? OrganizationTheme.Default;
         var safeTitle = SanitizeXmlText(title);

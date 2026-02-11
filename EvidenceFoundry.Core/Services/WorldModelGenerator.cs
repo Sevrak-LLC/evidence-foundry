@@ -81,6 +81,7 @@ public class WorldModelGenerator
 
     public WorldModelGenerator(OpenAIService openAI, Random rng)
     {
+        ArgumentNullException.ThrowIfNull(openAI);
         ArgumentNullException.ThrowIfNull(rng);
         _openAI = openAI;
         _rng = rng;
@@ -91,8 +92,7 @@ public class WorldModelGenerator
         IProgress<string>? progress = null,
         CancellationToken ct = default)
     {
-        if (request == null)
-            throw new ArgumentNullException(nameof(request));
+        ArgumentNullException.ThrowIfNull(request);
         if (string.IsNullOrWhiteSpace(request.CaseArea))
             throw new ArgumentException("Case area is required.", nameof(request.CaseArea));
         if (string.IsNullOrWhiteSpace(request.MatterType))

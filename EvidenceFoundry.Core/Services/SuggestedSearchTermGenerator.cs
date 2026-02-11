@@ -9,6 +9,7 @@ public class SuggestedSearchTermGenerator
 
     public SuggestedSearchTermGenerator(OpenAIService openAI)
     {
+        ArgumentNullException.ThrowIfNull(openAI);
         _openAI = openAI;
     }
 

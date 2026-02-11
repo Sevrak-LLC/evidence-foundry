@@ -31,6 +31,10 @@ public class OpenAIService
 
     public OpenAIService(string apiKey, string model, Random rng)
     {
+        if (string.IsNullOrWhiteSpace(apiKey))
+            throw new ArgumentException("API key is required.", nameof(apiKey));
+        if (string.IsNullOrWhiteSpace(model))
+            throw new ArgumentException("Model is required.", nameof(model));
         ArgumentNullException.ThrowIfNull(rng);
         _rng = rng;
         _client = CreateClient(apiKey);
@@ -39,6 +43,11 @@ public class OpenAIService
 
     public OpenAIService(string apiKey, AIModelConfig modelConfig, TokenUsageTracker? usageTracker, Random rng)
     {
+        if (string.IsNullOrWhiteSpace(apiKey))
+            throw new ArgumentException("API key is required.", nameof(apiKey));
+        ArgumentNullException.ThrowIfNull(modelConfig);
+        if (string.IsNullOrWhiteSpace(modelConfig.ModelId))
+            throw new ArgumentException("Model ID is required.", nameof(modelConfig));
         ArgumentNullException.ThrowIfNull(rng);
         _rng = rng;
         _modelConfig = modelConfig;
@@ -77,6 +86,11 @@ public class OpenAIService
         string? operationName = null,
         CancellationToken ct = default)
     {
+        if (string.IsNullOrWhiteSpace(systemPrompt))
+            throw new ArgumentException("System prompt is required.", nameof(systemPrompt));
+        if (string.IsNullOrWhiteSpace(userPrompt))
+            throw new ArgumentException("User prompt is required.", nameof(userPrompt));
+
         Exception lastException = null!;
         for (int attempt = 0; attempt < MaxRetries; attempt++)
         {
@@ -123,6 +137,11 @@ public class OpenAIService
         string? operationName = null,
         CancellationToken ct = default) where T : class
     {
+        if (string.IsNullOrWhiteSpace(systemPrompt))
+            throw new ArgumentException("System prompt is required.", nameof(systemPrompt));
+        if (string.IsNullOrWhiteSpace(userPrompt))
+            throw new ArgumentException("User prompt is required.", nameof(userPrompt));
+
         Exception lastException = null!;
         for (int attempt = 0; attempt < MaxRetries; attempt++)
         {
@@ -210,6 +229,9 @@ public class OpenAIService
         string? operationName = null,
         CancellationToken ct = default)
     {
+        if (string.IsNullOrWhiteSpace(prompt))
+            throw new ArgumentException("Prompt is required.", nameof(prompt));
+
         for (int attempt = 0; attempt < MaxRetries; attempt++)
         {
             try
@@ -260,6 +282,11 @@ public class OpenAIService
         string? operationName = null,
         CancellationToken ct = default)
     {
+        if (string.IsNullOrWhiteSpace(text))
+            throw new ArgumentException("Text is required.", nameof(text));
+        if (string.IsNullOrWhiteSpace(voice))
+            throw new ArgumentException("Voice is required.", nameof(voice));
+
         for (int attempt = 0; attempt < MaxRetries; attempt++)
         {
             try

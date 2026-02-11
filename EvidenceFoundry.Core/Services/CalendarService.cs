@@ -25,6 +25,17 @@ public class CalendarService
     public static byte[] CreateCalendarInvite(CalendarInviteRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (string.IsNullOrWhiteSpace(request.Title))
+            throw new ArgumentException("Title is required.", nameof(request.Title));
+        if (string.IsNullOrWhiteSpace(request.Description))
+            throw new ArgumentException("Description is required.", nameof(request.Description));
+        if (string.IsNullOrWhiteSpace(request.Location))
+            throw new ArgumentException("Location is required.", nameof(request.Location));
+        if (string.IsNullOrWhiteSpace(request.OrganizerName))
+            throw new ArgumentException("Organizer name is required.", nameof(request.OrganizerName));
+        if (string.IsNullOrWhiteSpace(request.OrganizerEmail))
+            throw new ArgumentException("Organizer email is required.", nameof(request.OrganizerEmail));
+        ArgumentNullException.ThrowIfNull(request.Attendees);
 
         var startTime = request.StartTime;
         var endTime = request.EndTime;

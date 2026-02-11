@@ -45,6 +45,7 @@ public class EmailGenerator
 
     public EmailGenerator(OpenAIService openAI, Random rng)
     {
+        ArgumentNullException.ThrowIfNull(openAI);
         ArgumentNullException.ThrowIfNull(rng);
         _openAI = openAI;
         _officeService = new OfficeDocumentService();
@@ -68,6 +69,9 @@ public class EmailGenerator
         IProgress<GenerationProgress> progress,
         CancellationToken ct = default)
     {
+        ArgumentNullException.ThrowIfNull(state);
+        ArgumentNullException.ThrowIfNull(progress);
+
         var result = new GenerationResult
         {
             OutputFolder = state.Config.OutputFolder

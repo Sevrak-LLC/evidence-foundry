@@ -14,6 +14,10 @@ public class EmlFileService
         string outputFolder,
         CancellationToken ct = default)
     {
+        ArgumentNullException.ThrowIfNull(email);
+        if (string.IsNullOrWhiteSpace(outputFolder))
+            throw new ArgumentException("Output folder is required.", nameof(outputFolder));
+
         var message = CreateMessage(email);
 
         // Generate filename and save
@@ -35,6 +39,10 @@ public class EmlFileService
         bool releaseAttachmentContent = false,
         CancellationToken ct = default)
     {
+        ArgumentNullException.ThrowIfNull(threads);
+        if (string.IsNullOrWhiteSpace(outputFolder))
+            throw new ArgumentException("Output folder is required.", nameof(outputFolder));
+
         // Ensure output folder exists
         Directory.CreateDirectory(outputFolder);
 
@@ -250,6 +258,10 @@ public class EmlFileService
         bool releaseAttachmentContent = false,
         CancellationToken ct = default)
     {
+        ArgumentNullException.ThrowIfNull(thread);
+        if (string.IsNullOrWhiteSpace(outputFolder))
+            throw new ArgumentException("Output folder is required.", nameof(outputFolder));
+
         return SaveAllEmailsAsync(
             new List<EmailThread> { thread },
             outputFolder,

@@ -18,6 +18,7 @@ public class CharacterGenerator
 
     public CharacterGenerator(OpenAIService openAI, Random rng)
     {
+        ArgumentNullException.ThrowIfNull(openAI);
         ArgumentNullException.ThrowIfNull(rng);
         _openAI = openAI;
         _rng = rng;
@@ -292,16 +293,19 @@ Characters (JSON):
         IProgress<string>? progress = null,
         CancellationToken ct = default)
     {
-        if (storyline == null)
-            throw new ArgumentNullException(nameof(storyline));
+        if (string.IsNullOrWhiteSpace(topic))
+            throw new ArgumentException("Topic is required.", nameof(topic));
+        ArgumentNullException.ThrowIfNull(storyline);
         if (string.IsNullOrWhiteSpace(storyline.Summary))
-            throw new InvalidOperationException("Storyline summary is required before evaluating character relevance.");
+            throw new ArgumentException("Storyline summary is required before evaluating character relevance.", nameof(storyline));
         if (storyline.Beats == null || storyline.Beats.Count == 0)
-            throw new InvalidOperationException("Storyline beats are required before evaluating character relevance.");
-        if (organizations == null || organizations.Count == 0)
-            throw new InvalidOperationException("At least one organization is required before evaluating character relevance.");
-        if (characters == null || characters.Count == 0)
-            throw new InvalidOperationException("At least one character is required before evaluating character relevance.");
+            throw new ArgumentException("Storyline beats are required before evaluating character relevance.", nameof(storyline));
+        ArgumentNullException.ThrowIfNull(organizations);
+        if (organizations.Count == 0)
+            throw new ArgumentException("At least one organization is required before evaluating character relevance.", nameof(organizations));
+        ArgumentNullException.ThrowIfNull(characters);
+        if (characters.Count == 0)
+            throw new ArgumentException("At least one character is required before evaluating character relevance.", nameof(characters));
 
         progress?.Report("Assessing character relevance...");
 

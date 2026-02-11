@@ -19,6 +19,7 @@ public class OrganizationGenerator
 
     public OrganizationGenerator(OpenAIService openAI)
     {
+        ArgumentNullException.ThrowIfNull(openAI);
         _openAI = openAI;
     }
 
@@ -27,6 +28,12 @@ public class OrganizationGenerator
         Storyline storyline,
         CancellationToken ct)
     {
+        if (string.IsNullOrWhiteSpace(topic))
+            throw new ArgumentException("Topic is required.", nameof(topic));
+        ArgumentNullException.ThrowIfNull(storyline);
+        if (string.IsNullOrWhiteSpace(storyline.Summary))
+            throw new ArgumentException("Storyline summary is required.", nameof(storyline));
+
         var systemPrompt = PromptScaffolding.AppendJsonOnlyInstruction(@"You are the EvidenceFoundry Organization Extractor.
 Extract ONLY organizations that are explicitly mentioned or clearly implied in the storyline description.
 Do NOT invent characters. Do NOT add speculative details.
@@ -130,6 +137,11 @@ Enum values are shown as Raw (Humanized). Return only the Raw enum value.
         Organization seed,
         CancellationToken ct)
     {
+        ArgumentNullException.ThrowIfNull(storyline);
+        if (!storyline.StartDate.HasValue)
+            throw new ArgumentException("Storyline start date is required.", nameof(storyline));
+        ArgumentNullException.ThrowIfNull(seed);
+
         var systemPrompt = PromptScaffolding.AppendJsonOnlyInstruction(@"You are the EvidenceFoundry Organization Builder.
 Fill in missing organization details and build out a realistic department/role structure.
 
