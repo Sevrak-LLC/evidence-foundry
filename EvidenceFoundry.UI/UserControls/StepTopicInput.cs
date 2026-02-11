@@ -19,7 +19,9 @@ public class StepTopicInput : UserControl, IWizardStep
     private CheckBox _chkImages = null!;
     private CheckBox _chkVoicemails = null!;
     private bool _isLoadingSelections;
+    private const string DefaultFontFamily = "Segoe UI";
     private const string RandomIndustryOption = "Random";
+    private const string ValidationDialogTitle = "Validation";
 
     public string StepTitle => "Case Issue Selection";
     public bool CanMoveNext => _cboIssue?.SelectedItem is string;
@@ -84,7 +86,7 @@ public class StepTopicInput : UserControl, IWizardStep
         _cboCaseArea = new ComboBox
         {
             Dock = DockStyle.Fill,
-            Font = new Font("Segoe UI", 11F),
+            Font = new Font(DefaultFontFamily, 11F),
             DropDownStyle = ComboBoxStyle.DropDownList
         };
         _cboCaseArea.SelectedIndexChanged += (s, e) => OnCaseAreaChanged();
@@ -104,7 +106,7 @@ public class StepTopicInput : UserControl, IWizardStep
         _cboMatterType = new ComboBox
         {
             Dock = DockStyle.Fill,
-            Font = new Font("Segoe UI", 11F),
+            Font = new Font(DefaultFontFamily, 11F),
             DropDownStyle = ComboBoxStyle.DropDownList,
             Enabled = false
         };
@@ -125,7 +127,7 @@ public class StepTopicInput : UserControl, IWizardStep
         _cboIssue = new ComboBox
         {
             Dock = DockStyle.Fill,
-            Font = new Font("Segoe UI", 11F),
+            Font = new Font(DefaultFontFamily, 11F),
             DropDownStyle = ComboBoxStyle.DropDownList,
             Enabled = false
         };
@@ -185,7 +187,7 @@ public class StepTopicInput : UserControl, IWizardStep
         _cboPlaintiffIndustry = new ComboBox
         {
             Dock = DockStyle.Fill,
-            Font = new Font("Segoe UI", 11F),
+            Font = new Font(DefaultFontFamily, 11F),
             DropDownStyle = ComboBoxStyle.DropDownList,
             DisplayMember = nameof(IndustryOption.Display),
             ValueMember = nameof(IndustryOption.Name)
@@ -196,7 +198,7 @@ public class StepTopicInput : UserControl, IWizardStep
         _numPlaintiffCount = new NumericUpDown
         {
             Dock = DockStyle.Fill,
-            Font = new Font("Segoe UI", 11F),
+            Font = new Font(DefaultFontFamily, 11F),
             Minimum = 1,
             Maximum = 3,
             Value = 1,
@@ -208,7 +210,7 @@ public class StepTopicInput : UserControl, IWizardStep
         _cboDefendantIndustry = new ComboBox
         {
             Dock = DockStyle.Fill,
-            Font = new Font("Segoe UI", 11F),
+            Font = new Font(DefaultFontFamily, 11F),
             DropDownStyle = ComboBoxStyle.DropDownList,
             DisplayMember = nameof(IndustryOption.Display),
             ValueMember = nameof(IndustryOption.Name)
@@ -219,7 +221,7 @@ public class StepTopicInput : UserControl, IWizardStep
         _numDefendantCount = new NumericUpDown
         {
             Dock = DockStyle.Fill,
-            Font = new Font("Segoe UI", 11F),
+            Font = new Font(DefaultFontFamily, 11F),
             Minimum = 1,
             Maximum = 3,
             Value = 1,
@@ -237,7 +239,7 @@ public class StepTopicInput : UserControl, IWizardStep
             Dock = DockStyle.Fill,
             Multiline = true,
             ScrollBars = ScrollBars.Vertical,
-            Font = new Font("Segoe UI", 10F),
+            Font = new Font(DefaultFontFamily, 10F),
             PlaceholderText = "Add any specific instructions here...\n\nExamples:\n- Focus on legal issues and compliance problems\n- Include a financial fraud storyline\n- Make the tone more dramatic\n- Include HR complaints and workplace issues"
         };
         mainLayout.Controls.Add(_txtInstructions, 1, 1);
@@ -259,7 +261,7 @@ public class StepTopicInput : UserControl, IWizardStep
             Multiline = true,
             ReadOnly = true,
             ScrollBars = ScrollBars.Vertical,
-            Font = new Font("Segoe UI", 9.5F),
+            Font = new Font(DefaultFontFamily, 9.5F),
             BackColor = SystemColors.Window,
             TabStop = false
         };
@@ -290,7 +292,7 @@ public class StepTopicInput : UserControl, IWizardStep
             Text = "📄 Documents (reports, spreadsheets)",
             AutoSize = true,
             Checked = true,
-            Font = new Font("Segoe UI", 9.5F),
+            Font = new Font(DefaultFontFamily, 9.5F),
             Margin = new Padding(0, 5, 20, 0)
         };
         mediaPanel.Controls.Add(_chkDocuments);
@@ -300,7 +302,7 @@ public class StepTopicInput : UserControl, IWizardStep
             Text = "🖼️ Images (photos, evidence)",
             AutoSize = true,
             Checked = false,
-            Font = new Font("Segoe UI", 9.5F),
+            Font = new Font(DefaultFontFamily, 9.5F),
             Margin = new Padding(0, 5, 20, 0)
         };
         mediaPanel.Controls.Add(_chkImages);
@@ -310,7 +312,7 @@ public class StepTopicInput : UserControl, IWizardStep
             Text = "🎙️ Voicemails (audio messages)",
             AutoSize = true,
             Checked = false,
-            Font = new Font("Segoe UI", 9.5F),
+            Font = new Font(DefaultFontFamily, 9.5F),
             Margin = new Padding(0, 5, 0, 0)
         };
         mediaPanel.Controls.Add(_chkVoicemails);
@@ -368,19 +370,19 @@ public class StepTopicInput : UserControl, IWizardStep
     {
         if (_cboCaseArea.SelectedItem is not string caseArea)
         {
-            MessageBox.Show("Please select a case area.", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show("Please select a case area.", ValidationDialogTitle, MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return Task.FromResult(false);
         }
 
         if (_cboMatterType.SelectedItem is not string matterType)
         {
-            MessageBox.Show("Please select a matter type.", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show("Please select a matter type.", ValidationDialogTitle, MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return Task.FromResult(false);
         }
 
         if (_cboIssue.SelectedItem is not string issue)
         {
-            MessageBox.Show("Please select an issue.", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show("Please select an issue.", ValidationDialogTitle, MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return Task.FromResult(false);
         }
 
@@ -391,7 +393,7 @@ public class StepTopicInput : UserControl, IWizardStep
         }
         catch (ArgumentException ex)
         {
-            MessageBox.Show(ex.Message, "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(ex.Message, ValidationDialogTitle, MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return Task.FromResult(false);
         }
 
@@ -511,10 +513,7 @@ public class StepTopicInput : UserControl, IWizardStep
 
     private void OnPartyCountChanged()
     {
-        if (_isLoadingSelections)
-            return;
-
-        StateChanged?.Invoke(this, EventArgs.Empty);
+        OnIndustryPreferenceChanged();
     }
 
     private void UpdateIssueDescription()
@@ -599,7 +598,7 @@ public class StepTopicInput : UserControl, IWizardStep
 
     private void PopulateIndustrySelections(string? selectedPlaintiffIndustry, string? selectedDefendantIndustry)
     {
-        var industryOptions = Enum.GetNames(typeof(Industry))
+        var industryOptions = Enum.GetNames<Industry>()
             .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
