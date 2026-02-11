@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Diagnostics.CodeAnalysis;
 using EvidenceFoundry.Helpers;
 using EvidenceFoundry.Models;
 using EvidenceFoundry.Services;
@@ -853,6 +854,7 @@ public class StepWorldModel : UserControl, IWizardStep
 
         public string Email => Character.Email;
 
+        [SuppressMessage("SonarLint", "S1144:Unused private types or members should be removed", Justification = "Referenced by the Key People grid via data binding.")]
         public string Organization => OrganizationModel.Name;
 
         public string Department => EnumHelper.HumanizeEnumName(DepartmentModel.Name.ToString());
