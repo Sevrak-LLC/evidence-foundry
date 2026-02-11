@@ -12,9 +12,9 @@ public class EmailThreadGenerator
         IReadOnlyList<Organization> organizations,
         Random rng)
     {
-        if (thread == null) throw new ArgumentNullException(nameof(thread));
-        if (organizations == null) throw new ArgumentNullException(nameof(organizations));
-        if (rng == null) throw new ArgumentNullException(nameof(rng));
+        ArgumentNullException.ThrowIfNull(thread);
+        ArgumentNullException.ThrowIfNull(organizations);
+        ArgumentNullException.ThrowIfNull(rng);
 
         var availableOrganizations = organizations
             .Where(o => o != null)
@@ -54,8 +54,8 @@ public class EmailThreadGenerator
         int keyRoleCount,
         Random rng)
     {
-        if (beats == null) throw new ArgumentNullException(nameof(beats));
-        if (rng == null) throw new ArgumentNullException(nameof(rng));
+        ArgumentNullException.ThrowIfNull(beats);
+        ArgumentNullException.ThrowIfNull(rng);
         if (keyRoleCount <= 0)
             throw new ArgumentOutOfRangeException(nameof(keyRoleCount), "Key role count must be positive.");
 
@@ -113,7 +113,7 @@ public class EmailThreadGenerator
 
     internal void EnsurePlaceholderMessages(EmailThread thread, int emailCount)
     {
-        if (thread == null) throw new ArgumentNullException(nameof(thread));
+        ArgumentNullException.ThrowIfNull(thread);
         if (emailCount <= 0)
             throw new ArgumentOutOfRangeException(nameof(emailCount), "Thread email count must be positive.");
 
@@ -138,7 +138,7 @@ public class EmailThreadGenerator
 
     internal void ResetThreadForRetry(EmailThread thread, int emailCount)
     {
-        if (thread == null) throw new ArgumentNullException(nameof(thread));
+        ArgumentNullException.ThrowIfNull(thread);
         if (emailCount <= 0)
             throw new ArgumentOutOfRangeException(nameof(emailCount), "Thread email count must be positive.");
 
@@ -157,7 +157,7 @@ public class EmailThreadGenerator
 
     private List<EmailThread> CreateThreads(StoryBeat beat, Random rng)
     {
-        if (beat == null) throw new ArgumentNullException(nameof(beat));
+        ArgumentNullException.ThrowIfNull(beat);
 
         if (beat.StorylineId == Guid.Empty)
             throw new InvalidOperationException($"Story beat '{beat.Name}' is missing a StorylineId.");
