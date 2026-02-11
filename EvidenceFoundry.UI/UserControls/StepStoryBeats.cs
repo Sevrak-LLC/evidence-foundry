@@ -13,6 +13,7 @@ public class StepStoryBeats : UserControl, IWizardStep
     private Label _lblStatus = null!;
     private LoadingOverlay _loadingOverlay = null!;
     private bool _isLoading = false;
+    private static readonly string[] _paragraphSplitSeparators = { "\r\n", "\n" };
 
     public string StepTitle => "Review Story Beats";
     public bool CanMoveNext => !_isLoading && (_state?.Storyline?.Beats.Count ?? 0) > 0;
@@ -429,7 +430,7 @@ public class StepStoryBeats : UserControl, IWizardStep
             return Array.Empty<string>();
 
         return text
-            .Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries)
+            .Split(_paragraphSplitSeparators, StringSplitOptions.RemoveEmptyEntries)
             .Select(p => p.Trim())
             .Where(p => p.Length > 0);
     }
