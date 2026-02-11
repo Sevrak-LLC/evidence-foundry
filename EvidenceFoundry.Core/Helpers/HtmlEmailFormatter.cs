@@ -239,7 +239,7 @@ public static partial class HtmlEmailFormatter
 
     private static string FormatMainContent(string content)
     {
-        var lines = content.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+        var lines = TextSplitHelper.SplitLines(content, StringSplitOptions.None);
         var html = new System.Text.StringBuilder();
         var state = new MainContentState(lines, html, BuildMainContentTheme());
 
@@ -589,7 +589,7 @@ public static partial class HtmlEmailFormatter
     private static string FormatQuotedContent(string quotedText)
     {
         var html = new System.Text.StringBuilder();
-        var lines = quotedText.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+        var lines = TextSplitHelper.SplitLines(quotedText, StringSplitOptions.None);
 
         html.AppendLine("<div class=\"quoted-content\">");
 
@@ -625,7 +625,7 @@ public static partial class HtmlEmailFormatter
     private static string FormatForwardedContent(string forwardedText)
     {
         var html = new System.Text.StringBuilder();
-        var lines = forwardedText.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+        var lines = TextSplitHelper.SplitLines(forwardedText, StringSplitOptions.None);
 
         AppendForwardHeaderStart(html);
 

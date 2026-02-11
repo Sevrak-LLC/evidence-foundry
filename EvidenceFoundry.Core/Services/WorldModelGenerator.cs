@@ -22,7 +22,7 @@ public class WorldModelGenerator
 {
     private readonly OpenAIService _openAI;
     private const string RandomIndustryPreference = "Random";
-    private static readonly JsonSerializerOptions WorldModelSerializerOptions = CreateWorldModelSerializerOptions();
+    private static readonly JsonSerializerOptions WorldModelSerializerOptions = JsonSerializationDefaults.CaseInsensitiveWithEnums;
     private static readonly Dictionary<string, UsState> UsStateAbbreviations = new(StringComparer.OrdinalIgnoreCase)
     {
         ["AL"] = UsState.Alabama,
@@ -607,16 +607,6 @@ OUTPUT JSON SCHEMA (respond with JSON that matches this exactly)
             .Select(industry => $"{industry} ({EnumHelper.HumanizeEnumName(industry.ToString())})");
 
         return string.Join(", ", options);
-    }
-
-    private static JsonSerializerOptions CreateWorldModelSerializerOptions()
-    {
-        var options = new JsonSerializerOptions
-        {
-            PropertyNameCaseInsensitive = true
-        };
-        options.Converters.Add(new JsonStringEnumConverter());
-        return options;
     }
 
     public class WorldModelResponse

@@ -13,7 +13,6 @@ public class StepStoryBeats : UserControl, IWizardStep
     private Label _lblStatus = null!;
     private LoadingOverlay _loadingOverlay = null!;
     private bool _isLoading = false;
-    private static readonly string[] _paragraphSplitSeparators = { "\r\n", "\n" };
 
     public string StepTitle => "Review Story Beats";
     public bool CanMoveNext => !_isLoading && (_state?.Storyline?.Beats.Count ?? 0) > 0;
@@ -166,72 +165,52 @@ public class StepStoryBeats : UserControl, IWizardStep
 
     private async Task GenerateStoryBeatsAsync()
     {
-        _isLoading = true;
-        _btnRegenerate.Enabled = false;
-        _lblStatus.Text = "";
-        _loadingOverlay.Show(this);
-        StateChanged?.Invoke(this, EventArgs.Empty);
-
-        try
-        {
-            var storyline = _state.Storyline;
-            if (storyline == null)
-                throw new InvalidOperationException("Generate a storyline before generating story beats.");
-
-            var openAI = _state.CreateOpenAIService();
-            var generator = new StorylineGenerator(openAI);
-
-            var organizations = storyline.Organizations.Count > 0
-                ? storyline.Organizations
-                : _state.Organizations;
-            var characters = organizations
-                .SelectMany(o => o.EnumerateCharacters())
-                .Select(a => a.Character)
-                .GroupBy(c => c.Id)
-                .Select(g => g.First())
-                .ToList();
-
-            IProgress<string> progress = new Progress<string>(status =>
+        await WizardStepUiHelper.RunWithLoadingStateAsync(
+            this,
+            _btnRegenerate,
+            _lblStatus,
+            _loadingOverlay,
+            isLoading => _isLoading = isLoading,
+            () => StateChanged?.Invoke(this, EventArgs.Empty),
+            async progress =>
             {
-                _lblStatus.Text = status;
-                _lblStatus.ForeColor = Color.Blue;
+                var storyline = _state.Storyline;
+                if (storyline == null)
+                    throw new InvalidOperationException("Generate a storyline before generating story beats.");
+
+                var openAI = _state.CreateOpenAIService();
+                var generator = new StorylineGenerator(openAI);
+
+                var organizations = storyline.Organizations.Count > 0
+                    ? storyline.Organizations
+                    : _state.Organizations;
+                var characters = organizations
+                    .SelectMany(o => o.EnumerateCharacters())
+                    .Select(a => a.Character)
+                    .GroupBy(c => c.Id)
+                    .Select(g => g.First())
+                    .ToList();
+
+                var beats = await generator.GenerateStoryBeatsAsync(
+                    _state.Topic,
+                    storyline,
+                    organizations,
+                    characters,
+                    progress);
+
+                storyline.Beats = beats.ToList();
+
+                var characterGenerator = new CharacterGenerator(openAI);
+                await characterGenerator.AnnotateStorylineRelevanceAsync(
+                    _state.Topic,
+                    storyline,
+                    organizations,
+                    characters,
+                    progress);
+
+                RefreshStoryView();
+                UpdateStatus();
             });
-
-            var beats = await generator.GenerateStoryBeatsAsync(
-                _state.Topic,
-                storyline,
-                organizations,
-                characters,
-                progress);
-
-            storyline.Beats = beats.ToList();
-
-            var characterGenerator = new CharacterGenerator(openAI);
-            await characterGenerator.AnnotateStorylineRelevanceAsync(
-                _state.Topic,
-                storyline,
-                organizations,
-                characters,
-                progress);
-
-            RefreshStoryView();
-            UpdateStatus();
-        }
-        catch (Exception ex)
-        {
-            var errorMsg = ex.InnerException != null
-                ? $"{ex.Message} ({ex.InnerException.Message})"
-                : ex.Message;
-            _lblStatus.Text = $"Error: {errorMsg}";
-            _lblStatus.ForeColor = Color.Red;
-        }
-        finally
-        {
-            _isLoading = false;
-            _btnRegenerate.Enabled = true;
-            _loadingOverlay.Hide();
-            StateChanged?.Invoke(this, EventArgs.Empty);
-        }
     }
 
     private void RefreshStoryView()
@@ -430,7 +409,7 @@ public class StepStoryBeats : UserControl, IWizardStep
             return Array.Empty<string>();
 
         return text
-            .Split(_paragraphSplitSeparators, StringSplitOptions.RemoveEmptyEntries)
+            .Split(UiTextSplitHelper.LineSeparators, StringSplitOptions.RemoveEmptyEntries)
             .Select(p => p.Trim())
             .Where(p => p.Length > 0);
     }

@@ -24,6 +24,9 @@ public class StepWorldModel : UserControl, IWizardStep
     private const string OrganizationFoundedColumnName = "Founded";
     private const string KeyPeopleInvolvementColumnName = "Involvement";
     private static readonly string[] InvolvementOptions = { "Actor", "Target", "Intermediary" };
+    private static readonly IReadOnlyList<EnumOption<OrganizationType>> OrganizationTypeOptions = BuildEnumOptions<OrganizationType>();
+    private static readonly IReadOnlyList<EnumOption<Industry>> IndustryOptions = BuildEnumOptions<Industry>();
+    private static readonly IReadOnlyList<EnumOption<UsState>> StateOptions = BuildEnumOptions<UsState>();
 
     public string StepTitle => "Review World Model";
     public bool CanMoveNext => _state?.WorldModel != null && !_isLoading;
@@ -230,7 +233,9 @@ public class StepWorldModel : UserControl, IWizardStep
             Name = "OrganizationType",
             HeaderText = "Type",
             DataPropertyName = "OrganizationType",
-            DataSource = Enum.GetValues<OrganizationType>(),
+            DataSource = OrganizationTypeOptions,
+            DisplayMember = nameof(EnumOption<OrganizationType>.Display),
+            ValueMember = nameof(EnumOption<OrganizationType>.Value),
             Width = 130
         });
 
@@ -239,7 +244,9 @@ public class StepWorldModel : UserControl, IWizardStep
             Name = "Industry",
             HeaderText = "Industry",
             DataPropertyName = "Industry",
-            DataSource = Enum.GetValues<Industry>(),
+            DataSource = IndustryOptions,
+            DisplayMember = nameof(EnumOption<Industry>.Display),
+            ValueMember = nameof(EnumOption<Industry>.Value),
             Width = 170
         });
 
@@ -248,7 +255,9 @@ public class StepWorldModel : UserControl, IWizardStep
             Name = "State",
             HeaderText = "State",
             DataPropertyName = "State",
-            DataSource = Enum.GetValues<UsState>(),
+            DataSource = StateOptions,
+            DisplayMember = nameof(EnumOption<UsState>.Display),
+            ValueMember = nameof(EnumOption<UsState>.Value),
             Width = 90
         });
 
@@ -565,60 +574,39 @@ public class StepWorldModel : UserControl, IWizardStep
 
     private async Task GenerateWorldModelAsync()
     {
-        _isLoading = true;
-        _btnRegenerate.Enabled = false;
-        _lblStatus.Text = "";
-        _loadingOverlay.Show(this);
-        UpdateEmptyState();
-        StateChanged?.Invoke(this, EventArgs.Empty);
-
-        try
-        {
-            var openAI = _state.CreateOpenAIService();
-            var generator = new WorldModelGenerator(openAI);
-
-            var progress = new Progress<string>(status =>
+        await WizardStepUiHelper.RunWithLoadingStateAsync(
+            this,
+            _btnRegenerate,
+            _lblStatus,
+            _loadingOverlay,
+            isLoading => _isLoading = isLoading,
+            () => StateChanged?.Invoke(this, EventArgs.Empty),
+            async progress =>
             {
-                _lblStatus.Text = status;
-                _lblStatus.ForeColor = Color.Blue;
-            });
+                var openAI = _state.CreateOpenAIService();
+                var generator = new WorldModelGenerator(openAI);
 
-            var request = new WorldModelRequest
-            {
-                CaseArea = _state.CaseArea,
-                MatterType = _state.MatterType,
-                Issue = _state.Issue,
-                IssueDescription = _state.IssueDescription,
-                PlaintiffIndustry = _state.PlaintiffIndustry,
-                DefendantIndustry = _state.DefendantIndustry,
-                PlaintiffOrganizationCount = _state.PlaintiffOrganizationCount,
-                DefendantOrganizationCount = _state.DefendantOrganizationCount,
-                AdditionalUserContext = _state.AdditionalInstructions
-            };
-            var world = await generator.GenerateWorldModelAsync(request, progress);
+                var request = new WorldModelRequest
+                {
+                    CaseArea = _state.CaseArea,
+                    MatterType = _state.MatterType,
+                    Issue = _state.Issue,
+                    IssueDescription = _state.IssueDescription,
+                    PlaintiffIndustry = _state.PlaintiffIndustry,
+                    DefendantIndustry = _state.DefendantIndustry,
+                    PlaintiffOrganizationCount = _state.PlaintiffOrganizationCount,
+                    DefendantOrganizationCount = _state.DefendantOrganizationCount,
+                    AdditionalUserContext = _state.AdditionalInstructions
+                };
+                var world = await generator.GenerateWorldModelAsync(request, progress);
 
-            _state.WorldModel = world;
-            UpdateWorldModelDisplay();
+                _state.WorldModel = world;
+                UpdateWorldModelDisplay();
 
-            _lblStatus.Text = "World model ready.";
-            _lblStatus.ForeColor = Color.Green;
-        }
-        catch (Exception ex)
-        {
-            var errorMsg = ex.InnerException != null
-                ? $"{ex.Message} ({ex.InnerException.Message})"
-                : ex.Message;
-            _lblStatus.Text = $"Error: {errorMsg}";
-            _lblStatus.ForeColor = Color.Red;
-        }
-        finally
-        {
-            _isLoading = false;
-            _btnRegenerate.Enabled = true;
-            _loadingOverlay.Hide();
-            UpdateEmptyState();
-            StateChanged?.Invoke(this, EventArgs.Empty);
-        }
+                _lblStatus.Text = "World model ready.";
+                _lblStatus.ForeColor = Color.Green;
+            },
+            UpdateEmptyState);
     }
 
     private void UpdateWorldModelDisplay()
@@ -911,6 +899,12 @@ public class StepWorldModel : UserControl, IWizardStep
             }
         }
 
+        [SuppressMessage("SonarLint", "S1144:Unused private types or members should be removed", Justification = "Referenced by the Key People grid via data binding.")]
+        public string Department => EnumHelper.HumanizeEnumName(DepartmentModel.Name.ToString());
+
+        [SuppressMessage("SonarLint", "S1144:Unused private types or members should be removed", Justification = "Referenced by the Key People grid via data binding.")]
+        public string Role => EnumHelper.HumanizeEnumName(RoleModel.Name.ToString());
+
         private void UpdateEmail()
         {
             Character.Email = EmailAddressHelper.GenerateEmail(
@@ -922,5 +916,24 @@ public class StepWorldModel : UserControl, IWizardStep
 
         private void OnPropertyChanged(string propertyName) =>
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
+
+    private static IReadOnlyList<EnumOption<TEnum>> BuildEnumOptions<TEnum>() where TEnum : struct, Enum
+    {
+        return Enum.GetValues<TEnum>()
+            .Select(value => new EnumOption<TEnum>(value, EnumHelper.HumanizeEnumName(value.ToString())))
+            .ToList();
+    }
+
+    private sealed class EnumOption<TEnum> where TEnum : struct, Enum
+    {
+        public EnumOption(TEnum value, string display)
+        {
+            Value = value;
+            Display = display;
+        }
+
+        public TEnum Value { get; }
+        public string Display { get; }
     }
 }

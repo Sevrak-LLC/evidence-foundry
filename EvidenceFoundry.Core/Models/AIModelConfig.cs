@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using EvidenceFoundry.Helpers;
 
 namespace EvidenceFoundry.Models;
 
@@ -10,14 +11,6 @@ public partial class AIModelConfig
     public const int DefaultMaxJsonOutputTokens = 3000;
     private const string DefaultConfigFileName = "model-configs.json";
     private static readonly Regex ModelIdRegex = ModelIdRegexGenerated();
-    private static readonly JsonSerializerOptions WriteIndentedJsonOptions = new()
-    {
-        WriteIndented = true
-    };
-    private static readonly JsonSerializerOptions ReadCaseInsensitiveJsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true
-    };
 
     [GeneratedRegex("^[A-Za-z0-9_.:-]+$", RegexOptions.Compiled)]
     private static partial Regex ModelIdRegexGenerated();
@@ -97,7 +90,7 @@ public partial class AIModelConfig
             Directory.CreateDirectory(directory);
         }
 
-        var json = JsonSerializer.Serialize(validated, WriteIndentedJsonOptions);
+        var json = JsonSerializer.Serialize(validated, JsonSerializationDefaults.Indented);
 
         File.WriteAllText(path, json);
     }
@@ -164,7 +157,7 @@ public partial class AIModelConfig
         try
         {
             var json = File.ReadAllText(path);
-            var configs = JsonSerializer.Deserialize<List<AIModelConfig>>(json, ReadCaseInsensitiveJsonOptions);
+            var configs = JsonSerializer.Deserialize<List<AIModelConfig>>(json, JsonSerializationDefaults.CaseInsensitive);
             return configs ?? new List<AIModelConfig>();
         }
         catch (Exception ex)

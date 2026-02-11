@@ -9,7 +9,6 @@ public class CharacterGenerator
 {
     private readonly OpenAIService _openAI;
     private static readonly Random _random = Random.Shared;
-    private static readonly JsonSerializerOptions IndentedJsonOptions = new() { WriteIndented = true };
 
     // Available TTS voices with characteristics
     private static readonly string[] MaleVoices = ["echo", "onyx", "fable"];
@@ -236,7 +235,7 @@ Rules:
             role = EnumHelper.HumanizeEnumName(a.Role.Name.ToString()),
             department = EnumHelper.HumanizeEnumName(a.Department.Name.ToString()),
             organization = organization.Name
-        }), IndentedJsonOptions);
+        }), JsonSerializationDefaults.Indented);
 
         var userPrompt = $@"Topic: {topic}
 Storyline title: {storyline.Title}
@@ -335,13 +334,13 @@ Rules:
             })
             .ToList();
 
-        var characterJson = JsonSerializer.Serialize(assignments, IndentedJsonOptions);
+        var characterJson = JsonSerializer.Serialize(assignments, JsonSerializationDefaults.Indented);
         var beatsJson = JsonSerializer.Serialize(storyline.Beats.Select(b => new
         {
             id = b.Id,
             name = b.Name,
             plot = b.Plot
-        }), IndentedJsonOptions);
+        }), JsonSerializationDefaults.Indented);
 
         var userPrompt = $@"Topic: {topic}
 
@@ -666,7 +665,7 @@ Respond with JSON in this exact format:
             })
         };
 
-        return JsonSerializer.Serialize(org, IndentedJsonOptions);
+        return JsonSerializer.Serialize(org, JsonSerializationDefaults.Indented);
     }
 
     internal static List<Character> FlattenCharacters(IEnumerable<Organization> organizations)

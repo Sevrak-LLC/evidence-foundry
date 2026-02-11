@@ -18,10 +18,6 @@ public class OrganizationGenerator
         .Where(s => s != UsState.Unknown)
         .ToArray();
 
-    private static readonly JsonSerializerOptions OrganizationJsonSerializerOptions = new()
-    {
-        WriteIndented = true
-    };
 
     public OrganizationGenerator(OpenAIService openAI)
     {
@@ -176,7 +172,7 @@ Rules:
                     reportsToRole = r.ReportsToRole?.ToString()
                 })
             })
-        }, OrganizationJsonSerializerOptions);
+        }, JsonSerializationDefaults.Indented);
 
         var userPrompt = BuildOrganizationPrompt(
             storyline,

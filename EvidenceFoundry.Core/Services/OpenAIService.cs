@@ -5,6 +5,7 @@ using OpenAI;
 using OpenAI.Audio;
 using OpenAI.Chat;
 using OpenAI.Images;
+using EvidenceFoundry.Helpers;
 using EvidenceFoundry.Models;
 
 namespace EvidenceFoundry.Services;
@@ -19,10 +20,6 @@ public class OpenAIService
     private readonly TokenUsageTracker? _usageTracker;
     private const int MaxRetries = 4;
     private static readonly int[] TransientStatusCodes = { 408, 429, 500, 502, 503, 504 };
-    private static readonly JsonSerializerOptions JsonCaseInsensitiveOptions = new JsonSerializerOptions
-    {
-        PropertyNameCaseInsensitive = true
-    };
 
     private static OpenAIClient CreateClient(string apiKey)
     {
@@ -146,7 +143,7 @@ public class OpenAIService
                     TrackUsage(operationName ?? "JSON Completion", response.Value.Usage);
 
                     var json = response.Value.Content[0].Text;
-                    return JsonSerializer.Deserialize<T>(json, JsonCaseInsensitiveOptions);
+                    return JsonSerializer.Deserialize<T>(json, JsonSerializationDefaults.CaseInsensitive);
                 }
 
                 throw new InvalidOperationException("Empty response from OpenAI");

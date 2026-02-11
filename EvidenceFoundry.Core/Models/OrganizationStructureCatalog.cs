@@ -1,5 +1,4 @@
-using System.Text.Json;
-using System.Text.Json.Serialization;
+using EvidenceFoundry.Helpers;
 
 namespace EvidenceFoundry.Models;
 
@@ -21,8 +20,6 @@ public sealed class OrganizationStructureCatalogData
 public static class OrganizationStructureCatalog
 {
     private const string ResourceName = "EvidenceFoundry.Resources.OrganizationStructureCatalog.json";
-    private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();
-
     private static readonly Lazy<OrganizationStructureCatalogData> CatalogLazy = new(LoadConfig);
 
     public static OrganizationStructureCatalogData Catalog => CatalogLazy.Value;
@@ -30,28 +27,11 @@ public static class OrganizationStructureCatalog
     private static OrganizationStructureCatalogData LoadConfig()
     {
         var assembly = typeof(OrganizationStructureCatalog).Assembly;
-        using var stream = assembly.GetManifestResourceStream(ResourceName);
-        if (stream == null)
-            throw new InvalidOperationException($"Missing organization structure config resource '{ResourceName}'.");
-
-        using var reader = new StreamReader(stream);
-        var json = reader.ReadToEnd();
-
-        var catalog = JsonSerializer.Deserialize<OrganizationStructureCatalogData>(json, JsonOptions);
-        if (catalog == null)
-            throw new InvalidOperationException("Organization structure config is empty or invalid.");
-
-        return catalog;
-    }
-
-    private static JsonSerializerOptions CreateJsonOptions()
-    {
-        var options = new JsonSerializerOptions
-        {
-            PropertyNameCaseInsensitive = true
-        };
-        options.Converters.Add(new JsonStringEnumConverter());
-
-        return options;
+        return EmbeddedResourceLoader.LoadJsonResource<OrganizationStructureCatalogData>(
+            assembly,
+            ResourceName,
+            JsonSerializationDefaults.CaseInsensitiveWithEnums,
+            $"Missing organization structure config resource '{ResourceName}'.",
+            "Organization structure config is empty or invalid.");
     }
 }

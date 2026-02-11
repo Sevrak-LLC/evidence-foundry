@@ -12,7 +12,6 @@ public class StorylineGenerator
     private readonly StoryBeatGenerator _beatGenerator;
     private readonly EmailThreadGenerator _threadGenerator;
     private const string RandomIndustryPreference = "Random";
-    private static readonly JsonSerializerOptions WorldModelSerializerOptions = new() { WriteIndented = true };
 
     public StorylineGenerator(OpenAIService openAI)
     {
@@ -342,7 +341,7 @@ Respond with JSON in this exact format:
             organizations
         };
 
-        return JsonSerializer.Serialize(context, WorldModelSerializerOptions);
+        return JsonSerializer.Serialize(context, JsonSerializationDefaults.Indented);
     }
 
     private async Task ApplyStorylineDateRangeAsync(

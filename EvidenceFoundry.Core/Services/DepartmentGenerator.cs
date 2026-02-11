@@ -6,25 +6,6 @@ namespace EvidenceFoundry.Services;
 
 public static class DepartmentGenerator
 {
-    private static readonly JsonSerializerOptions IndentedJsonOptions = new()
-    {
-        WriteIndented = true
-    };
-
-    private static readonly JsonSerializerOptions CatalogJsonOptions = CreateCatalogJsonOptions();
-
-    private static JsonSerializerOptions CreateCatalogJsonOptions()
-    {
-        var options = new JsonSerializerOptions
-        {
-            WriteIndented = true,
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-        };
-
-        options.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
-
-        return options;
-    }
 
     private static OrganizationStructureCatalogData.OrganizationTypeStructure? GetOrganizationTypeStructure(
         Industry industry,
@@ -99,7 +80,7 @@ public static class DepartmentGenerator
             .Select(d => $"{d} ({EnumHelper.HumanizeEnumName(d.ToString())})")
             .ToArray();
 
-        return JsonSerializer.Serialize(departments, IndentedJsonOptions);
+        return JsonSerializer.Serialize(departments, JsonSerializationDefaults.Indented);
     }
 
     internal static string BuildAllowedDepartmentRoleMapJson(Industry industry, OrganizationType organizationType)
@@ -111,7 +92,7 @@ public static class DepartmentGenerator
                 .Select(r => $"{r} ({EnumHelper.HumanizeEnumName(r.ToString())})")
                 .ToArray());
 
-        return JsonSerializer.Serialize(map, IndentedJsonOptions);
+        return JsonSerializer.Serialize(map, JsonSerializationDefaults.Indented);
     }
 
     internal static string BuildIndustryOrganizationRoleCatalogJson(IEnumerable<Industry> industries)
@@ -132,6 +113,6 @@ public static class DepartmentGenerator
             Industries = filteredIndustries
         };
 
-        return JsonSerializer.Serialize(filteredCatalog, CatalogJsonOptions);
+        return JsonSerializer.Serialize(filteredCatalog, JsonSerializationDefaults.IndentedCamelCaseWithEnums);
     }
 }

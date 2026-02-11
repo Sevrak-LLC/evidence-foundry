@@ -273,7 +273,7 @@ Return JSON in this exact format:
             name = b.Name,
             startDate = b.StartDate.ToString("yyyy-MM-dd"),
             endDate = b.EndDate.ToString("yyyy-MM-dd")
-        }), new JsonSerializerOptions { WriteIndented = true });
+        }), JsonSerializationDefaults.Indented);
 
         var tailJson = JsonSerializer.Serialize(tailBeats.Select(b => new
         {
@@ -281,7 +281,7 @@ Return JSON in this exact format:
             plot = b.Plot,
             startDate = b.StartDate.ToString("yyyy-MM-dd"),
             endDate = b.EndDate.ToString("yyyy-MM-dd")
-        }), new JsonSerializerOptions { WriteIndented = true });
+        }), JsonSerializationDefaults.Indented);
 
         var systemPrompt = @"You are the EvidenceFoundry Timeline Repair Agent.
 
@@ -373,7 +373,7 @@ Return JSON in this exact format for the beats to re-date ONLY:
             })
         });
 
-        return JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
+        return JsonSerializer.Serialize(payload, JsonSerializationDefaults.Indented);
     }
 
     private static string SerializeCharactersForPrompt(IEnumerable<Organization> organizations)
@@ -390,7 +390,7 @@ Return JSON in this exact format for the beats to re-date ONLY:
             }))
             .ToList();
 
-        return JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
+        return JsonSerializer.Serialize(payload, JsonSerializationDefaults.Indented);
     }
 
     private class StoryBeatApiResponse

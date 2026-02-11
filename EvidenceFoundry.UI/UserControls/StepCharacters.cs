@@ -378,64 +378,44 @@ public class StepCharacters : UserControl, IWizardStep
 
     private async Task GenerateCharactersAsync()
     {
-        _isLoading = true;
-        _btnRegenerate.Enabled = false;
-        _lblStatus.Text = "";
-        _loadingOverlay.Show(this);
-        StateChanged?.Invoke(this, EventArgs.Empty);
-
-        try
-        {
-            var storyline = _state.Storyline;
-            if (storyline == null)
-                throw new InvalidOperationException("Storyline is required before generating characters.");
-
-            var openAI = _state.CreateOpenAIService();
-            var generator = new EntityGeneratorOrchestrator(openAI);
-
-            IProgress<string> progress = new Progress<string>(status =>
+        await WizardStepUiHelper.RunWithLoadingStateAsync(
+            this,
+            _btnRegenerate,
+            _lblStatus,
+            _loadingOverlay,
+            isLoading => _isLoading = isLoading,
+            () => StateChanged?.Invoke(this, EventArgs.Empty),
+            async progress =>
             {
-                _lblStatus.Text = status;
-                _lblStatus.ForeColor = Color.Blue;
+                var storyline = _state.Storyline;
+                if (storyline == null)
+                    throw new InvalidOperationException("Storyline is required before generating characters.");
+
+                var openAI = _state.CreateOpenAIService();
+                var generator = new EntityGeneratorOrchestrator(openAI);
+
+                var result = await generator.GenerateEntitiesAsync(
+                    _state.Topic,
+                    storyline,
+                    progress);
+
+                _state.Organizations = result.Organizations;
+                _state.Characters = result.Characters;
+                _state.CompanyDomain = result.PrimaryDomain;
+                storyline.Beats.Clear();
+
+                RefreshOrganizationGrids();
+                RefreshCharacterGrid();
+
+                progress.Report("Generating presentation themes...");
+                var themeGenerator = new ThemeGenerator(openAI);
+                _state.DomainThemes = await themeGenerator.GenerateThemesForOrganizationsAsync(
+                    _state.Topic,
+                    _state.Organizations,
+                    progress);
+
+                UpdateStatus();
             });
-
-            var result = await generator.GenerateEntitiesAsync(
-                _state.Topic,
-                storyline,
-                progress);
-
-            _state.Organizations = result.Organizations;
-            _state.Characters = result.Characters;
-            _state.CompanyDomain = result.PrimaryDomain;
-            storyline.Beats.Clear();
-
-            RefreshOrganizationGrids();
-            RefreshCharacterGrid();
-
-            progress.Report("Generating presentation themes...");
-            var themeGenerator = new ThemeGenerator(openAI);
-            _state.DomainThemes = await themeGenerator.GenerateThemesForOrganizationsAsync(
-                _state.Topic,
-                _state.Organizations,
-                progress);
-
-            UpdateStatus();
-        }
-        catch (Exception ex)
-        {
-            var errorMsg = ex.InnerException != null
-                ? $"{ex.Message} ({ex.InnerException.Message})"
-                : ex.Message;
-            _lblStatus.Text = $"Error: {errorMsg}";
-            _lblStatus.ForeColor = Color.Red;
-        }
-        finally
-        {
-            _isLoading = false;
-            _btnRegenerate.Enabled = true;
-            _loadingOverlay.Hide();
-            StateChanged?.Invoke(this, EventArgs.Empty);
-        }
     }
 
     private void RefreshOrganizationGrids()

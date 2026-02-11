@@ -1,5 +1,5 @@
-using System.Text.Json;
 using System.Text.Json.Serialization;
+using EvidenceFoundry.Helpers;
 
 namespace EvidenceFoundry.Models;
 
@@ -8,11 +8,6 @@ public static class EmailThreadTopicCatalog
     private const string ResourceName = "EvidenceFoundry.Resources.EmailThreadTopicCatalog.json";
 
     private static readonly Lazy<EmailThreadTopicCatalogData> CatalogLazy = new(LoadCatalog);
-    private static readonly JsonSerializerOptions CatalogSerializerOptions = new()
-    {
-        PropertyNameCaseInsensitive = true,
-        Converters = { new JsonStringEnumConverter() }
-    };
 
     public static IReadOnlyList<string> GetTopics(Industry industry, OrganizationType organizationType)
     {
@@ -68,18 +63,12 @@ public static class EmailThreadTopicCatalog
     private static EmailThreadTopicCatalogData LoadCatalog()
     {
         var assembly = typeof(EmailThreadTopicCatalog).Assembly;
-        using var stream = assembly.GetManifestResourceStream(ResourceName);
-        if (stream == null)
-            throw new InvalidOperationException($"Missing email thread topic catalog resource '{ResourceName}'.");
-
-        using var reader = new StreamReader(stream);
-        var json = reader.ReadToEnd();
-
-        var catalog = JsonSerializer.Deserialize<EmailThreadTopicCatalogData>(json, CatalogSerializerOptions);
-        if (catalog == null)
-            throw new InvalidOperationException("Email thread topic catalog is empty or invalid.");
-
-        return catalog;
+        return EmbeddedResourceLoader.LoadJsonResource<EmailThreadTopicCatalogData>(
+            assembly,
+            ResourceName,
+            JsonSerializationDefaults.CaseInsensitiveWithEnums,
+            $"Missing email thread topic catalog resource '{ResourceName}'.",
+            "Email thread topic catalog is empty or invalid.");
     }
 
     private static List<string> GetTopicsInternal(

@@ -1,16 +1,11 @@
-using System.Text.Json;
 using System.Text.Json.Serialization;
+using EvidenceFoundry.Helpers;
 
 namespace EvidenceFoundry.Models;
 
 public static class CaseIssueCatalog
 {
     private const string ResourceName = "EvidenceFoundry.Resources.CaseIssueCatalog.json";
-    private static readonly JsonSerializerOptions ConfigSerializerOptions = new()
-    {
-        PropertyNameCaseInsensitive = true
-    };
-
     private static readonly Lazy<CaseIssueCatalogConfig> ConfigLazy = new(LoadConfig);
     private static readonly Lazy<Dictionary<string, CaseAreaDefinition>> CaseAreaLookupLazy =
         new(() => Config.CaseAreas.ToDictionary(area => area.Name, StringComparer.OrdinalIgnoreCase));
@@ -44,18 +39,12 @@ public static class CaseIssueCatalog
     private static CaseIssueCatalogConfig LoadConfig()
     {
         var assembly = typeof(CaseIssueCatalog).Assembly;
-        using var stream = assembly.GetManifestResourceStream(ResourceName);
-        if (stream == null)
-            throw new InvalidOperationException($"Missing case issue catalog resource '{ResourceName}'.");
-
-        using var reader = new StreamReader(stream);
-        var json = reader.ReadToEnd();
-
-        var config = JsonSerializer.Deserialize<CaseIssueCatalogConfig>(json, ConfigSerializerOptions);
-        if (config == null)
-            throw new InvalidOperationException("Case issue catalog config is empty or invalid.");
-
-        return config;
+        return EmbeddedResourceLoader.LoadJsonResource<CaseIssueCatalogConfig>(
+            assembly,
+            ResourceName,
+            JsonSerializationDefaults.CaseInsensitive,
+            $"Missing case issue catalog resource '{ResourceName}'.",
+            "Case issue catalog config is empty or invalid.");
     }
 
     private static CaseAreaDefinition GetCaseArea(string caseArea)

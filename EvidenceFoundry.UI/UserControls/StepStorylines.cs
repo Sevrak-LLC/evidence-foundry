@@ -528,71 +528,49 @@ public class StepStorylines : UserControl, IWizardStep
 
     private async Task GenerateStorylineAsync()
     {
-        _isLoading = true;
-        _btnRegenerate.Enabled = false;
-        _lblStatus.Text = "";
-        _loadingOverlay.Show(this);
-        UpdateEmptyState();
-        StateChanged?.Invoke(this, EventArgs.Empty);
-
-        try
-        {
-            var openAI = _state.CreateOpenAIService();
-            var generator = new StorylineGenerator(openAI);
-
-            // Create progress reporter that updates the status label
-            var progress = new Progress<string>(status =>
+        await WizardStepUiHelper.RunWithLoadingStateAsync(
+            this,
+            _btnRegenerate,
+            _lblStatus,
+            _loadingOverlay,
+            isLoading => _isLoading = isLoading,
+            () => StateChanged?.Invoke(this, EventArgs.Empty),
+            async progress =>
             {
-                _lblStatus.Text = status;
-                _lblStatus.ForeColor = Color.Blue;
-            });
+                var openAI = _state.CreateOpenAIService();
+                var generator = new StorylineGenerator(openAI);
 
-            var request = new StorylineGenerationRequest
-            {
-                Topic = _state.TopicDisplayName,
-                IssueDescription = _state.StorylineIssueDescription,
-                AdditionalInstructions = _state.AdditionalInstructions,
-                PlaintiffIndustry = _state.PlaintiffIndustry,
-                DefendantIndustry = _state.DefendantIndustry,
-                PlaintiffOrganizationCount = _state.PlaintiffOrganizationCount,
-                DefendantOrganizationCount = _state.DefendantOrganizationCount,
-                WorldModel = _state.WorldModel,
-                WantsDocuments = _state.WantsDocuments,
-                WantsImages = _state.WantsImages,
-                WantsVoicemails = _state.WantsVoicemails
-            };
+                var request = new StorylineGenerationRequest
+                {
+                    Topic = _state.TopicDisplayName,
+                    IssueDescription = _state.StorylineIssueDescription,
+                    AdditionalInstructions = _state.AdditionalInstructions,
+                    PlaintiffIndustry = _state.PlaintiffIndustry,
+                    DefendantIndustry = _state.DefendantIndustry,
+                    PlaintiffOrganizationCount = _state.PlaintiffOrganizationCount,
+                    DefendantOrganizationCount = _state.DefendantOrganizationCount,
+                    WorldModel = _state.WorldModel,
+                    WantsDocuments = _state.WantsDocuments,
+                    WantsImages = _state.WantsImages,
+                    WantsVoicemails = _state.WantsVoicemails
+                };
 
-            var result = await generator.GenerateStorylineAsync(request, progress);
+                var result = await generator.GenerateStorylineAsync(request, progress);
 
-            _state.Storyline = result.Storyline;
-            ClearDerivedState();
-            UpdateStorylineEditor(_state.Storyline);
+                _state.Storyline = result.Storyline;
+                ClearDerivedState();
+                UpdateStorylineEditor(_state.Storyline);
 
-            _lblStatus.Text = _state.Storyline != null
-                ? $"Storyline ready: {_state.Storyline.Title}"
-                : "Storyline generated.";
-            if (!string.IsNullOrWhiteSpace(result.StorylineFilterSummary))
-            {
-                _lblStatus.Text += $"\n{result.StorylineFilterSummary}";
-            }
-            _lblStatus.ForeColor = Color.Green;
-        }
-        catch (Exception ex)
-        {
-            var errorMsg = ex.InnerException != null
-                ? $"{ex.Message} ({ex.InnerException.Message})"
-                : ex.Message;
-            _lblStatus.Text = $"Error: {errorMsg}";
-            _lblStatus.ForeColor = Color.Red;
-        }
-        finally
-        {
-            _isLoading = false;
-            _btnRegenerate.Enabled = true;
-            _loadingOverlay.Hide();
-            UpdateEmptyState();
-            StateChanged?.Invoke(this, EventArgs.Empty);
-        }
+                _lblStatus.Text = _state.Storyline != null
+                    ? $"Storyline ready: {_state.Storyline.Title}"
+                    : "Storyline generated.";
+                if (!string.IsNullOrWhiteSpace(result.StorylineFilterSummary))
+                {
+                    _lblStatus.Text += $"\n{result.StorylineFilterSummary}";
+                }
+                _lblStatus.ForeColor = Color.Green;
+            },
+            UpdateEmptyState);
     }
 
     private void ClearDerivedState()
