@@ -38,7 +38,6 @@ public static class ButtonHelper
                 button.FlatAppearance.BorderColor = Color.FromArgb(90, 98, 105);
                 break;
 
-            case ButtonStyle.Default:
             default:
                 button.BackColor = Color.FromArgb(240, 240, 240);
                 button.ForeColor = Color.FromArgb(33, 33, 33);
