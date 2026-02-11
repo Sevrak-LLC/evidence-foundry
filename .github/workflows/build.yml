@@ -54,37 +54,7 @@ jobs:
           if ($null -ne $tag -and $tag -ne '') {
             "tag=$tag" >> $env:GITHUB_OUTPUT
           }
-      - name: Create GitHub release
-        id: release-info
-        if: steps.release-tag.outputs.tag != ''
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const tag = '${{ steps.release-tag.outputs.tag }}';
-            let release;
-            try {
-              const response = await github.rest.repos.getReleaseByTag({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                tag
-              });
-              release = response.data;
-              core.info(`Release for ${tag} already exists; reusing.`);
-            } catch (error) {
-              if (error.status !== 404) throw error;
-              const response = await github.rest.repos.createRelease({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                tag_name: tag,
-                name: tag,
-                draft: false,
-                prerelease: false
-              });
-              release = response.data;
-            }
-            core.setOutput('upload_url', release.upload_url);
-            core.setOutput('id', release.id.toString());
-      - name: Publish release binary
+      - name: Package release binary
         id: package-release
         if: steps.release-tag.outputs.tag != ''
         shell: powershell
@@ -101,8 +71,38 @@ jobs:
           }
           Compress-Archive -Path $binaryPath -DestinationPath $archivePath
           "archive=$archivePath" >> $env:GITHUB_OUTPUT
-      - name: Upload release asset
+      - name: Create GitHub release (draft)
+        id: release-info
         if: steps.release-tag.outputs.tag != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const tag = '${{ steps.release-tag.outputs.tag }}';
+            try {
+              const response = await github.rest.repos.getReleaseByTag({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag
+              });
+              core.warning(`Release for ${tag} already exists; skipping asset upload to keep releases immutable.`);
+              core.setOutput('skip', 'true');
+              return;
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+            const response = await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: tag,
+              name: `Release ${tag}`,
+              draft: true,
+              prerelease: false
+            });
+            const release = response.data;
+            core.setOutput('upload_url', release.upload_url);
+            core.setOutput('id', release.id.toString());
+      - name: Upload release asset
+        if: steps.release-tag.outputs.tag != '' && steps.release-info.outputs.skip != 'true'
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -111,3 +111,19 @@ jobs:
           asset_path: ${{ steps.package-release.outputs.archive }}
           asset_name: EvidenceFoundry-win-x64.zip
           asset_content_type: application/zip
+      - name: Publish GitHub release
+        if: steps.release-tag.outputs.tag != '' && steps.release-info.outputs.skip != 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const releaseId = Number('${{ steps.release-info.outputs.id }}');
+            if (!releaseId) {
+              core.setFailed('Release id missing; cannot publish release.');
+              return;
+            }
+            await github.rest.repos.updateRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: releaseId,
+              draft: false
+            });
