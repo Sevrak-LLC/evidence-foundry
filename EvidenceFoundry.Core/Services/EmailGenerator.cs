@@ -422,11 +422,7 @@ public class EmailGenerator
             });
 
             var terms = await GenerateSuggestedSearchTermsForThreadAsync(
-                subject,
-                largestEmail,
-                storyline,
-                beat,
-                thread.IsHot,
+                new SuggestedSearchTermsRequest(subject, largestEmail, storyline, beat, thread.IsHot),
                 progressLock,
                 result,
                 ct);
@@ -465,30 +461,26 @@ public class EmailGenerator
     }
 
     private async Task<List<string>> GenerateSuggestedSearchTermsForThreadAsync(
-        string subject,
-        EmailMessage largestEmail,
-        Storyline storyline,
-        StoryBeat beat,
-        bool isHot,
+        SuggestedSearchTermsRequest request,
         object progressLock,
         GenerationResult result,
         CancellationToken ct)
     {
         try
         {
-            var exportedEmail = BuildExportedEmailForPrompt(largestEmail);
+            var exportedEmail = BuildExportedEmailForPrompt(request.LargestEmail);
             var terms = await _searchTermGenerator.GenerateSuggestedSearchTermsAsync(
                 exportedEmail,
-                storyline.Summary,
-                beat.Plot,
-                isHot,
+                request.Storyline.Summary,
+                request.Beat.Plot,
+                request.IsHot,
                 ct);
             if (terms.Count < 2)
             {
                 AddSuggestedTermsError(
                     progressLock,
                     result,
-                    $"Suggested terms returned fewer than 2 entries for thread '{subject}'.");
+                    $"Suggested terms returned fewer than 2 entries for thread '{request.Subject}'.");
             }
 
             return terms;
@@ -498,10 +490,17 @@ public class EmailGenerator
             AddSuggestedTermsError(
                 progressLock,
                 result,
-                $"Failed to generate suggested terms for thread '{subject}': {ex.Message}");
+                $"Failed to generate suggested terms for thread '{request.Subject}': {ex.Message}");
             return new List<string>();
         }
     }
+
+    private sealed record SuggestedSearchTermsRequest(
+        string Subject,
+        EmailMessage LargestEmail,
+        Storyline Storyline,
+        StoryBeat Beat,
+        bool IsHot);
 
     private static bool TryGetSuggestedSearchContext(
         EmailThread thread,
