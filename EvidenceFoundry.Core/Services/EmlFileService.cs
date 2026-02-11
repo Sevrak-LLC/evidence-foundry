@@ -1,4 +1,3 @@
-using System.Net.Mail;
 using MimeKit;
 using EvidenceFoundry.Models;
 using EvidenceFoundry.Helpers;
@@ -96,7 +95,7 @@ public class EmlFileService
         {
             MessageId = GetMessageId(email),
             Date = Clock.EnsureOffset(email.SentDate, DateTimeKind.Local),
-            Subject = SanitizeHeaderValue(email.Subject, 255)
+            Subject = HeaderValueHelper.SanitizeHeaderValue(email.Subject, 255)
         };
 
         message.From.Add(CreateFromAddress(email.From));
@@ -110,14 +109,14 @@ public class EmlFileService
 
     private static string GetMessageId(EmailMessage email)
     {
-        var messageId = SanitizeHeaderValue(email.MessageId, 200);
+        var messageId = HeaderValueHelper.SanitizeHeaderValue(email.MessageId, 200);
         if (string.IsNullOrEmpty(messageId))
         {
             var domain = ResolveMessageIdDomain(email);
             messageId = ThreadingHelper.GenerateMessageId(email, domain);
         }
 
-        return SanitizeHeaderValue(messageId, 200).Trim('<', '>');
+        return HeaderValueHelper.SanitizeHeaderValue(messageId, 200).Trim('<', '>');
     }
 
     private static string ResolveMessageIdDomain(EmailMessage email)
@@ -149,7 +148,7 @@ public class EmlFileService
 
     private static void ApplyThreadingHeaders(MimeMessage message, EmailMessage email)
     {
-        var inReplyTo = SanitizeHeaderValue(email.InReplyTo, 200);
+        var inReplyTo = HeaderValueHelper.SanitizeHeaderValue(email.InReplyTo, 200);
         if (!string.IsNullOrEmpty(inReplyTo))
         {
             message.InReplyTo = inReplyTo.Trim('<', '>');
@@ -157,7 +156,7 @@ public class EmlFileService
 
         foreach (var reference in email.References)
         {
-            var sanitizedReference = SanitizeHeaderValue(reference, 200).Trim('<', '>');
+            var sanitizedReference = HeaderValueHelper.SanitizeHeaderValue(reference, 200).Trim('<', '>');
             if (!string.IsNullOrEmpty(sanitizedReference))
             {
                 message.References.Add(sanitizedReference);
@@ -286,8 +285,8 @@ public class EmlFileService
 
     private static MailboxAddress CreateFromAddress(Character from)
     {
-        var displayName = SanitizeHeaderText(from.FullName, 128);
-        if (TryNormalizeEmail(from.Email, out var normalized))
+        var displayName = HeaderValueHelper.SanitizeHeaderText(from.FullName, 128);
+        if (EmailAddressHelper.TryNormalizeEmail(from.Email, out var normalized))
         {
             return new MailboxAddress(displayName, normalized);
         }
@@ -298,52 +297,13 @@ public class EmlFileService
 
     private static MailboxAddress? TryCreateMailboxAddress(string? displayName, string? email)
     {
-        if (!TryNormalizeEmail(email, out var normalized))
+        if (!EmailAddressHelper.TryNormalizeEmail(email, out var normalized))
         {
             return null;
         }
 
-        var safeName = SanitizeHeaderText(displayName, 128);
+        var safeName = HeaderValueHelper.SanitizeHeaderText(displayName, 128);
         return new MailboxAddress(safeName, normalized);
-    }
-
-    private static string SanitizeHeaderText(string? value, int maxLength = 256)
-    {
-        var trimmed = (value ?? string.Empty).Trim();
-        trimmed = trimmed.Replace("\r", "").Replace("\n", "");
-        return trimmed.Length > maxLength ? trimmed[..maxLength] : trimmed;
-    }
-
-    private static string SanitizeHeaderValue(string? value, int maxLength = 998)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return string.Empty;
-        }
-
-        var trimmed = value.Replace("\r", "").Replace("\n", "").Trim();
-        return trimmed.Length > maxLength ? trimmed[..maxLength] : trimmed;
-    }
-
-    private static bool TryNormalizeEmail(string? value, out string normalized)
-    {
-        normalized = string.Empty;
-        var candidate = SanitizeHeaderText(value, 320);
-        if (string.IsNullOrWhiteSpace(candidate))
-        {
-            return false;
-        }
-
-        try
-        {
-            var address = new MailAddress(candidate);
-            normalized = address.Address;
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
     }
 
     private static string GetSafeEmlFileName(string? requested, EmailMessage email)

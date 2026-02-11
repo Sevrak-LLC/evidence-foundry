@@ -85,20 +85,52 @@ public static partial class EmailAddressHelper
         return false;
     }
 
-    private static bool TryNormalizeDomain(string? domain, out string normalized)
+    public static bool TryNormalizeDomain(string? domain, out string normalized)
     {
         normalized = string.Empty;
         var trimmed = (domain ?? string.Empty).Trim().ToLowerInvariant();
-        if (string.IsNullOrWhiteSpace(trimmed) || trimmed.Contains('@'))
+        if (string.IsNullOrWhiteSpace(trimmed))
             return false;
 
-        var cleaned = string.Concat(trimmed.Where(ch =>
-            char.IsLetterOrDigit(ch) || ch == '.' || ch == '-')).Trim('.');
-        if (string.IsNullOrWhiteSpace(cleaned) || !cleaned.Contains('.'))
+        if ((trimmed.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) &&
+            Uri.TryCreate(trimmed, UriKind.Absolute, out var uri) &&
+            !string.IsNullOrWhiteSpace(uri.Host))
+        {
+            trimmed = uri.Host;
+        }
+
+        trimmed = trimmed.Trim('.');
+        if (string.IsNullOrWhiteSpace(trimmed) || trimmed.Contains('@') || trimmed.Length > 253)
             return false;
 
-        normalized = cleaned;
+        var labels = trimmed.Split('.', StringSplitOptions.RemoveEmptyEntries);
+        if (labels.Length < 2 || labels.Any(label => !IsValidDomainLabel(label)))
+            return false;
+
+        normalized = trimmed;
         return true;
+    }
+
+    public static bool TryNormalizeEmail(string? value, out string normalized)
+    {
+        normalized = string.Empty;
+        var candidate = HeaderValueHelper.SanitizeHeaderText(value, 320);
+        if (string.IsNullOrWhiteSpace(candidate))
+        {
+            return false;
+        }
+
+        try
+        {
+            var address = new MailAddress(candidate);
+            normalized = address.Address;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static bool TryExtractLocalPart(string? preferredEmail, out string localPart)
@@ -150,6 +182,26 @@ public static partial class EmailAddressHelper
     private static string TruncateLocalPart(string local)
     {
         return local.Length <= MaxLocalPartLength ? local : local[..MaxLocalPartLength];
+    }
+
+    private static bool IsValidDomainLabel(string label)
+    {
+        if (label.Length == 0 || label.Length > 63)
+            return false;
+        if (label.StartsWith('-') || label.EndsWith('-'))
+            return false;
+
+        foreach (var ch in label)
+        {
+            if (ch > 0x7F)
+                return false;
+
+            var lower = char.ToLowerInvariant(ch);
+            if (!((lower >= 'a' && lower <= 'z') || (lower >= '0' && lower <= '9') || lower == '-'))
+                return false;
+        }
+
+        return true;
     }
 
     private static bool IsValidEmail(string email)

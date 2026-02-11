@@ -1,4 +1,3 @@
-using System.Net.Mail;
 using System.Text;
 using System.Linq;
 using EvidenceFoundry.Helpers;
@@ -44,10 +43,10 @@ public class CalendarService
             endTime = startTime.AddMinutes(60);
         }
 
-        var organizerEmailValue = TryNormalizeEmail(request.OrganizerEmail, out var normalizedOrganizer)
+        var organizerEmailValue = EmailAddressHelper.TryNormalizeEmail(request.OrganizerEmail, out var normalizedOrganizer)
             ? normalizedOrganizer
             : "unknown@invalid.local";
-        var organizerNameValue = EscapeIcsText(SanitizeHeaderText(request.OrganizerName));
+        var organizerNameValue = EscapeIcsText(HeaderValueHelper.SanitizeHeaderText(request.OrganizerName));
         var attendees = request.Attendees ?? Array.Empty<(string name, string email)>();
         var uid = BuildCalendarUid(request, organizerEmailValue, attendees);
         var now = Clock.UtcNowDateTime;
@@ -70,12 +69,12 @@ public class CalendarService
 
         foreach (var (name, email) in attendees)
         {
-            if (!TryNormalizeEmail(email, out var normalizedEmail))
+            if (!EmailAddressHelper.TryNormalizeEmail(email, out var normalizedEmail))
             {
                 continue;
             }
 
-            var attendeeName = EscapeIcsText(SanitizeHeaderText(name));
+            var attendeeName = EscapeIcsText(HeaderValueHelper.SanitizeHeaderText(name));
             AppendFoldedLine(sb, $"ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;CN={attendeeName}:mailto:{normalizedEmail}");
         }
 
@@ -140,32 +139,6 @@ public class CalendarService
             .Replace(",", "\\,")
             .Replace("\n", "\\n")
             .Replace("\r", "");
-    }
-
-    private static string SanitizeHeaderText(string? value, int maxLength = 256)
-    {
-        var trimmed = (value ?? string.Empty).Trim();
-        trimmed = trimmed.Replace("\r", "").Replace("\n", "");
-        return trimmed.Length > maxLength ? trimmed[..maxLength] : trimmed;
-    }
-
-    private static bool TryNormalizeEmail(string? value, out string normalized)
-    {
-        normalized = string.Empty;
-        var candidate = SanitizeHeaderText(value, 320);
-        if (string.IsNullOrWhiteSpace(candidate))
-            return false;
-
-        try
-        {
-            var address = new MailAddress(candidate);
-            normalized = address.Address;
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
     }
 
     private static void AppendFoldedLine(StringBuilder sb, string line)

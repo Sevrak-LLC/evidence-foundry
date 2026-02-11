@@ -521,33 +521,17 @@ Enum values are shown as Raw (Humanized). Return only the Raw enum value.
 
     private static string NormalizeDomain(string? domain, string organizationName, HashSet<string> usedDomains)
     {
-        var normalized = string.IsNullOrWhiteSpace(domain)
-            ? string.Empty
-            : domain.Trim().ToLowerInvariant();
+        var normalized = EmailAddressHelper.TryNormalizeDomain(domain, out var parsedDomain)
+            ? parsedDomain
+            : GenerateDomainFromName(organizationName);
 
-        if ((normalized.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
-            normalized.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) &&
-            Uri.TryCreate(normalized, UriKind.Absolute, out var uri) &&
-            !string.IsNullOrWhiteSpace(uri.Host))
-        {
-            normalized = uri.Host;
-        }
-
-        normalized = normalized.Trim('.');
-
-        if (string.IsNullOrWhiteSpace(normalized))
-        {
-            normalized = GenerateDomainFromName(organizationName);
-        }
-
-        if (!IsValidDomain(normalized))
-        {
-            normalized = GenerateDomainFromName(organizationName);
-        }
-
-        if (!IsValidDomain(normalized))
+        if (!EmailAddressHelper.TryNormalizeDomain(normalized, out var validated))
         {
             normalized = "organization.com";
+        }
+        else
+        {
+            normalized = validated;
         }
 
         var candidate = normalized;
@@ -583,40 +567,6 @@ Enum values are shown as Raw (Humanized). Return only the Raw enum value.
         }
 
         return cleaned + ".com";
-    }
-
-    private static bool IsValidDomain(string domain)
-    {
-        if (string.IsNullOrWhiteSpace(domain))
-            return false;
-        if (domain.Length > 253 || !domain.Contains('.') || domain.Contains('@'))
-            return false;
-
-        var labels = domain.Split('.', StringSplitOptions.RemoveEmptyEntries);
-        if (labels.Length < 2)
-            return false;
-
-        return labels.All(IsValidDomainLabel);
-    }
-
-    private static bool IsValidDomainLabel(string label)
-    {
-        if (label.Length == 0 || label.Length > 63)
-            return false;
-        if (label.StartsWith('-') || label.EndsWith('-'))
-            return false;
-
-        foreach (var ch in label)
-        {
-            if (ch > 0x7F)
-                return false;
-
-            var lower = char.ToLowerInvariant(ch);
-            if (!((lower >= 'a' && lower <= 'z') || (lower >= '0' && lower <= '9') || lower == '-'))
-                return false;
-        }
-
-        return true;
     }
 
     private static string InsertDomainSuffix(string domain, int counter)
