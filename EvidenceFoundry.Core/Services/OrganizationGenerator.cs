@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Text.Json;
 using System.Text.Json.Serialization;
 using EvidenceFoundry.Helpers;
 using EvidenceFoundry.Models;
@@ -153,26 +152,7 @@ Rules:
         var orgTypes = EnumHelper.FormatEnumOptions<OrganizationType>();
         var industries = EnumHelper.FormatEnumOptions<Industry>();
         var states = EnumHelper.FormatEnumOptions<UsState>();
-        var orgJson = JsonSerializer.Serialize(new
-        {
-            name = seed.Name,
-            domain = seed.Domain,
-            description = seed.Description,
-            organizationType = seed.OrganizationType.ToString(),
-            industry = seed.Industry.ToString(),
-            state = seed.State.ToString(),
-            plaintiff = seed.IsPlaintiff,
-            defendant = seed.IsDefendant,
-            departments = seed.Departments.Select(d => new
-            {
-                name = d.Name.ToString(),
-                roles = d.Roles.Select(r => new
-                {
-                    name = r.Name.ToString(),
-                    reportsToRole = r.ReportsToRole?.ToString()
-                })
-            })
-        }, JsonSerializationDefaults.Indented);
+        var orgJson = PromptPayloadSerializer.SerializeOrganization(seed);
 
         var userPrompt = BuildOrganizationPrompt(
             storyline,

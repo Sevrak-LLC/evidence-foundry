@@ -46,8 +46,8 @@ Rules (strict):
 - Choose the number of beats based on story complexity and date range; keep it reasonable.
  - Include characters from the provided pool, especially those named in the summary, but do NOT force every character into the story.");
 
-        var orgJson = SerializeOrganizationsForPrompt(organizations);
-        var characterJson = SerializeCharactersForPrompt(organizations);
+        var orgJson = PromptPayloadSerializer.SerializeOrganizations(organizations);
+        var characterJson = PromptPayloadSerializer.SerializeCharacters(organizations);
 
         var schema = """
 {
@@ -349,49 +349,6 @@ Beats to re-date (preserve order, names, plots):
         return true;
     }
 
-    private static string SerializeOrganizationsForPrompt(IEnumerable<Organization> organizations)
-    {
-        var payload = organizations.Select(org => new
-        {
-            name = org.Name,
-            domain = org.Domain,
-            description = org.Description,
-            organizationType = org.OrganizationType.ToString(),
-            industry = org.Industry.ToString(),
-            state = org.State.ToString(),
-            plaintiff = org.IsPlaintiff,
-            defendant = org.IsDefendant,
-            founded = org.Founded?.ToString("yyyy-MM-dd"),
-            departments = org.Departments.Select(d => new
-            {
-                name = d.Name.ToString(),
-                roles = d.Roles.Select(r => new
-                {
-                    name = r.Name.ToString(),
-                    reportsToRole = r.ReportsToRole?.ToString()
-                })
-            })
-        });
-
-        return JsonSerializer.Serialize(payload, JsonSerializationDefaults.Indented);
-    }
-
-    private static string SerializeCharactersForPrompt(IEnumerable<Organization> organizations)
-    {
-        var payload = organizations
-            .SelectMany(org => org.EnumerateCharacters().Select(a => new
-            {
-                firstName = a.Character.FirstName,
-                lastName = a.Character.LastName,
-                email = a.Character.Email,
-                role = a.Role.Name.ToString(),
-                department = a.Department.Name.ToString(),
-                organization = org.Name
-            }))
-            .ToList();
-
-        return JsonSerializer.Serialize(payload, JsonSerializationDefaults.Indented);
-    }
 
     private class StoryBeatApiResponse
     {

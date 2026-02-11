@@ -85,7 +85,7 @@ Rules:
 - Do NOT invent new people.
  - Use the organization's domain for email addresses.");
 
-        var orgJson = SerializeOrganizationForPrompt(organization, includeCharacters: false);
+        var orgJson = PromptPayloadSerializer.SerializeOrganization(organization, includeCharacters: false);
 
         var rolesSchema = """
 {
@@ -154,7 +154,7 @@ Rules:
 - Avoid duplicate names or emails.
  - Return up to the requested number of characters.");
 
-        var orgJson = SerializeOrganizationForPrompt(organization, includeCharacters: true);
+        var orgJson = PromptPayloadSerializer.SerializeOrganization(organization, includeCharacters: true);
         var existingNames = string.Join(", ", usedNames.OrderBy(n => n));
         var singletonRoles = string.Join(", ", RoleGenerator.SingleOccupantRoles.Select(r =>
             $"{r} ({EnumHelper.HumanizeEnumName(r.ToString())})"));
@@ -234,15 +234,7 @@ Rules:
 - Signature blocks should be consistent with organization name and role.
  - Return JSON matching the schema exactly.");
 
-        var characterJson = JsonSerializer.Serialize(assignments.Select(a => new
-        {
-            firstName = a.Character.FirstName,
-            lastName = a.Character.LastName,
-            email = a.Character.Email,
-            role = EnumHelper.HumanizeEnumName(a.Role.Name.ToString()),
-            department = EnumHelper.HumanizeEnumName(a.Department.Name.ToString()),
-            organization = organization.Name
-        }), JsonSerializationDefaults.Indented);
+        var characterJson = PromptPayloadSerializer.SerializeCharacters(organization, humanizeRoleDepartment: true);
 
         var detailSchema = """
 {
@@ -652,34 +644,6 @@ Characters (JSON):
         return result;
     }
 
-    private static string SerializeOrganizationForPrompt(Organization organization, bool includeCharacters)
-    {
-        var org = new
-        {
-            name = organization.Name,
-            domain = organization.Domain,
-            description = organization.Description,
-            organizationType = organization.OrganizationType.ToString(),
-            industry = organization.Industry.ToString(),
-            state = organization.State.ToString(),
-            plaintiff = organization.IsPlaintiff,
-            defendant = organization.IsDefendant,
-            departments = organization.Departments.Select(d => new
-            {
-                name = d.Name.ToString(),
-                roles = d.Roles.Select(r => new
-                {
-                    name = r.Name.ToString(),
-                    reportsToRole = r.ReportsToRole?.ToString(),
-                    characters = includeCharacters
-                        ? r.Characters.Select(c => new { firstName = c.FirstName, lastName = c.LastName, email = c.Email })
-                        : null
-                })
-            })
-        };
-
-        return JsonSerializer.Serialize(org, JsonSerializationDefaults.Indented);
-    }
 
     internal static List<Character> FlattenCharacters(IEnumerable<Organization> organizations)
     {
