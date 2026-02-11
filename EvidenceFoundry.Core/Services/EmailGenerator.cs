@@ -402,12 +402,15 @@ public class EmailGenerator
         {
             ct.ThrowIfCancellationRequested();
 
+            var contextOptions = new SuggestedSearchContextOptions(
+                beatLookup,
+                storylineLookup,
+                progressLock,
+                result);
+
             if (!TryGetSuggestedSearchContext(
                     thread,
-                    beatLookup,
-                    storylineLookup,
-                    progressLock,
-                    result,
+                    contextOptions,
                     out var beat,
                     out var storyline,
                     out var largestEmail))
@@ -502,12 +505,15 @@ public class EmailGenerator
         StoryBeat Beat,
         bool IsHot);
 
+    private sealed record SuggestedSearchContextOptions(
+        IReadOnlyDictionary<Guid, StoryBeat> BeatLookup,
+        IReadOnlyDictionary<Guid, Storyline> StorylineLookup,
+        object ProgressLock,
+        GenerationResult Result);
+
     private static bool TryGetSuggestedSearchContext(
         EmailThread thread,
-        IReadOnlyDictionary<Guid, StoryBeat> beatLookup,
-        IReadOnlyDictionary<Guid, Storyline> storylineLookup,
-        object progressLock,
-        GenerationResult result,
+        SuggestedSearchContextOptions options,
         [NotNullWhen(true)] out StoryBeat? beat,
         [NotNullWhen(true)] out Storyline? storyline,
         [NotNullWhen(true)] out EmailMessage? largestEmail)
@@ -516,22 +522,22 @@ public class EmailGenerator
         storyline = null;
         largestEmail = null;
 
-        if (!beatLookup.TryGetValue(thread.StoryBeatId, out var resolvedBeat))
+        if (!options.BeatLookup.TryGetValue(thread.StoryBeatId, out var resolvedBeat))
         {
-            AddSuggestedTermsError(progressLock, result, $"Suggested terms skipped: missing story beat for thread {thread.Id}.");
+            AddSuggestedTermsError(options.ProgressLock, options.Result, $"Suggested terms skipped: missing story beat for thread {thread.Id}.");
             return false;
         }
 
-        if (!storylineLookup.TryGetValue(thread.StorylineId, out var resolvedStoryline))
+        if (!options.StorylineLookup.TryGetValue(thread.StorylineId, out var resolvedStoryline))
         {
-            AddSuggestedTermsError(progressLock, result, $"Suggested terms skipped: missing storyline for thread {thread.Id}.");
+            AddSuggestedTermsError(options.ProgressLock, options.Result, $"Suggested terms skipped: missing storyline for thread {thread.Id}.");
             return false;
         }
 
         var resolvedEmail = GetLargestEmailInThread(thread);
         if (resolvedEmail == null)
         {
-            AddSuggestedTermsError(progressLock, result, $"Suggested terms skipped: thread {thread.Id} has no emails.");
+            AddSuggestedTermsError(options.ProgressLock, options.Result, $"Suggested terms skipped: thread {thread.Id} has no emails.");
             return false;
         }
 
