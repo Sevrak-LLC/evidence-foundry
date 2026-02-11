@@ -197,7 +197,7 @@ public class LoadingOverlay : Panel
     /// <summary>
     /// A label with double buffering enabled to prevent flickering during updates.
     /// </summary>
-    private class DoubleBufferedLabel : Label
+    private sealed class DoubleBufferedLabel : Label
     {
         public DoubleBufferedLabel()
         {
