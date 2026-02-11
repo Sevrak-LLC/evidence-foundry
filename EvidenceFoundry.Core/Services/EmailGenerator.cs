@@ -95,20 +95,23 @@ public class EmailGenerator
             var emlService = new EmlFileService();
             Directory.CreateDirectory(state.Config.OutputFolder);
 
+            var processContext = new ProcessStorylineContext(
+                characterContexts,
+                threads,
+                result,
+                progressData,
+                progress,
+                progressLock,
+                emlService,
+                saveSemaphore,
+                savedThreads);
+
             foreach (var storyline in activeStorylines)
             {
                 await ProcessStorylineAsync(
                     storyline,
                     state,
-                    characterContexts,
-                    threads,
-                    result,
-                    progressData,
-                    progress,
-                    progressLock,
-                    emlService,
-                    saveSemaphore,
-                    savedThreads,
+                    processContext,
                     ct);
             }
 
@@ -164,18 +167,45 @@ public class EmailGenerator
         }
     }
 
+    private sealed class ProcessStorylineContext
+    {
+        public ProcessStorylineContext(
+            Dictionary<Guid, CharacterContext> characterContexts,
+            ConcurrentBag<EmailThread> threads,
+            GenerationResult result,
+            GenerationProgress progressData,
+            IProgress<GenerationProgress> progress,
+            object progressLock,
+            EmlFileService emlService,
+            SemaphoreSlim saveSemaphore,
+            ConcurrentDictionary<Guid, bool> savedThreads)
+        {
+            CharacterContexts = characterContexts;
+            Threads = threads;
+            Result = result;
+            ProgressData = progressData;
+            Progress = progress;
+            ProgressLock = progressLock;
+            EmlService = emlService;
+            SaveSemaphore = saveSemaphore;
+            SavedThreads = savedThreads;
+        }
+
+        public Dictionary<Guid, CharacterContext> CharacterContexts { get; }
+        public ConcurrentBag<EmailThread> Threads { get; }
+        public GenerationResult Result { get; }
+        public GenerationProgress ProgressData { get; }
+        public IProgress<GenerationProgress> Progress { get; }
+        public object ProgressLock { get; }
+        public EmlFileService EmlService { get; }
+        public SemaphoreSlim SaveSemaphore { get; }
+        public ConcurrentDictionary<Guid, bool> SavedThreads { get; }
+    }
+
     private async Task ProcessStorylineAsync(
         Storyline storyline,
         WizardState state,
-        Dictionary<Guid, CharacterContext> characterContexts,
-        ConcurrentBag<EmailThread> threads,
-        GenerationResult result,
-        GenerationProgress progressData,
-        IProgress<GenerationProgress> progress,
-        object progressLock,
-        EmlFileService emlService,
-        SemaphoreSlim saveSemaphore,
-        ConcurrentDictionary<Guid, bool> savedThreads,
+        ProcessStorylineContext context,
         CancellationToken ct)
     {
         var emailCount = storyline.EmailCount;
@@ -187,29 +217,29 @@ public class EmailGenerator
             ct.ThrowIfCancellationRequested();
 
             // Report that we're starting this storyline
-            ReportProgress(progress, progressData, progressLock, p =>
+            ReportProgress(context.Progress, context.ProgressData, context.ProgressLock, p =>
             {
                 p.CurrentStoryline = storyline.Title;
                 p.CurrentOperation = $"Processing storyline: {storyline.Title}";
             });
 
-            lock (progressLock)
+            lock (context.ProgressLock)
             {
-                completedAtStart = progressData.CompletedEmails;
+                completedAtStart = context.ProgressData.CompletedEmails;
             }
 
             // Generate thread(s) for this storyline
             var storylineThreads = await GenerateThreadsForStorylineAsync(
                 storyline, state.Characters, state.CompanyDomain,
                 beats,
-                state.Config, state.DomainThemes, characterContexts,
-                state, result, progressData, progress, progressLock,
-                emlService, saveSemaphore, savedThreads, ct);
+                state.Config, state.DomainThemes, context.CharacterContexts,
+                state, context.Result, context.ProgressData, context.Progress, context.ProgressLock,
+                context.EmlService, context.SaveSemaphore, context.SavedThreads, ct);
 
             // Add to concurrent collection
             foreach (var thread in storylineThreads)
             {
-                threads.Add(thread);
+                context.Threads.Add(thread);
             }
         }
         catch (OperationCanceledException)
@@ -219,23 +249,23 @@ public class EmailGenerator
         catch (Exception ex)
         {
             // Per-storyline error handling: log and continue with others
-            lock (progressLock)
+            lock (context.ProgressLock)
             {
-                result.Errors.Add($"Storyline '{storyline.Title}' failed: {ex.Message}");
+                context.Result.Errors.Add($"Storyline '{storyline.Title}' failed: {ex.Message}");
             }
 
             // Still count these emails as "completed" for progress tracking
             var completedAtFailure = 0;
-            lock (progressLock)
+            lock (context.ProgressLock)
             {
-                completedAtFailure = progressData.CompletedEmails;
+                completedAtFailure = context.ProgressData.CompletedEmails;
             }
 
             var completedInStoryline = completedAtFailure - completedAtStart;
             var remaining = Math.Max(0, emailCount - completedInStoryline);
             if (remaining > 0)
             {
-                ReportProgress(progress, progressData, progressLock, p =>
+                ReportProgress(context.Progress, context.ProgressData, context.ProgressLock, p =>
                 {
                     p.CompletedEmails += remaining;
                 });
