@@ -66,9 +66,23 @@ public class EmailThread
 
     public void AddEmailMessage(EmailMessage message) => _emailMessages.Add(message);
 
-    public override string ToString()
-    {
-        var subject = string.IsNullOrWhiteSpace(DisplaySubject) ? "Untitled thread" : DisplaySubject;
-        return $"{subject} ({EmailMessages.Count} messages)";
-    }
+    public EmailThreadSummary GetSummary() =>
+        new(
+            Id,
+            DisplaySubject,
+            EmailMessages.Count,
+            Relevance,
+            IsHot,
+            Scope);
+
+    public override string ToString() =>
+        string.IsNullOrWhiteSpace(DisplaySubject) ? Id.ToString("N") : DisplaySubject;
 }
+
+public sealed record EmailThreadSummary(
+    Guid Id,
+    string Subject,
+    int MessageCount,
+    EmailThread.ThreadRelevance Relevance,
+    bool IsHot,
+    EmailThreadScope Scope);

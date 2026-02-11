@@ -154,10 +154,11 @@ public class StepComplete : UserControl, IWizardStep
         AddStatRow("", "");
         AddStatRow("--- API Usage ---", "");
         AddStatRow("Model Used", _state.SelectedModel);
-        AddStatRow("Input Tokens", $"{_state.UsageTracker.TotalInputTokens:N0}");
-        AddStatRow("Output Tokens", $"{_state.UsageTracker.TotalOutputTokens:N0}");
-        AddStatRow("Total Tokens", $"{_state.UsageTracker.TotalInputTokens + _state.UsageTracker.TotalOutputTokens:N0}");
-        AddStatRow("Estimated Cost", $"${_state.UsageTracker.TotalCost:F4}");
+        var usageSummary = _state.UsageTracker.GetSummary();
+        AddStatRow("Input Tokens", TokenUsageFormatter.FormatTokenCount(usageSummary.TotalInputTokens));
+        AddStatRow("Output Tokens", TokenUsageFormatter.FormatTokenCount(usageSummary.TotalOutputTokens));
+        AddStatRow("Total Tokens", TokenUsageFormatter.FormatTokenCount(usageSummary.TotalTokens));
+        AddStatRow("Estimated Cost", TokenUsageFormatter.FormatCost(usageSummary.TotalCost));
 
         _lblSummary.Text = "Your email dataset is ready for import into your e-discovery platform.\n\n" +
                           "The .EML files contain proper threading headers (Message-ID, In-Reply-To, References)\n" +

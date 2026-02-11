@@ -144,8 +144,8 @@ public class StepGeneration : UserControl, IWizardStep
         if (_state?.UsageTracker == null) return;
 
         var tracker = _state.UsageTracker;
-        var totalTokens = tracker.TotalInputTokens + tracker.TotalOutputTokens;
-        _lblTokenUsage.Text = $"Cost: ${tracker.TotalCost:F4} | Tokens: {totalTokens:N0} ({tracker.TotalInputTokens:N0} in / {tracker.TotalOutputTokens:N0} out)";
+        var summary = tracker.GetSummary();
+        _lblTokenUsage.Text = TokenUsageFormatter.FormatCompact(summary);
     }
 
     private async Task StartGenerationAsync()
@@ -258,9 +258,10 @@ public class StepGeneration : UserControl, IWizardStep
         AppendLog($"Output folder: {result.OutputFolder}");
         AppendLog("");
         AppendLog("--- Token Usage ---", Color.Cyan);
-        AppendLog($"Input tokens: {_state.UsageTracker.TotalInputTokens:N0}");
-        AppendLog($"Output tokens: {_state.UsageTracker.TotalOutputTokens:N0}");
-        AppendLog($"Estimated cost: ${_state.UsageTracker.TotalCost:F4}");
+        var summary = _state.UsageTracker.GetSummary();
+        AppendLog($"Input tokens: {TokenUsageFormatter.FormatTokenCount(summary.TotalInputTokens)}");
+        AppendLog($"Output tokens: {TokenUsageFormatter.FormatTokenCount(summary.TotalOutputTokens)}");
+        AppendLog($"Estimated cost: {TokenUsageFormatter.FormatCost(summary.TotalCost)}");
 
         _lblProgress.Text = $"Generation complete! {result.TotalEmailsGenerated} emails created.";
         _generationComplete = true;

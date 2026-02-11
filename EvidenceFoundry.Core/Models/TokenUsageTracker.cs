@@ -55,49 +55,41 @@ public class TokenUsageTracker
         }
     }
 
-    public string GetSummary()
+    public TokenUsageSummary GetSummary()
     {
         lock (_lock)
         {
-            return $"Total: {TotalInputTokens:N0} input + {TotalOutputTokens:N0} output tokens = ${TotalCost:F4}";
+            return new TokenUsageSummary(
+                TotalInputTokens,
+                TotalOutputTokens,
+                TotalInputTokens + TotalOutputTokens,
+                TotalCost);
         }
     }
 
-    public string GetDetailedSummary()
+    public TokenUsageDetailedSummary GetDetailedSummary()
     {
         lock (_lock)
         {
-            var sb = new System.Text.StringBuilder();
-            sb.AppendLine($"Token Usage Summary");
-            sb.AppendLine($"==================");
-            sb.AppendLine($"Input Tokens:  {TotalInputTokens:N0}");
-            sb.AppendLine($"Output Tokens: {TotalOutputTokens:N0}");
-            sb.AppendLine($"Total Tokens:  {TotalInputTokens + TotalOutputTokens:N0}");
-            sb.AppendLine($"Total Cost:    ${TotalCost:F4}");
-            sb.AppendLine();
-            sb.AppendLine($"Breakdown by Operation:");
-            sb.AppendLine($"-----------------------");
+            var totals = new TokenUsageSummary(
+                TotalInputTokens,
+                TotalOutputTokens,
+                TotalInputTokens + TotalOutputTokens,
+                TotalCost);
 
             var byOperation = _entries
                 .GroupBy(e => e.Operation)
-                .Select(g => new
-                {
-                    Operation = g.Key,
-                    InputTokens = g.Sum(e => e.InputTokens),
-                    OutputTokens = g.Sum(e => e.OutputTokens),
-                    Cost = g.Sum(e => e.Cost),
-                    Count = g.Count()
-                })
-                .OrderByDescending(x => x.Cost);
+                .Select(g => new TokenUsageOperationSummary(
+                    g.Key,
+                    g.Count(),
+                    g.Sum(e => e.InputTokens),
+                    g.Sum(e => e.OutputTokens),
+                    g.Sum(e => e.Cost)))
+                .OrderByDescending(x => x.Cost)
+                .ToList()
+                .AsReadOnly();
 
-            foreach (var op in byOperation)
-            {
-                sb.AppendLine($"  {op.Operation} ({op.Count}x):");
-                sb.AppendLine($"    Tokens: {op.InputTokens:N0} in / {op.OutputTokens:N0} out");
-                sb.AppendLine($"    Cost:   ${op.Cost:F4}");
-            }
-
-            return sb.ToString();
+            return new TokenUsageDetailedSummary(totals, byOperation);
         }
     }
 }
@@ -111,3 +103,20 @@ public class TokenUsageEntry
     public int OutputTokens { get; set; }
     public decimal Cost { get; set; }
 }
+
+public sealed record TokenUsageSummary(
+    int TotalInputTokens,
+    int TotalOutputTokens,
+    int TotalTokens,
+    decimal TotalCost);
+
+public sealed record TokenUsageOperationSummary(
+    string Operation,
+    int Count,
+    int InputTokens,
+    int OutputTokens,
+    decimal Cost);
+
+public sealed record TokenUsageDetailedSummary(
+    TokenUsageSummary Totals,
+    IReadOnlyList<TokenUsageOperationSummary> ByOperation);

@@ -42,14 +42,14 @@ public partial class WizardForm : Form
     private void UpdateCostDisplay()
     {
         var tracker = _state.UsageTracker;
-        var totalTokens = tracker.TotalInputTokens + tracker.TotalOutputTokens;
-        if (totalTokens > 0)
+        var summary = tracker.GetSummary();
+        if (summary.TotalTokens > 0)
         {
-            _lblCostTracker.Text = $"Tokens: {totalTokens:N0} | Cost: ${tracker.TotalCost:F4}";
+            _lblCostTracker.Text = TokenUsageFormatter.FormatTokenAndCost(summary);
         }
         else
         {
-            _lblCostTracker.Text = "API Cost: $0.0000";
+            _lblCostTracker.Text = $"API Cost: {TokenUsageFormatter.FormatCost(summary.TotalCost)}";
         }
     }
 
