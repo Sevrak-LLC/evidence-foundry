@@ -175,7 +175,7 @@ public class StepCharacters : UserControl, IWizardStep
         {
             Name = "Personality",
             HeaderText = "Personality",
-            DataPropertyName = "Personality",
+            DataPropertyName = nameof(CharacterRow.Personality),
             AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill
         });
 
