@@ -19,8 +19,7 @@ public class EntityGeneratorOrchestrator
         IProgress<string>? progress = null,
         CancellationToken ct = default)
     {
-        if (storyline == null)
-            throw new ArgumentNullException(nameof(storyline));
+        ArgumentNullException.ThrowIfNull(storyline);
         if (!storyline.StartDate.HasValue || !storyline.EndDate.HasValue)
             throw new InvalidOperationException("Storyline must have a start and end date before character generation.");
 
