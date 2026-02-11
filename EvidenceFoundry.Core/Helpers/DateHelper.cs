@@ -139,7 +139,7 @@ public static class DateHelper
             notes.Add("Adjusted end date to be on or after the start date.");
         }
 
-        var note = notes.Count > 0 ? string.Join(" ", notes) : null;
+        var note = string.Join(" ", notes);
         return (normalizedStart, normalizedEnd, note);
     }
 
