@@ -100,14 +100,14 @@ public static class EmailThreadTopicCatalog
 
         var orgTypeConfig = GetOrganizationTypeConfig(industryConfig, organizationType);
 
-        if (department.HasValue && role.HasValue && orgTypeConfig != null)
+        if (department.HasValue &&
+            role.HasValue &&
+            orgTypeConfig != null &&
+            orgTypeConfig.Departments.TryGetValue(department.Value, out var departmentConfig) &&
+            departmentConfig.Roles.TryGetValue(role.Value, out var roleTopics))
         {
-            if (orgTypeConfig.Departments.TryGetValue(department.Value, out var departmentConfig) &&
-                departmentConfig.Roles.TryGetValue(role.Value, out var roleTopics))
-            {
-                AddDistinct(topics, seen, roleTopics);
-                return topics;
-            }
+            AddDistinct(topics, seen, roleTopics);
+            return topics;
         }
 
         AddDistinct(topics, seen, industryConfig.Topics);
@@ -117,9 +117,9 @@ public static class EmailThreadTopicCatalog
             AddDistinct(topics, seen, orgTypeConfig.Topics);
 
             if (department.HasValue &&
-                orgTypeConfig.Departments.TryGetValue(department.Value, out var departmentConfig))
+                orgTypeConfig.Departments.TryGetValue(department.Value, out var orgTypeDepartmentConfig))
             {
-                AddDistinct(topics, seen, departmentConfig.Topics);
+                AddDistinct(topics, seen, orgTypeDepartmentConfig.Topics);
             }
         }
 
