@@ -6,6 +6,10 @@ namespace EvidenceFoundry.Models;
 public static class CaseIssueCatalog
 {
     private const string ResourceName = "EvidenceFoundry.Resources.CaseIssueCatalog.json";
+    private static readonly JsonSerializerOptions ConfigSerializerOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
 
     private static readonly Lazy<CaseIssueCatalogConfig> ConfigLazy = new(LoadConfig);
     private static readonly Lazy<Dictionary<string, CaseAreaDefinition>> CaseAreaLookupLazy =
@@ -47,12 +51,7 @@ public static class CaseIssueCatalog
         using var reader = new StreamReader(stream);
         var json = reader.ReadToEnd();
 
-        var options = new JsonSerializerOptions
-        {
-            PropertyNameCaseInsensitive = true
-        };
-
-        var config = JsonSerializer.Deserialize<CaseIssueCatalogConfig>(json, options);
+        var config = JsonSerializer.Deserialize<CaseIssueCatalogConfig>(json, ConfigSerializerOptions);
         if (config == null)
             throw new InvalidOperationException("Case issue catalog config is empty or invalid.");
 
