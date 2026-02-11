@@ -857,8 +857,6 @@ public class StepWorldModel : UserControl, IWizardStep
         [SuppressMessage("SonarLint", "S1144:Unused private types or members should be removed", Justification = "Referenced by the Key People grid via data binding.")]
         public string Organization => OrganizationModel.Name;
 
-        public string Role => EnumHelper.HumanizeEnumName(RoleModel.Name.ToString());
-
         public string Personality
         {
             get => Character.Personality;
