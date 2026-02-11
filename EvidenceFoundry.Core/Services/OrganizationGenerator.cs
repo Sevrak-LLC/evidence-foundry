@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using EvidenceFoundry.Helpers;
@@ -16,6 +17,11 @@ public class OrganizationGenerator
     private static readonly UsState[] UsStates = Enum.GetValues<UsState>()
         .Where(s => s != UsState.Unknown)
         .ToArray();
+
+    private static readonly JsonSerializerOptions OrganizationJsonSerializerOptions = new()
+    {
+        WriteIndented = true
+    };
 
     public OrganizationGenerator(OpenAIService openAI)
     {
@@ -170,7 +176,7 @@ Rules:
                     reportsToRole = r.ReportsToRole?.ToString()
                 })
             })
-        }, new JsonSerializerOptions { WriteIndented = true });
+        }, OrganizationJsonSerializerOptions);
 
         var userPrompt = BuildOrganizationPrompt(
             storyline,
@@ -295,7 +301,7 @@ Respond with JSON in this exact format:
             IsDefendant = response.Defendant
         };
 
-        if (DateTime.TryParse(response.Founded, out var founded))
+        if (DateTime.TryParse(response.Founded, CultureInfo.InvariantCulture, DateTimeStyles.None, out var founded))
         {
             organization.Founded = founded;
         }
@@ -338,7 +344,7 @@ Respond with JSON in this exact format:
     }
 
     private static void PopulateDepartments(
-        ICollection<Department> target,
+        List<Department> target,
         IEnumerable<DepartmentDto>? departments)
     {
         if (departments == null)
@@ -356,7 +362,7 @@ Respond with JSON in this exact format:
     }
 
     private static void PopulateRoles(
-        ICollection<Role> target,
+        List<Role> target,
         IEnumerable<RoleDto>? roles)
     {
         if (roles == null)
@@ -378,7 +384,7 @@ Respond with JSON in this exact format:
         }
     }
 
-    internal void NormalizeOrganization(Organization organization, DateTime storylineStartDate, HashSet<string> usedDomains)
+    internal static void NormalizeOrganization(Organization organization, DateTime storylineStartDate, HashSet<string> usedDomains)
     {
         if (string.IsNullOrWhiteSpace(organization.Name))
             throw new InvalidOperationException("Organization name is required.");
@@ -423,7 +429,7 @@ Respond with JSON in this exact format:
 
     private static void AssignHierarchyIds(Organization organization)
     {
-        if (organization == null) throw new ArgumentNullException(nameof(organization));
+        ArgumentNullException.ThrowIfNull(organization);
 
         foreach (var department in organization.Departments)
         {
@@ -490,13 +496,12 @@ Respond with JSON in this exact format:
             ? string.Empty
             : domain.Trim().ToLowerInvariant();
 
-        if (normalized.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
-            normalized.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        if ((normalized.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+            normalized.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) &&
+            Uri.TryCreate(normalized, UriKind.Absolute, out var uri) &&
+            !string.IsNullOrWhiteSpace(uri.Host))
         {
-            if (Uri.TryCreate(normalized, UriKind.Absolute, out var uri) && !string.IsNullOrWhiteSpace(uri.Host))
-            {
-                normalized = uri.Host;
-            }
+            normalized = uri.Host;
         }
 
         normalized = normalized.Trim('.');

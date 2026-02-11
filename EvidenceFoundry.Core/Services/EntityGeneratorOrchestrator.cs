@@ -36,7 +36,7 @@ public class EntityGeneratorOrchestrator
         {
             ct.ThrowIfCancellationRequested();
             var enriched = await _organizationGenerator.EnrichOrganizationAsync(storyline, seed, ct);
-            _organizationGenerator.NormalizeOrganization(enriched, storyline.StartDate.Value.Date, usedDomains);
+            OrganizationGenerator.NormalizeOrganization(enriched, storyline.StartDate.Value.Date, usedDomains);
             organizations.Add(enriched);
         }
 
