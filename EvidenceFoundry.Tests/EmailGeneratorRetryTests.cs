@@ -132,7 +132,7 @@ public class EmailGeneratorRetryTests
 
     private static EmailGenerator.ThreadApiResponse BuildResponse(
         string subject,
-        IReadOnlyList<Character> characters,
+        List<Character> characters,
         int emailCount)
     {
         var from = characters[0];
