@@ -32,7 +32,7 @@ public static class EnumHelper
 
     public static string FormatEnumOptions<TEnum>() where TEnum : struct, Enum
     {
-        var names = Enum.GetNames(typeof(TEnum));
+        var names = Enum.GetNames<TEnum>();
         return string.Join(", ", names.Select(name => $"{name} ({HumanizeEnumName(name)})"));
     }
 
