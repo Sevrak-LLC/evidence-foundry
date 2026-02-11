@@ -8,7 +8,7 @@ namespace EvidenceFoundry.Services;
 public class CharacterGenerator
 {
     private readonly OpenAIService _openAI;
-    private static readonly Random _random = Random.Shared;
+    private readonly Random _rng;
 
     // Available TTS voices with characteristics
     private static readonly string[] MaleVoices = ["echo", "onyx", "fable"];
@@ -16,9 +16,11 @@ public class CharacterGenerator
 
     private const int MaxCharactersPerOrganization = 15;
 
-    public CharacterGenerator(OpenAIService openAI)
+    public CharacterGenerator(OpenAIService openAI, Random rng)
     {
+        ArgumentNullException.ThrowIfNull(rng);
         _openAI = openAI;
+        _rng = rng;
     }
 
     /// <summary>
@@ -29,11 +31,11 @@ public class CharacterGenerator
         var lowerGender = gender?.ToLowerInvariant() ?? "";
         if (lowerGender == "female" || lowerGender == "f")
         {
-            return FemaleVoices[_random.Next(FemaleVoices.Length)];
+            return FemaleVoices[_rng.Next(FemaleVoices.Length)];
         }
         if (lowerGender == "male" || lowerGender == "m")
         {
-            return MaleVoices[_random.Next(MaleVoices.Length)];
+            return MaleVoices[_rng.Next(MaleVoices.Length)];
         }
 
         var lowerName = firstName.ToLowerInvariant();
@@ -55,15 +57,15 @@ public class CharacterGenerator
 
         if (likelyFemale && !likelyMale)
         {
-            return FemaleVoices[_random.Next(FemaleVoices.Length)];
+            return FemaleVoices[_rng.Next(FemaleVoices.Length)];
         }
         if (likelyMale && !likelyFemale)
         {
-            return MaleVoices[_random.Next(MaleVoices.Length)];
+            return MaleVoices[_rng.Next(MaleVoices.Length)];
         }
 
         var allVoices = MaleVoices.Concat(FemaleVoices).ToArray();
-        return allVoices[_random.Next(allVoices.Length)];
+        return allVoices[_rng.Next(allVoices.Length)];
     }
 
     internal async Task MapKnownCharactersAsync(

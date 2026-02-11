@@ -197,7 +197,7 @@ public class EmailGeneratorRetryTests
         public int CallCount { get; private set; }
 
         public TestEmailGenerator(IEnumerable<EmailGenerator.ThreadApiResponse?> responses)
-            : base(new OpenAIService("test-key", "gpt-4o-mini"))
+            : base(new OpenAIService("test-key", "gpt-4o-mini", new Random(1)), new Random(1))
         {
             _responses = new Queue<EmailGenerator.ThreadApiResponse?>(responses);
         }

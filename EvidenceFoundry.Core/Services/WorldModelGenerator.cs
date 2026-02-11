@@ -21,6 +21,7 @@ public sealed class WorldModelRequest
 public class WorldModelGenerator
 {
     private readonly OpenAIService _openAI;
+    private readonly Random _rng;
     private const string RandomIndustryPreference = "Random";
     private static readonly JsonSerializerOptions WorldModelSerializerOptions = JsonSerializationDefaults.CaseInsensitiveWithEnums;
     private static readonly Dictionary<string, UsState> UsStateAbbreviations = new(StringComparer.OrdinalIgnoreCase)
@@ -78,9 +79,11 @@ public class WorldModelGenerator
         ["DC"] = UsState.DistrictOfColumbia
     };
 
-    public WorldModelGenerator(OpenAIService openAI)
+    public WorldModelGenerator(OpenAIService openAI, Random rng)
     {
+        ArgumentNullException.ThrowIfNull(rng);
         _openAI = openAI;
+        _rng = rng;
     }
 
     public async Task<World> GenerateWorldModelAsync(
@@ -104,7 +107,7 @@ public class WorldModelGenerator
         var normalizedPlaintiffCount = NormalizePartyCount(request.PlaintiffOrganizationCount);
         var normalizedDefendantCount = NormalizePartyCount(request.DefendantOrganizationCount);
 
-        var industriesForPrompt = ResolveIndustriesForPrompt(normalizedPlaintiffIndustry, normalizedDefendantIndustry);
+        var industriesForPrompt = ResolveIndustriesForPrompt(normalizedPlaintiffIndustry, normalizedDefendantIndustry, _rng);
         if (industriesForPrompt.Count == 0)
         {
             industriesForPrompt = new List<Industry> { Industry.Other };
@@ -538,10 +541,10 @@ OUTPUT JSON SCHEMA (respond with JSON that matches this exactly)
         return role;
     }
 
-    internal static List<Industry> ResolveIndustriesForPrompt(string plaintiffIndustry, string defendantIndustry)
+    internal static List<Industry> ResolveIndustriesForPrompt(string plaintiffIndustry, string defendantIndustry, Random rng)
     {
+        ArgumentNullException.ThrowIfNull(rng);
         var industries = new List<Industry>();
-        var rng = Random.Shared;
 
         if (IsRandomIndustry(plaintiffIndustry))
         {

@@ -13,6 +13,7 @@ public class LoadingOverlay : Panel
     private int _dotCount = 0;
     private readonly string[] _messages;
     private string _currentBaseMessage = "";
+    private readonly Random _rng = new();
 
     private static readonly string[] StorylineMessageOptions = new[]
     {
@@ -113,14 +114,14 @@ public class LoadingOverlay : Panel
         // Timer to rotate messages every 5-8 seconds
         _messageTimer = new System.Windows.Forms.Timer
         {
-            Interval = 5000 + Random.Shared.Next(3000)
+            Interval = 5000 + _rng.Next(3000)
         };
         _messageTimer.Tick += (s, e) =>
         {
             _currentMessageIndex = (_currentMessageIndex + 1) % _messages.Length;
             _currentBaseMessage = _messages[_currentMessageIndex];
             UpdateDisplayText();
-            _messageTimer.Interval = 5000 + Random.Shared.Next(3000);
+            _messageTimer.Interval = 5000 + _rng.Next(3000);
         };
 
         // Timer for animated dots
@@ -151,7 +152,7 @@ public class LoadingOverlay : Panel
         this.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
 
         // Randomize starting message
-        _currentMessageIndex = Random.Shared.Next(_messages.Length);
+        _currentMessageIndex = _rng.Next(_messages.Length);
         _currentBaseMessage = _messages[_currentMessageIndex];
         _dotCount = 0;
         UpdateDisplayText();

@@ -179,7 +179,7 @@ public class StepStoryBeats : UserControl, IWizardStep
                     throw new InvalidOperationException("Generate a storyline before generating story beats.");
 
                 var openAI = _state.CreateOpenAIService();
-                var generator = new StorylineGenerator(openAI);
+                var generator = new StorylineGenerator(openAI, _state.GenerationRandom);
 
                 var organizations = storyline.Organizations.Count > 0
                     ? storyline.Organizations
@@ -200,7 +200,7 @@ public class StepStoryBeats : UserControl, IWizardStep
 
                 storyline.Beats = beats.ToList();
 
-                var characterGenerator = new CharacterGenerator(openAI);
+                var characterGenerator = new CharacterGenerator(openAI, _state.GenerationRandom);
                 await characterGenerator.AnnotateStorylineRelevanceAsync(
                     _state.Topic,
                     storyline,

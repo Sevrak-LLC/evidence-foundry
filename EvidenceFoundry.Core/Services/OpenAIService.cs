@@ -16,6 +16,7 @@ public class OpenAIService
 
     private readonly OpenAIClient _client;
     private readonly ChatClient _chatClient;
+    private readonly Random _rng;
     private readonly AIModelConfig? _modelConfig;
     private readonly TokenUsageTracker? _usageTracker;
     private const int MaxRetries = 4;
@@ -28,14 +29,18 @@ public class OpenAIService
         return new OpenAIClient(new System.ClientModel.ApiKeyCredential(apiKey), options);
     }
 
-    public OpenAIService(string apiKey, string model)
+    public OpenAIService(string apiKey, string model, Random rng)
     {
+        ArgumentNullException.ThrowIfNull(rng);
+        _rng = rng;
         _client = CreateClient(apiKey);
         _chatClient = _client.GetChatClient(model);
     }
 
-    public OpenAIService(string apiKey, AIModelConfig modelConfig, TokenUsageTracker? usageTracker = null)
+    public OpenAIService(string apiKey, AIModelConfig modelConfig, TokenUsageTracker? usageTracker, Random rng)
     {
+        ArgumentNullException.ThrowIfNull(rng);
+        _rng = rng;
         _modelConfig = modelConfig;
         _usageTracker = usageTracker;
         _client = CreateClient(apiKey);
@@ -316,17 +321,17 @@ public class OpenAIService
         return false;
     }
 
-    private static TimeSpan GetRetryDelay(int attempt, Exception ex)
+    private TimeSpan GetRetryDelay(int attempt, Exception ex)
     {
         if (ex is ClientResultException { Status: 429 } && RateLimitDelayOverride.HasValue)
             return RateLimitDelayOverride.Value;
 
         var baseSeconds = Math.Pow(2, attempt + 1);
-        var jitter = 0.8 + (Random.Shared.NextDouble() * 0.4);
+        var jitter = 0.8 + (_rng.NextDouble() * 0.4);
         return TimeSpan.FromSeconds(baseSeconds * jitter);
     }
 
-    private static Task DelayForRetryAsync(int attempt, Exception ex, CancellationToken ct)
+    private Task DelayForRetryAsync(int attempt, Exception ex, CancellationToken ct)
     {
         return Task.Delay(GetRetryDelay(attempt, ex), ct);
     }

@@ -392,7 +392,7 @@ public class StepCharacters : UserControl, IWizardStep
                     throw new InvalidOperationException("Storyline is required before generating characters.");
 
                 var openAI = _state.CreateOpenAIService();
-                var generator = new EntityGeneratorOrchestrator(openAI);
+                var generator = new EntityGeneratorOrchestrator(openAI, _state.GenerationRandom);
 
                 var result = await generator.GenerateEntitiesAsync(
                     _state.Topic,

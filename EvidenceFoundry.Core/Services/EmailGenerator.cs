@@ -15,7 +15,7 @@ public class EmailGenerator
     private readonly OfficeDocumentService _officeService;
     private readonly EmailThreadGenerator _threadGenerator;
     private readonly SuggestedSearchTermGenerator _searchTermGenerator;
-    private static readonly Random _random = Random.Shared;
+    private readonly Random _rng;
 
     // Track document chains across threads for versioning
     private readonly ConcurrentDictionary<string, DocumentChainState> _documentChains = new();
@@ -43,12 +43,14 @@ public class EmailGenerator
         "Cordially,"
     };
 
-    public EmailGenerator(OpenAIService openAI)
+    public EmailGenerator(OpenAIService openAI, Random rng)
     {
+        ArgumentNullException.ThrowIfNull(rng);
         _openAI = openAI;
         _officeService = new OfficeDocumentService();
         _threadGenerator = new EmailThreadGenerator();
         _searchTermGenerator = new SuggestedSearchTermGenerator(openAI);
+        _rng = rng;
     }
 
     private sealed class DocumentChainState
@@ -848,7 +850,7 @@ public class EmailGenerator
                 var threadEmailCount = thread.EmailMessages.Count;
                 var threadStartDate = DateHelper.InterpolateDateInRange(beat.StartDate, beat.EndDate, (double)emailsAssigned / beat.EmailCount);
                 var threadEndDate = DateHelper.InterpolateDateInRange(beat.StartDate, beat.EndDate, (double)(emailsAssigned + threadEmailCount) / beat.EmailCount);
-                _threadGenerator.AssignThreadParticipants(thread, state.Organizations, _random);
+                _threadGenerator.AssignThreadParticipants(thread, state.Organizations, _rng);
 
                 var participants = ResolveThreadParticipants(thread, characters);
                 var participantLookup = participants.ToDictionary(c => c.Email, StringComparer.OrdinalIgnoreCase);
@@ -1095,7 +1097,8 @@ public class EmailGenerator
 
         var maxCalendarEmails = Math.Max(1, (int)Math.Round(emails.Count * state.Config.CalendarInvitePercentage / 100.0));
         var emailsToCheckForCalendar = emails
-            .OrderBy(_ => _random.Next())
+            // Randomized ordering (seeded RNG) to sample calendar-invite candidates.
+            .OrderBy(_ => _rng.Next())
             .Take(maxCalendarEmails)
             .ToList();
 
@@ -2021,7 +2024,7 @@ ATTACHMENT REMINDER:
         if (participantLookup.TryGetValue(e.FromEmail, out var fromChar))
             return fromChar;
 
-        return participants[_random.Next(participants.Count)];
+        return participants[_rng.Next(participants.Count)];
     }
 
     private static List<Character> ResolveRecipients(
@@ -2055,11 +2058,11 @@ ATTACHMENT REMINDER:
         return threadSubject;
     }
 
-    private static DateTime ResolveSentDate(EmailDto e, DateTime startDate, DateTime endDate)
+    private DateTime ResolveSentDate(EmailDto e, DateTime startDate, DateTime endDate)
     {
         return DateTime.TryParse(e.SentDateTime, CultureInfo.CurrentCulture, DateTimeStyles.None, out var sentDate)
             ? sentDate
-            : DateHelper.RandomDateInRange(startDate, endDate);
+            : DateHelper.RandomDateInRange(startDate, endDate, _rng);
     }
 
     private static string BuildEmailBody(
@@ -2277,7 +2280,8 @@ ATTACHMENT REMINDER:
         if (percentage <= 0) return new List<EmailMessage>();
 
         var count = Math.Max(1, (int)Math.Round(emails.Count * percentage / 100.0));
-        return emails.OrderBy(_ => _random.Next()).Take(count).ToList();
+        // Randomized ordering (seeded RNG) to sample attachments across the thread.
+        return emails.OrderBy(_ => _rng.Next()).Take(count).ToList();
     }
 
     /// <summary>
@@ -2356,7 +2360,7 @@ Email body preview: {email.BodyPlain[..Math.Min(300, email.BodyPlain.Length)]}..
         WizardState state,
         AttachmentType attachmentType)
     {
-        if (!state.Config.EnableAttachmentChains || _documentChains.Count == 0 || _random.Next(100) >= 30)
+        if (!state.Config.EnableAttachmentChains || _documentChains.Count == 0 || _rng.Next(100) >= 30)
             return (null, null);
 
         var matchingChains = _documentChains.Values
@@ -2365,7 +2369,7 @@ Email body preview: {email.BodyPlain[..Math.Min(300, email.BodyPlain.Length)]}..
         if (matchingChains.Count == 0)
             return (null, null);
 
-        var chainState = matchingChains[_random.Next(matchingChains.Count)];
+        var chainState = matchingChains[_rng.Next(matchingChains.Count)];
         int reservedVersion;
         lock (chainState.SyncRoot)
         {
@@ -2420,7 +2424,7 @@ Email body preview: {email.BodyPlain[..Math.Min(300, email.BodyPlain.Length)]}..
             return;
         }
 
-        if (state.Config.EnableAttachmentChains && attachment.Type == AttachmentType.Word && _random.Next(100) < 50)
+        if (state.Config.EnableAttachmentChains && attachment.Type == AttachmentType.Word && _rng.Next(100) < 50)
         {
             // Start a new chain for Word documents
             var newChain = new DocumentChainState
@@ -2602,7 +2606,7 @@ Respond with JSON:
         var enabledTypes = state.Config.EnabledAttachmentTypes;
         if (enabledTypes.Count == 0) return;
 
-        var attachmentType = enabledTypes[_random.Next(enabledTypes.Count)];
+        var attachmentType = enabledTypes[_rng.Next(enabledTypes.Count)];
         var isDetailed = state.Config.AttachmentComplexity == AttachmentComplexity.Detailed;
 
         var (chainState, reservedVersion) = TryReserveDocumentChain(state, attachmentType);

@@ -7,10 +7,11 @@ public class EntityGeneratorOrchestrator
     private readonly OrganizationGenerator _organizationGenerator;
     private readonly CharacterGenerator _characterGenerator;
 
-    public EntityGeneratorOrchestrator(OpenAIService openAI)
+    public EntityGeneratorOrchestrator(OpenAIService openAI, Random rng)
     {
+        ArgumentNullException.ThrowIfNull(rng);
         _organizationGenerator = new OrganizationGenerator(openAI);
-        _characterGenerator = new CharacterGenerator(openAI);
+        _characterGenerator = new CharacterGenerator(openAI, rng);
     }
 
     public async Task<CharacterGenerationResult> GenerateEntitiesAsync(

@@ -1,7 +1,13 @@
+using System.Security.Cryptography;
+using EvidenceFoundry.Helpers;
+
 namespace EvidenceFoundry.Models;
 
 public class WizardState
 {
+    private int _generationSeed = RandomNumberGenerator.GetInt32(int.MaxValue);
+    private ThreadSafeRandom? _generationRandom;
+
     // Step 1 - API Configuration
     public string ApiKey { get; set; } = string.Empty;
     public string SelectedModel { get; set; } = "gpt-4o-mini";
@@ -13,6 +19,18 @@ public class WizardState
 
     // Token Usage Tracking
     public TokenUsageTracker UsageTracker { get; } = new();
+
+    public int GenerationSeed
+    {
+        get => _generationSeed;
+        set
+        {
+            _generationSeed = value;
+            _generationRandom = null;
+        }
+    }
+
+    public Random GenerationRandom => _generationRandom ??= new ThreadSafeRandom(_generationSeed);
 
     // Step 2 - Case Issue Selection
     public string CaseArea { get; set; } = string.Empty;
@@ -60,9 +78,9 @@ public class WizardState
         var modelConfig = SelectedModelConfig;
         if (modelConfig != null)
         {
-            return new Services.OpenAIService(ApiKey, modelConfig, UsageTracker);
+            return new Services.OpenAIService(ApiKey, modelConfig, UsageTracker, GenerationRandom);
         }
-        return new Services.OpenAIService(ApiKey, SelectedModel);
+        return new Services.OpenAIService(ApiKey, SelectedModel, GenerationRandom);
     }
 
     public IEnumerable<Storyline> GetActiveStorylines()

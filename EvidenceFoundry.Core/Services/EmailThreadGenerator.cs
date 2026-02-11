@@ -273,6 +273,7 @@ public class EmailThreadGenerator
 
         if (organizations.Count <= 2)
         {
+            // Randomized ordering (seeded RNG) to shuffle the small-org selection.
             return organizations
                 .OrderBy(_ => rng.Next())
                 .Take(organizations.Count)

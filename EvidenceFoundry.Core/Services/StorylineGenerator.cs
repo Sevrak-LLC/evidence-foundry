@@ -11,13 +11,16 @@ public class StorylineGenerator
     private readonly OpenAIService _openAI;
     private readonly StoryBeatGenerator _beatGenerator;
     private readonly EmailThreadGenerator _threadGenerator;
+    private readonly Random _rng;
     private const string RandomIndustryPreference = "Random";
 
-    public StorylineGenerator(OpenAIService openAI)
+    public StorylineGenerator(OpenAIService openAI, Random rng)
     {
+        ArgumentNullException.ThrowIfNull(rng);
         _openAI = openAI;
         _beatGenerator = new StoryBeatGenerator(openAI);
         _threadGenerator = new EmailThreadGenerator();
+        _rng = rng;
     }
 
     public async Task<StorylineGenerationResult> GenerateStorylineAsync(
@@ -201,7 +204,7 @@ Respond with JSON in this exact format:
             beat.StorylineId = storyline.Id;
         }
 
-        _threadGenerator.PlanEmailThreadsForBeats(beats, characters.Count, Random.Shared);
+        _threadGenerator.PlanEmailThreadsForBeats(beats, characters.Count, _rng);
 
         storyline.Beats = beats;
         return beats;

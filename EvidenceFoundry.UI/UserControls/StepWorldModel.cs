@@ -584,7 +584,7 @@ public class StepWorldModel : UserControl, IWizardStep
             async progress =>
             {
                 var openAI = _state.CreateOpenAIService();
-                var generator = new WorldModelGenerator(openAI);
+                var generator = new WorldModelGenerator(openAI, _state.GenerationRandom);
 
                 var request = new WorldModelRequest
                 {
