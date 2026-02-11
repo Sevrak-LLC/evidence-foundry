@@ -1557,12 +1557,12 @@ public class EmailGenerator
             }
         }
 
-        var message = lastException?.Message ?? "Unknown error";
-        var errorLine = $"Thread generation failed after {MaxThreadGenerationAttempts} attempts for beat '{plan.BeatName}' (thread {plan.Thread.Id}): {lastException?.GetType().Name ?? "Error"} - {message}";
+        var message = lastException.Message;
+        var errorLine = $"Thread generation failed after {MaxThreadGenerationAttempts} attempts for beat '{plan.BeatName}' (thread {plan.Thread.Id}): {lastException.GetType().Name} - {message}";
         lock (context.ProgressLock)
         {
             context.Result.Errors.Add(errorLine);
-            if (lastException?.InnerException != null)
+            if (lastException.InnerException != null)
             {
                 context.Result.Errors.Add($"  Inner error: {lastException.InnerException.Message}");
             }
