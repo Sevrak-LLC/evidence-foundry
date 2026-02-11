@@ -1247,21 +1247,27 @@ public class EmailGenerator
         }
     }
 
-    private async Task<EmailThread> GenerateSingleThreadForStorylineAsync(
-        Storyline storyline,
-        EmailThread thread,
-        List<Character> participants,
-        Dictionary<string, Character> participantLookup,
-        string domain,
-        int emailCount,
-        DateTime startDate,
-        DateTime endDate,
-        GenerationConfig config,
-        Dictionary<string, OrganizationTheme> domainThemes,
-        string systemPrompt,
-        string characterList,
-        CancellationToken ct)
+    private sealed record ThreadGenerationRequest(
+        Storyline Storyline,
+        EmailThread Thread,
+        List<Character> Participants,
+        Dictionary<string, Character> ParticipantLookup,
+        string Domain,
+        int EmailCount,
+        DateTime StartDate,
+        DateTime EndDate,
+        GenerationConfig Config,
+        Dictionary<string, OrganizationTheme> DomainThemes,
+        string SystemPrompt,
+        string CharacterList,
+        CancellationToken CancellationToken);
+
+    private async Task<EmailThread> GenerateSingleThreadForStorylineAsync(ThreadGenerationRequest request)
     {
+        var thread = request.Thread;
+        var emailCount = request.EmailCount;
+        var ct = request.CancellationToken;
+
         ValidateThreadGenerationInputs(thread, emailCount);
 
         _threadGenerator.EnsurePlaceholderMessages(thread, emailCount);
@@ -1271,23 +1277,23 @@ public class EmailGenerator
 
         var isResponsiveThread = thread.Relevance == EmailThread.ThreadRelevance.Responsive || thread.IsHot;
 
-        var attachmentTotals = CalculateAttachmentTotals(config, emailCount);
+        var attachmentTotals = CalculateAttachmentTotals(request.Config, emailCount);
         var attachmentState = new AttachmentDistributionState(
             attachmentTotals.totalDocAttachments,
             attachmentTotals.totalImageAttachments,
             attachmentTotals.totalVoicemailAttachments);
 
         var batchContext = new ThreadBatchContext(
-            storyline,
+            request.Storyline,
             thread,
-            participants,
-            participantLookup,
-            startDate,
-            endDate,
-            config,
-            domainThemes,
-            systemPrompt,
-            characterList,
+            request.Participants,
+            request.ParticipantLookup,
+            request.StartDate,
+            request.EndDate,
+            request.Config,
+            request.DomainThemes,
+            request.SystemPrompt,
+            request.CharacterList,
             emailCount);
 
         var generationState = new ThreadGenerationState(0, string.Empty);
@@ -1310,7 +1316,7 @@ public class EmailGenerator
             throw new InvalidOperationException($"Thread generated {generationState.EmailsGenerated} emails but expected {emailCount}.");
 
         // Setup threading headers
-        ThreadingHelper.SetupThreading(thread, domain);
+        ThreadingHelper.SetupThreading(thread, request.Domain);
 
         return thread;
     }
@@ -1550,7 +1556,7 @@ public class EmailGenerator
             {
                 _threadGenerator.ResetThreadForRetry(thread, emailCount);
 
-                return await GenerateSingleThreadForStorylineAsync(
+                var request = new ThreadGenerationRequest(
                     storyline,
                     thread,
                     participants,
@@ -1564,6 +1570,8 @@ public class EmailGenerator
                     systemPrompt,
                     characterList,
                     ct);
+
+                return await GenerateSingleThreadForStorylineAsync(request);
             }
             catch (OperationCanceledException)
             {
@@ -2486,11 +2494,12 @@ Email body preview: {email.BodyPlain[..Math.Min(300, email.BodyPlain.Length)]}..
 
     private static Attachment BuildPlannedImageAttachment(EmailMessage email, byte[] imageBytes, string contentId)
     {
+        var plannedDescription = email.PlannedImageDescription ?? string.Empty;
         return new Attachment
         {
             Type = AttachmentType.Image,
             Content = imageBytes,
-            ContentDescription = email.PlannedImageDescription,
+            ContentDescription = plannedDescription,
             IsInline = email.PlannedIsImageInline,
             ContentId = contentId,
             FileName = $"image_{email.SentDate:yyyyMMdd}_{Guid.NewGuid().ToString("N")[..6]}.png"
@@ -2503,9 +2512,10 @@ Email body preview: {email.BodyPlain[..Math.Min(300, email.BodyPlain.Length)]}..
         if (!email.PlannedIsImageInline || string.IsNullOrEmpty(email.BodyHtml))
             return;
 
-        var caption = email.PlannedImageDescription.Length > 100
-            ? email.PlannedImageDescription[..100] + "..."
-            : email.PlannedImageDescription;
+        var plannedDescription = email.PlannedImageDescription ?? string.Empty;
+        var caption = plannedDescription.Length > 100
+            ? plannedDescription[..100] + "..."
+            : plannedDescription;
 
         var imageHtml = $@"<div style=""text-align: center; margin: 15px 0;""><img src=""cid:{contentId}"" alt=""{System.Net.WebUtility.HtmlEncode(caption)}"" style=""max-width: 600px; height: auto; border-radius: 4px;"" /></div>";
 
@@ -2997,6 +3007,9 @@ Respond with JSON:
 
     private static void InsertInlineImageHtml(EmailMessage email, string imageHtml)
     {
+        if (string.IsNullOrEmpty(email.BodyHtml))
+            return;
+
         // Try to insert the image BEFORE the quoted content (reply or forward sections)
         var insertionPoints = new[]
         {
