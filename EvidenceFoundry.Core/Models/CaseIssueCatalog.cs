@@ -5,8 +5,6 @@ namespace EvidenceFoundry.Models;
 
 public static class CaseIssueCatalog
 {
-    private const string ResourceName = "EvidenceFoundry.Resources.CaseIssueCatalog.json";
-    private static readonly Lazy<CaseIssueCatalogConfig> ConfigLazy = new(LoadConfig);
     private static readonly Lazy<Dictionary<string, CaseAreaDefinition>> CaseAreaLookupLazy =
         new(() => Config.CaseAreas.ToDictionary(area => area.Name, StringComparer.OrdinalIgnoreCase));
 
@@ -33,19 +31,8 @@ public static class CaseIssueCatalog
         return issueDefinition.Description;
     }
 
-    private static CaseIssueCatalogConfig Config => ConfigLazy.Value;
+    private static CaseIssueCatalogConfig Config => CatalogResourceLoader.CaseIssueCatalog;
     private static Dictionary<string, CaseAreaDefinition> CaseAreaLookup => CaseAreaLookupLazy.Value;
-
-    private static CaseIssueCatalogConfig LoadConfig()
-    {
-        var assembly = typeof(CaseIssueCatalog).Assembly;
-        return EmbeddedResourceLoader.LoadJsonResource<CaseIssueCatalogConfig>(
-            assembly,
-            ResourceName,
-            JsonSerializationDefaults.CaseInsensitive,
-            $"Missing case issue catalog resource '{ResourceName}'.",
-            "Case issue catalog config is empty or invalid.");
-    }
 
     private static CaseAreaDefinition GetCaseArea(string caseArea)
     {
@@ -88,13 +75,13 @@ public static class CaseIssueCatalog
         return match;
     }
 
-    private sealed class CaseIssueCatalogConfig
+    internal sealed class CaseIssueCatalogConfig
     {
         [JsonPropertyName("caseAreas")]
         public List<CaseAreaDefinition> CaseAreas { get; init; } = new();
     }
 
-    private sealed class CaseAreaDefinition
+    internal sealed class CaseAreaDefinition
     {
         [JsonPropertyName("name")]
         public string Name { get; init; } = string.Empty;
@@ -103,7 +90,7 @@ public static class CaseIssueCatalog
         public List<MatterTypeDefinition> MatterTypes { get; init; } = new();
     }
 
-    private sealed class MatterTypeDefinition
+    internal sealed class MatterTypeDefinition
     {
         [JsonPropertyName("name")]
         public string Name { get; init; } = string.Empty;
@@ -112,7 +99,7 @@ public static class CaseIssueCatalog
         public List<IssueDefinition> Issues { get; init; } = new();
     }
 
-    private sealed class IssueDefinition
+    internal sealed class IssueDefinition
     {
         [JsonPropertyName("name")]
         public string Name { get; init; } = string.Empty;

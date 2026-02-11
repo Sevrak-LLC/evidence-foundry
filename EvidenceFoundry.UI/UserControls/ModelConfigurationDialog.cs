@@ -279,7 +279,7 @@ public class ModelConfigurationDialog : Form
         if (MessageBox.Show("Reset all models to default configuration?", "Reset Defaults",
             MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
         {
-            Models = AIModelConfig.GetDefaultModels();
+            Models = AIModelConfigStore.GetDefaultModels();
             _bindingSource.DataSource = Models;
             _bindingSource.ResetBindings(false);
         }

@@ -218,7 +218,7 @@ public class StepApiConfiguration : UserControl, IWizardStep
             _state.AvailableModelConfigs = dialog.Models;
             try
             {
-                AIModelConfig.SaveModelConfigs(_state.AvailableModelConfigs);
+                AIModelConfigStore.SaveModelConfigs(_state.AvailableModelConfigs);
             }
             catch (Exception ex)
             {

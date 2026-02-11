@@ -19,19 +19,5 @@ public sealed class OrganizationStructureCatalogData
 
 public static class OrganizationStructureCatalog
 {
-    private const string ResourceName = "EvidenceFoundry.Resources.OrganizationStructureCatalog.json";
-    private static readonly Lazy<OrganizationStructureCatalogData> CatalogLazy = new(LoadConfig);
-
-    public static OrganizationStructureCatalogData Catalog => CatalogLazy.Value;
-
-    private static OrganizationStructureCatalogData LoadConfig()
-    {
-        var assembly = typeof(OrganizationStructureCatalog).Assembly;
-        return EmbeddedResourceLoader.LoadJsonResource<OrganizationStructureCatalogData>(
-            assembly,
-            ResourceName,
-            JsonSerializationDefaults.CaseInsensitiveWithEnums,
-            $"Missing organization structure config resource '{ResourceName}'.",
-            "Organization structure config is empty or invalid.");
-    }
+    public static OrganizationStructureCatalogData Catalog => CatalogResourceLoader.OrganizationStructureCatalog;
 }

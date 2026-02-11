@@ -5,10 +5,6 @@ namespace EvidenceFoundry.Models;
 
 public static class EmailThreadTopicCatalog
 {
-    private const string ResourceName = "EvidenceFoundry.Resources.EmailThreadTopicCatalog.json";
-
-    private static readonly Lazy<EmailThreadTopicCatalogData> CatalogLazy = new(LoadCatalog);
-
     public static IReadOnlyList<string> GetTopics(Industry industry, OrganizationType organizationType)
     {
         return GetTopicsInternal(industry, organizationType, null, null);
@@ -58,18 +54,7 @@ public static class EmailThreadTopicCatalog
         return topics;
     }
 
-    private static EmailThreadTopicCatalogData Catalog => CatalogLazy.Value;
-
-    private static EmailThreadTopicCatalogData LoadCatalog()
-    {
-        var assembly = typeof(EmailThreadTopicCatalog).Assembly;
-        return EmbeddedResourceLoader.LoadJsonResource<EmailThreadTopicCatalogData>(
-            assembly,
-            ResourceName,
-            JsonSerializationDefaults.CaseInsensitiveWithEnums,
-            $"Missing email thread topic catalog resource '{ResourceName}'.",
-            "Email thread topic catalog is empty or invalid.");
-    }
+    private static EmailThreadTopicCatalogData Catalog => CatalogResourceLoader.EmailThreadTopicCatalog;
 
     private static List<string> GetTopicsInternal(
         Industry industry,
@@ -172,7 +157,7 @@ public static class EmailThreadTopicCatalog
         }
     }
 
-    private sealed class EmailThreadTopicCatalogData
+    internal sealed class EmailThreadTopicCatalogData
     {
         [JsonPropertyName("global")]
         public TopicGroup Global { get; init; } = new();
@@ -181,7 +166,7 @@ public static class EmailThreadTopicCatalog
         public Dictionary<Industry, IndustryTopicGroup> Industries { get; init; } = new();
     }
 
-    private sealed class IndustryTopicGroup
+    internal sealed class IndustryTopicGroup
     {
         [JsonPropertyName("topics")]
         public TopicGroup Topics { get; init; } = new();
@@ -190,7 +175,7 @@ public static class EmailThreadTopicCatalog
         public Dictionary<OrganizationType, OrganizationTypeTopicGroup> OrganizationTypes { get; init; } = new();
     }
 
-    private sealed class OrganizationTypeTopicGroup
+    internal sealed class OrganizationTypeTopicGroup
     {
         [JsonPropertyName("topics")]
         public TopicGroup Topics { get; init; } = new();
@@ -199,7 +184,7 @@ public static class EmailThreadTopicCatalog
         public Dictionary<DepartmentName, DepartmentTopicGroup> Departments { get; init; } = new();
     }
 
-    private sealed class DepartmentTopicGroup
+    internal sealed class DepartmentTopicGroup
     {
         [JsonPropertyName("topics")]
         public TopicGroup Topics { get; init; } = new();
@@ -208,13 +193,13 @@ public static class EmailThreadTopicCatalog
         public Dictionary<RoleName, TopicGroup> Roles { get; init; } = new();
     }
 
-    private sealed class TopicGroup
+    internal sealed class TopicGroup
     {
         [JsonPropertyName("scoped")]
         public ScopedTopicGroup? Scoped { get; init; } = new();
     }
 
-    private sealed class ScopedTopicGroup
+    internal sealed class ScopedTopicGroup
     {
         [JsonPropertyName("send")]
         public ScopedDirectionGroup Send { get; init; } = new();
@@ -223,7 +208,7 @@ public static class EmailThreadTopicCatalog
         public ScopedDirectionGroup Receive { get; init; } = new();
     }
 
-    private sealed class ScopedDirectionGroup
+    internal sealed class ScopedDirectionGroup
     {
         [JsonPropertyName("internal")]
         public List<string> Internal { get; init; } = new();

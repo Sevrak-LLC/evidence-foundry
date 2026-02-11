@@ -14,7 +14,7 @@ public class WizardState
     public bool ConnectionTested { get; set; }
 
     // Model Configurations
-    public List<AIModelConfig> AvailableModelConfigs { get; set; } = AIModelConfig.LoadModelConfigs();
+    public List<AIModelConfig> AvailableModelConfigs { get; set; } = AIModelConfigStore.LoadModelConfigs();
     public AIModelConfig? SelectedModelConfig => AvailableModelConfigs.FirstOrDefault(m => m.ModelId == SelectedModel);
 
     // Token Usage Tracking
