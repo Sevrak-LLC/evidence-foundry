@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using EvidenceFoundry.Helpers;
@@ -11,6 +12,7 @@ public class StorylineGenerator
     private readonly StoryBeatGenerator _beatGenerator;
     private readonly EmailThreadGenerator _threadGenerator;
     private const string RandomIndustryPreference = "Random";
+    private static readonly JsonSerializerOptions WorldModelSerializerOptions = new() { WriteIndented = true };
 
     public StorylineGenerator(OpenAIService openAI)
     {
@@ -20,28 +22,23 @@ public class StorylineGenerator
     }
 
     public async Task<StorylineGenerationResult> GenerateStorylineAsync(
-        string topic,
-        string issueDescription,
-        string additionalInstructions,
-        string plaintiffIndustry,
-        string defendantIndustry,
-        int plaintiffOrganizationCount,
-        int defendantOrganizationCount,
-        World? worldModel,
-        bool wantsDocuments = true,
-        bool wantsImages = false,
-        bool wantsVoicemails = false,
+        StorylineGenerationRequest request,
         IProgress<string>? progress = null,
         CancellationToken ct = default)
     {
-        var mediaHints = BuildMediaHints(wantsDocuments, wantsImages, wantsVoicemails);
-        var normalizedPlaintiffCount = NormalizePartyCount(plaintiffOrganizationCount);
-        var normalizedDefendantCount = NormalizePartyCount(defendantOrganizationCount);
+        ArgumentNullException.ThrowIfNull(request);
+
+        var topic = request.Topic ?? string.Empty;
+        var issueDescription = request.IssueDescription;
+        var additionalInstructions = request.AdditionalInstructions ?? string.Empty;
+        var mediaHints = BuildMediaHints(request.WantsDocuments, request.WantsImages, request.WantsVoicemails);
+        var normalizedPlaintiffCount = NormalizePartyCount(request.PlaintiffOrganizationCount);
+        var normalizedDefendantCount = NormalizePartyCount(request.DefendantOrganizationCount);
 
         progress?.Report("Generating storyline...");
         var issueContext = string.IsNullOrWhiteSpace(issueDescription) ? topic : issueDescription;
-        var normalizedPlaintiffIndustry = NormalizeIndustryPreference(plaintiffIndustry);
-        var normalizedDefendantIndustry = NormalizeIndustryPreference(defendantIndustry);
+        var normalizedPlaintiffIndustry = NormalizeIndustryPreference(request.PlaintiffIndustry);
+        var normalizedDefendantIndustry = NormalizeIndustryPreference(request.DefendantIndustry);
         var includeOtherIndustry = string.Equals(normalizedPlaintiffIndustry, nameof(Industry.Other), StringComparison.OrdinalIgnoreCase)
             || string.Equals(normalizedDefendantIndustry, nameof(Industry.Other), StringComparison.OrdinalIgnoreCase);
 
@@ -89,8 +86,8 @@ OUTPUT REQUIREMENTS (STRICT)
 - The summary field MUST clearly state the core pre-dispute situation, who is involved, and the tensions/risks that later lead to a dispute. Do NOT mention any dispute, claim, lawsuit, litigation, arbitration, investigation, subpoena, enforcement action, discovery process, or legal proceedings.";
 
         var industryOptions = FormatIndustryOptionsForStorylines(includeOtherIndustry);
-        var worldContext = BuildWorldModelContext(worldModel);
-        var worldRules = worldModel != null
+        var worldContext = BuildWorldModelContext(request.WorldModel);
+        var worldRules = request.WorldModel != null
             ? @"WORLD MODEL CONSTRAINTS:
 - Use ONLY the provided organizations and their domains. Do NOT invent or rename organizations.
 - Explicitly label the provided organizations as plaintiffs/defendants as given in the world model.
@@ -190,8 +187,7 @@ Respond with JSON in this exact format:
         IProgress<string>? progress = null,
         CancellationToken ct = default)
     {
-        if (storyline == null)
-            throw new ArgumentNullException(nameof(storyline));
+        ArgumentNullException.ThrowIfNull(storyline);
 
         var beats = await _beatGenerator.GenerateStoryBeatsAsync(
             topic,
@@ -241,7 +237,7 @@ Respond with JSON in this exact format:
 
     private static string FormatIndustryOptionsForStorylines(bool includeOther)
     {
-        var options = Enum.GetNames(typeof(Industry))
+        var options = Enum.GetNames<Industry>()
             .Where(name => includeOther || !string.Equals(name, nameof(Industry.Other), StringComparison.OrdinalIgnoreCase))
             .Select(name => $"{name} ({EnumHelper.HumanizeEnumName(name)})");
 
@@ -346,7 +342,7 @@ Respond with JSON in this exact format:
             organizations
         };
 
-        return JsonSerializer.Serialize(context, new JsonSerializerOptions { WriteIndented = true });
+        return JsonSerializer.Serialize(context, WorldModelSerializerOptions);
     }
 
     private async Task ApplyStorylineDateRangeAsync(
@@ -401,8 +397,8 @@ Return JSON in this exact format:
         if (response == null)
             return;
 
-        if (!DateTime.TryParse(response.StartDate, out var start) ||
-            !DateTime.TryParse(response.EndDate, out var end))
+        if (!DateTime.TryParseExact(response.StartDate, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var start) ||
+            !DateTime.TryParseExact(response.EndDate, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var end))
         {
             return;
         }
@@ -436,13 +432,13 @@ Return JSON in this exact format:
     }
 
     // API Response DTOs
-    private class StorylineApiResponse
+    private sealed class StorylineApiResponse
     {
         [JsonPropertyName("storylines")]
         public List<StorylineDto> Storylines { get; set; } = new();
     }
 
-    private class StorylineDto
+    private sealed class StorylineDto
     {
         [JsonPropertyName("title")]
         public string Title { get; set; } = string.Empty;
@@ -469,7 +465,7 @@ Return JSON in this exact format:
         public List<string>? EvidenceThemes { get; set; }
     }
 
-    private class StorylineDateRangeSingleResponse
+    private sealed class StorylineDateRangeSingleResponse
     {
         [JsonPropertyName("startDate")]
         public string StartDate { get; set; } = string.Empty;
@@ -477,6 +473,21 @@ Return JSON in this exact format:
         [JsonPropertyName("endDate")]
         public string EndDate { get; set; } = string.Empty;
     }
+}
+
+public sealed class StorylineGenerationRequest
+{
+    public string? Topic { get; set; }
+    public string? IssueDescription { get; set; }
+    public string? AdditionalInstructions { get; set; }
+    public string? PlaintiffIndustry { get; set; }
+    public string? DefendantIndustry { get; set; }
+    public int PlaintiffOrganizationCount { get; set; }
+    public int DefendantOrganizationCount { get; set; }
+    public World? WorldModel { get; set; }
+    public bool WantsDocuments { get; set; } = true;
+    public bool WantsImages { get; set; }
+    public bool WantsVoicemails { get; set; }
 }
 
 public class StorylineGenerationResult

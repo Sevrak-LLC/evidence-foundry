@@ -547,19 +547,22 @@ public class StepStorylines : UserControl, IWizardStep
                 _lblStatus.ForeColor = Color.Blue;
             });
 
-            var result = await generator.GenerateStorylineAsync(
-                _state.TopicDisplayName,
-                _state.StorylineIssueDescription,
-                _state.AdditionalInstructions,
-                _state.PlaintiffIndustry,
-                _state.DefendantIndustry,
-                _state.PlaintiffOrganizationCount,
-                _state.DefendantOrganizationCount,
-                _state.WorldModel,
-                _state.WantsDocuments,
-                _state.WantsImages,
-                _state.WantsVoicemails,
-                progress);
+            var request = new StorylineGenerationRequest
+            {
+                Topic = _state.TopicDisplayName,
+                IssueDescription = _state.StorylineIssueDescription,
+                AdditionalInstructions = _state.AdditionalInstructions,
+                PlaintiffIndustry = _state.PlaintiffIndustry,
+                DefendantIndustry = _state.DefendantIndustry,
+                PlaintiffOrganizationCount = _state.PlaintiffOrganizationCount,
+                DefendantOrganizationCount = _state.DefendantOrganizationCount,
+                WorldModel = _state.WorldModel,
+                WantsDocuments = _state.WantsDocuments,
+                WantsImages = _state.WantsImages,
+                WantsVoicemails = _state.WantsVoicemails
+            };
+
+            var result = await generator.GenerateStorylineAsync(request, progress);
 
             _state.Storyline = result.Storyline;
             ClearDerivedState();
