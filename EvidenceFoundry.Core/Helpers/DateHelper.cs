@@ -5,7 +5,7 @@ using EvidenceFoundry.Models;
 
 namespace EvidenceFoundry.Helpers;
 
-public static class DateHelper
+public static partial class DateHelper
 {
     private static readonly Random _random = Random.Shared;
 
@@ -101,7 +101,7 @@ public static class DateHelper
         DateTime start,
         DateTime end)
     {
-        if (storyline == null) throw new ArgumentNullException(nameof(storyline));
+        ArgumentNullException.ThrowIfNull(storyline);
 
         var normalizedStart = start.Date;
         var normalizedEnd = end.Date;
@@ -188,7 +188,7 @@ public static class DateHelper
         DateTime start,
         DateTime end,
         Random rng,
-        ICollection<string> notes)
+        List<string> notes)
     {
         if (start.Day != 1)
             return start;
@@ -210,7 +210,7 @@ public static class DateHelper
         DateTime start,
         DateTime end,
         Random rng,
-        ICollection<string> notes)
+        List<string> notes)
     {
         var monthEnd = DateTime.DaysInMonth(end.Year, end.Month);
         if (end.Day != monthEnd)
@@ -233,12 +233,17 @@ public static class DateHelper
     {
         var text = $"{title} {summary}".ToLowerInvariant();
 
-        if (Regex.IsMatch(text, @"\b(q[1-4]|h[12]|fy\d{2,4})\b"))
+        if (ExplicitBoundaryShortRegex().IsMatch(text))
             return true;
 
-        return Regex.IsMatch(text,
-            @"\b(quarter|quarterly|fiscal year|fiscal-year|year-end|year end|month-end|month end|annual|annually|calendar year|half-year|half year)\b");
+        return ExplicitBoundaryLongRegex().IsMatch(text);
     }
+
+    [GeneratedRegex(@"\b(q[1-4]|h[12]|fy\d{2,4})\b")]
+    private static partial Regex ExplicitBoundaryShortRegex();
+
+    [GeneratedRegex(@"\b(quarter|quarterly|fiscal year|fiscal-year|year-end|year end|month-end|month end|annual|annually|calendar year|half-year|half year)\b")]
+    private static partial Regex ExplicitBoundaryLongRegex();
 
     private static Random CreateDeterministicRandom(string title, string summary)
     {
@@ -435,7 +440,7 @@ public static class DateHelper
 
     public static int CalculateEmailCountForRange(DateTime start, DateTime end, int keyRoleCount, Random rng)
     {
-        if (rng == null) throw new ArgumentNullException(nameof(rng));
+        ArgumentNullException.ThrowIfNull(rng);
         if (keyRoleCount <= 0)
             throw new ArgumentOutOfRangeException(nameof(keyRoleCount), "Key role count must be positive.");
 
@@ -470,7 +475,7 @@ public static class DateHelper
 
     internal static List<int> BuildThreadSizePlan(int totalEmails, Random rng)
     {
-        if (rng == null) throw new ArgumentNullException(nameof(rng));
+        ArgumentNullException.ThrowIfNull(rng);
         if (totalEmails < 0)
             throw new ArgumentOutOfRangeException(nameof(totalEmails), "Total email count must be non-negative.");
         if (totalEmails == 0) return new List<int>();
