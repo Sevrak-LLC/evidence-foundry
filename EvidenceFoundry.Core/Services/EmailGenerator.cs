@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using System.Text.Json.Serialization;
@@ -71,7 +72,7 @@ public class EmailGenerator
             OutputFolder = state.Config.OutputFolder
         };
 
-        var startTime = DateTime.Now;
+        var stopwatch = Stopwatch.StartNew();
         var activeStorylines = state.GetActiveStorylines().ToList();
         var progressData = new GenerationProgress
         {
@@ -140,7 +141,7 @@ public class EmailGenerator
             result.TotalEmailsGenerated = threadsList.Sum(t => t.EmailMessages.Count);
             result.TotalThreadsGenerated = threadsList.Count;
             result.TotalAttachmentsGenerated = result.WordDocumentsGenerated + result.ExcelDocumentsGenerated + result.PowerPointDocumentsGenerated;
-            result.ElapsedTime = DateTime.Now - startTime;
+            result.ElapsedTime = stopwatch.Elapsed;
 
             state.GeneratedThreads = threadsList;
             state.Result = result;
@@ -152,13 +153,13 @@ public class EmailGenerator
         catch (OperationCanceledException)
         {
             result.WasCancelled = true;
-            result.ElapsedTime = DateTime.Now - startTime;
+            result.ElapsedTime = stopwatch.Elapsed;
             return result;
         }
         catch (Exception ex)
         {
             result.Errors.Add(ex.Message);
-            result.ElapsedTime = DateTime.Now - startTime;
+            result.ElapsedTime = stopwatch.Elapsed;
             return result;
         }
     }
