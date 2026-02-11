@@ -680,7 +680,7 @@ public class EmailGenerator
 
     private readonly record struct CharacterContext(string Role, string Department, string Organization);
 
-    private readonly record struct ThreadPlan(
+    internal readonly record struct ThreadPlan(
         int Index,
         EmailThread Thread,
         int EmailCount,
@@ -797,7 +797,7 @@ public class EmailGenerator
         return threads.Where(t => t != null).Select(t => t!).ToList();
     }
 
-    private sealed class ThreadPlanContext(
+    internal sealed class ThreadPlanContext(
         Storyline storyline,
         string domain,
         GenerationConfig config,
@@ -932,21 +932,8 @@ public class EmailGenerator
         CancellationToken ct)
     {
         var thread = await GenerateThreadWithRetriesAsync(
-            context.Storyline,
-            plan.Thread,
-            plan.Participants,
-            plan.ParticipantLookup,
-            context.Domain,
-            plan.EmailCount,
-            plan.Start,
-            plan.End,
-            context.Config,
-            context.DomainThemes,
-            context.SystemPrompt,
-            plan.ParticipantList,
-            plan.BeatName,
-            context.Result,
-            context.ProgressLock,
+            plan,
+            context,
             ct);
 
         ReportProgress(context.Progress, context.ProgressData, context.ProgressLock, p =>
@@ -1529,21 +1516,8 @@ public class EmailGenerator
     }
 
     internal async Task<EmailThread?> GenerateThreadWithRetriesAsync(
-        Storyline storyline,
-        EmailThread thread,
-        List<Character> participants,
-        Dictionary<string, Character> participantLookup,
-        string domain,
-        int emailCount,
-        DateTime startDate,
-        DateTime endDate,
-        GenerationConfig config,
-        Dictionary<string, OrganizationTheme> domainThemes,
-        string systemPrompt,
-        string characterList,
-        string beatName,
-        GenerationResult result,
-        object progressLock,
+        ThreadPlan plan,
+        ThreadPlanContext context,
         CancellationToken ct)
     {
         Exception? lastException = null;
@@ -1554,21 +1528,21 @@ public class EmailGenerator
 
             try
             {
-                _threadGenerator.ResetThreadForRetry(thread, emailCount);
+                _threadGenerator.ResetThreadForRetry(plan.Thread, plan.EmailCount);
 
                 var request = new ThreadGenerationRequest(
-                    storyline,
-                    thread,
-                    participants,
-                    participantLookup,
-                    domain,
-                    emailCount,
-                    startDate,
-                    endDate,
-                    config,
-                    domainThemes,
-                    systemPrompt,
-                    characterList,
+                    context.Storyline,
+                    plan.Thread,
+                    plan.Participants,
+                    plan.ParticipantLookup,
+                    context.Domain,
+                    plan.EmailCount,
+                    plan.Start,
+                    plan.End,
+                    context.Config,
+                    context.DomainThemes,
+                    context.SystemPrompt,
+                    plan.ParticipantList,
                     ct);
 
                 return await GenerateSingleThreadForStorylineAsync(request);
@@ -1584,17 +1558,17 @@ public class EmailGenerator
         }
 
         var message = lastException?.Message ?? "Unknown error";
-        var errorLine = $"Thread generation failed after {MaxThreadGenerationAttempts} attempts for beat '{beatName}' (thread {thread.Id}): {lastException?.GetType().Name ?? "Error"} - {message}";
-        lock (progressLock)
+        var errorLine = $"Thread generation failed after {MaxThreadGenerationAttempts} attempts for beat '{plan.BeatName}' (thread {plan.Thread.Id}): {lastException?.GetType().Name ?? "Error"} - {message}";
+        lock (context.ProgressLock)
         {
-            result.Errors.Add(errorLine);
+            context.Result.Errors.Add(errorLine);
             if (lastException?.InnerException != null)
             {
-                result.Errors.Add($"  Inner error: {lastException.InnerException.Message}");
+                context.Result.Errors.Add($"  Inner error: {lastException.InnerException.Message}");
             }
         }
 
-        _threadGenerator.ResetThreadForRetry(thread, emailCount);
+        _threadGenerator.ResetThreadForRetry(plan.Thread, plan.EmailCount);
         return null;
     }
 

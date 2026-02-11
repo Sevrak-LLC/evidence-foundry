@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using EvidenceFoundry.Models;
 using EvidenceFoundry.Services;
 
@@ -21,22 +22,28 @@ public class EmailGeneratorRetryTests
         var result = new GenerationResult();
         var progressLock = new object();
 
-        var output = await generator.GenerateThreadWithRetriesAsync(
-            BuildStoryline(),
+        var plan = new EmailGenerator.ThreadPlan(
+            0,
             thread,
-            characters,
-            characterLookup,
-            "corp.com",
             2,
             new DateTime(2024, 1, 1),
             new DateTime(2024, 1, 2),
+            "Beat 1",
+            characters,
+            characterLookup,
+            "characters");
+        var context = BuildThreadPlanContext(
+            BuildStoryline(),
+            "corp.com",
             new GenerationConfig(),
             new Dictionary<string, OrganizationTheme>(StringComparer.OrdinalIgnoreCase),
             "system",
-            "characters",
-            "Beat 1",
             result,
-            progressLock,
+            progressLock);
+
+        var output = await generator.GenerateThreadWithRetriesAsync(
+            plan,
+            context,
             CancellationToken.None);
 
         Assert.NotNull(output);
@@ -62,22 +69,28 @@ public class EmailGeneratorRetryTests
         var result = new GenerationResult();
         var progressLock = new object();
 
-        var output = await generator.GenerateThreadWithRetriesAsync(
-            BuildStoryline(),
+        var plan = new EmailGenerator.ThreadPlan(
+            0,
             thread,
-            characters,
-            characterLookup,
-            "corp.com",
             2,
             new DateTime(2024, 1, 1),
             new DateTime(2024, 1, 2),
+            "Beat 2",
+            characters,
+            characterLookup,
+            "characters");
+        var context = BuildThreadPlanContext(
+            BuildStoryline(),
+            "corp.com",
             new GenerationConfig(),
             new Dictionary<string, OrganizationTheme>(StringComparer.OrdinalIgnoreCase),
             "system",
-            "characters",
-            "Beat 2",
             result,
-            progressLock,
+            progressLock);
+
+        var output = await generator.GenerateThreadWithRetriesAsync(
+            plan,
+            context,
             CancellationToken.None);
 
         Assert.Null(output);
@@ -150,6 +163,31 @@ public class EmailGeneratorRetryTests
             Subject = subject,
             Emails = emails
         };
+    }
+
+    private static EmailGenerator.ThreadPlanContext BuildThreadPlanContext(
+        Storyline storyline,
+        string domain,
+        GenerationConfig config,
+        Dictionary<string, OrganizationTheme> domainThemes,
+        string systemPrompt,
+        GenerationResult result,
+        object progressLock)
+    {
+        return new EmailGenerator.ThreadPlanContext(
+            storyline,
+            domain,
+            config,
+            domainThemes,
+            systemPrompt,
+            new WizardState(),
+            result,
+            new GenerationProgress(),
+            new Progress<GenerationProgress>(_ => { }),
+            progressLock,
+            new EmlFileService(),
+            new SemaphoreSlim(1, 1),
+            new ConcurrentDictionary<Guid, bool>());
     }
 
     private sealed class TestEmailGenerator : EmailGenerator
