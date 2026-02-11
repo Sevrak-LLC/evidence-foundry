@@ -1,18 +1,38 @@
+using System.Diagnostics;
 using MimeKit;
 using EvidenceFoundry.Models;
 using EvidenceFoundry.Helpers;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace EvidenceFoundry.Services;
 
 public class EmlFileService
 {
     private const int MaxFileNameLength = 180;
+    private readonly ILogger<EmlFileService> _logger;
+
+    public EmlFileService(ILogger<EmlFileService>? logger = null)
+    {
+        _logger = logger ?? NullLogger<EmlFileService>.Instance;
+        _logger.LogDebug("EmlFileService initialized.");
+    }
 
     public static async Task SaveEmailAsEmlAsync(
         EmailMessage email,
         string outputFolder,
         CancellationToken ct = default)
+        => await SaveEmailAsEmlAsync(email, outputFolder, NullLogger<EmlFileService>.Instance, ct);
+
+    public static async Task SaveEmailAsEmlAsync(
+        EmailMessage email,
+        string outputFolder,
+        ILogger<EmlFileService>? logger,
+        CancellationToken ct = default)
     {
+        var log = logger ?? NullLogger<EmlFileService>.Instance;
+        log.LogDebug("Saving single email to EML output folder.");
+
         ArgumentNullException.ThrowIfNull(email);
         if (string.IsNullOrWhiteSpace(outputFolder))
             throw new ArgumentException("Output folder is required.", nameof(outputFolder));
@@ -42,6 +62,7 @@ public class EmlFileService
         if (string.IsNullOrWhiteSpace(outputFolder))
             throw new ArgumentException("Output folder is required.", nameof(outputFolder));
 
+        var stopwatch = Stopwatch.StartNew();
         // Ensure output folder exists
         Directory.CreateDirectory(outputFolder);
 
@@ -50,6 +71,16 @@ public class EmlFileService
         var completed = 0;
 
         var degree = Math.Max(1, maxDegreeOfParallelism ?? 1);
+        var shouldLog = _logger.IsEnabled(LogLevel.Information) && (threads.Count > 1 || total > 50);
+        if (shouldLog)
+        {
+            _logger.LogInformation(
+                "Saving {EmailCount} emails across {ThreadCount} thread(s) to {OutputFolder} with degree {Degree}.",
+                total,
+                threads.Count,
+                outputFolder,
+                degree);
+        }
 
         if (degree == 1)
         {
@@ -86,6 +117,14 @@ public class EmlFileService
                 var newCompleted = Interlocked.Increment(ref completed);
                 progress?.Report((newCompleted, total, fileName));
             });
+        }
+
+        if (shouldLog)
+        {
+            _logger.LogInformation(
+                "Saved {EmailCount} emails in {DurationMs} ms.",
+                total,
+                stopwatch.ElapsedMilliseconds);
         }
     }
 

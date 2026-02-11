@@ -1,5 +1,7 @@
 using System.Security.Cryptography;
 using EvidenceFoundry.Helpers;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace EvidenceFoundry.Models;
 
@@ -7,6 +9,7 @@ public class WizardState
 {
     private int _generationSeed = RandomNumberGenerator.GetInt32(int.MaxValue);
     private ThreadSafeRandom? _generationRandom;
+    private ILoggerFactory _loggerFactory = NullLoggerFactory.Instance;
 
     // Step 1 - API Configuration
     public string ApiKey { get; set; } = string.Empty;
@@ -19,6 +22,14 @@ public class WizardState
 
     // Token Usage Tracking
     public TokenUsageTracker UsageTracker { get; } = new();
+
+    public ILoggerFactory LoggerFactory
+    {
+        get => _loggerFactory;
+        set => _loggerFactory = value ?? NullLoggerFactory.Instance;
+    }
+
+    public ILogger<T> CreateLogger<T>() => _loggerFactory.CreateLogger<T>();
 
     public int GenerationSeed
     {
@@ -78,9 +89,18 @@ public class WizardState
         var modelConfig = SelectedModelConfig;
         if (modelConfig != null)
         {
-            return new Services.OpenAIService(ApiKey, modelConfig, UsageTracker, GenerationRandom);
+            return new Services.OpenAIService(
+                ApiKey,
+                modelConfig,
+                UsageTracker,
+                GenerationRandom,
+                CreateLogger<Services.OpenAIService>());
         }
-        return new Services.OpenAIService(ApiKey, SelectedModel, GenerationRandom);
+        return new Services.OpenAIService(
+            ApiKey,
+            SelectedModel,
+            GenerationRandom,
+            CreateLogger<Services.OpenAIService>());
     }
 
     public IEnumerable<Storyline> GetActiveStorylines()

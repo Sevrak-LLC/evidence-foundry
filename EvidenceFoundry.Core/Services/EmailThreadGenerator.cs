@@ -1,12 +1,21 @@
 using System.Globalization;
 using EvidenceFoundry.Helpers;
 using EvidenceFoundry.Models;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace EvidenceFoundry.Services;
 
 public class EmailThreadGenerator
 {
     private const double InternalThreadOdds = 0.7;
+    private readonly ILogger<EmailThreadGenerator> _logger;
+
+    public EmailThreadGenerator(ILogger<EmailThreadGenerator>? logger = null)
+    {
+        _logger = logger ?? NullLogger<EmailThreadGenerator>.Instance;
+        _logger.LogDebug("EmailThreadGenerator initialized.");
+    }
 
     internal void AssignThreadParticipants(
         EmailThread thread,
@@ -27,7 +36,12 @@ public class EmailThreadGenerator
         thread.ClearRoleParticipants();
 
         if (availableOrganizations.Count == 0)
+        {
+            _logger.LogWarning(
+                "No organizations with characters available for thread {ThreadId}.",
+                thread.Id);
             return;
+        }
 
         var requiresKey = thread.Relevance == EmailThread.ThreadRelevance.Responsive || thread.IsHot;
 
@@ -60,6 +74,11 @@ public class EmailThreadGenerator
         if (keyRoleCount <= 0)
             throw new ArgumentOutOfRangeException(nameof(keyRoleCount), "Key role count must be positive.");
 
+        _logger.LogInformation(
+            "Planning email threads for {BeatCount} beats with {KeyRoleCount} key roles.",
+            beats.Count,
+            keyRoleCount);
+
         foreach (var beat in beats)
         {
             EnsureBeatId(beat);
@@ -73,6 +92,13 @@ public class EmailThreadGenerator
         }
 
         EnsureThreadRelevanceCoverage(beats, rng);
+
+        var totalThreads = beats.Sum(b => b.Threads.Count);
+        var totalEmails = beats.Sum(b => b.EmailCount);
+        _logger.LogInformation(
+            "Planned {ThreadCount} threads with {EmailCount} emails.",
+            totalThreads,
+            totalEmails);
     }
 
     internal (double responsive, double hot) GetThreadOdds(int emailCount)

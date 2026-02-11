@@ -1,6 +1,8 @@
 using System.Text;
 using System.Linq;
 using EvidenceFoundry.Helpers;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace EvidenceFoundry.Services;
 
@@ -22,7 +24,14 @@ public class CalendarService
     /// Creates an ICS calendar invite file
     /// </summary>
     public static byte[] CreateCalendarInvite(CalendarInviteRequest request)
+        => CreateCalendarInvite(request, NullLogger<CalendarService>.Instance);
+
+    public static byte[] CreateCalendarInvite(
+        CalendarInviteRequest request,
+        ILogger<CalendarService>? logger)
     {
+        var log = logger ?? NullLogger<CalendarService>.Instance;
+
         ArgumentNullException.ThrowIfNull(request);
         if (string.IsNullOrWhiteSpace(request.Title))
             throw new ArgumentException("Title is required.", nameof(request.Title));
@@ -41,11 +50,23 @@ public class CalendarService
         if (endTime <= startTime)
         {
             endTime = startTime.AddMinutes(60);
+            log.LogWarning(
+                "Calendar invite end time was not after start; defaulted to 60-minute duration.");
         }
 
         var organizerEmailValue = EmailAddressHelper.TryNormalizeEmail(request.OrganizerEmail, out var normalizedOrganizer)
             ? normalizedOrganizer
             : "unknown@invalid.local";
+        if (organizerEmailValue == "unknown@invalid.local")
+        {
+            log.LogWarning("Organizer email was invalid; using fallback address.");
+        }
+
+        log.LogInformation(
+            "Creating calendar invite with {AttendeeCount} attendees and duration {DurationMinutes} minutes.",
+            request.Attendees?.Count ?? 0,
+            (int)Math.Round((endTime - startTime).TotalMinutes));
+
         var organizerNameValue = EscapeIcsText(HeaderValueHelper.SanitizeHeaderText(request.OrganizerName));
         var attendees = request.Attendees ?? Array.Empty<(string name, string email)>();
         var uid = BuildCalendarUid(request, organizerEmailValue, attendees);
@@ -67,15 +88,24 @@ public class CalendarService
         AppendFoldedLine(sb, $"LOCATION:{EscapeIcsText(request.Location)}");
         AppendFoldedLine(sb, $"ORGANIZER;CN={organizerNameValue}:mailto:{organizerEmailValue}");
 
+        var invalidAttendeeCount = 0;
         foreach (var (name, email) in attendees)
         {
             if (!EmailAddressHelper.TryNormalizeEmail(email, out var normalizedEmail))
             {
+                invalidAttendeeCount++;
                 continue;
             }
 
             var attendeeName = EscapeIcsText(HeaderValueHelper.SanitizeHeaderText(name));
             AppendFoldedLine(sb, $"ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;CN={attendeeName}:mailto:{normalizedEmail}");
+        }
+
+        if (invalidAttendeeCount > 0)
+        {
+            log.LogWarning(
+                "Skipped {InvalidAttendeeCount} attendee(s) due to invalid email addresses.",
+                invalidAttendeeCount);
         }
 
         AppendFoldedLine(sb, "STATUS:CONFIRMED");

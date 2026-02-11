@@ -1,12 +1,16 @@
+using System.Diagnostics;
 using System.Text.Json.Serialization;
 using EvidenceFoundry.Helpers;
 using EvidenceFoundry.Models;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace EvidenceFoundry.Services;
 
 public class OrganizationGenerator
 {
     private readonly OpenAIService _openAI;
+    private readonly ILogger<OrganizationGenerator> _logger;
 
     private static readonly OrganizationType[] OrganizationTypes = Enum.GetValues<OrganizationType>()
         .Where(t => t != OrganizationType.Unknown)
@@ -17,10 +21,12 @@ public class OrganizationGenerator
         .ToArray();
 
 
-    public OrganizationGenerator(OpenAIService openAI)
+    public OrganizationGenerator(OpenAIService openAI, ILogger<OrganizationGenerator>? logger = null)
     {
         ArgumentNullException.ThrowIfNull(openAI);
         _openAI = openAI;
+        _logger = logger ?? NullLogger<OrganizationGenerator>.Instance;
+        _logger.LogDebug("OrganizationGenerator initialized.");
     }
 
     public async Task<List<Organization>> GenerateKnownOrganizationsAsync(
@@ -34,7 +40,19 @@ public class OrganizationGenerator
         if (string.IsNullOrWhiteSpace(storyline.Summary))
             throw new ArgumentException("Storyline summary is required.", nameof(storyline));
 
-        var systemPrompt = PromptScaffolding.AppendJsonOnlyInstruction(@"You are the EvidenceFoundry Organization Extractor.
+        using var scope = _logger.BeginScope(new Dictionary<string, object>
+        {
+            ["Topic"] = topic,
+            ["StorylineId"] = storyline.Id,
+            ["StorylineTitle"] = storyline.Title
+        });
+
+        var stopwatch = Stopwatch.StartNew();
+        _logger.LogInformation("Generating known organizations from storyline.");
+
+        try
+        {
+            var systemPrompt = PromptScaffolding.AppendJsonOnlyInstruction(@"You are the EvidenceFoundry Organization Extractor.
 Extract ONLY organizations that are explicitly mentioned or clearly implied in the storyline description.
 Do NOT invent characters. Do NOT add speculative details.
 
@@ -46,13 +64,13 @@ Rules:
 - Use only the provided enum values for department/role names.
  - If an industry can be reasonably inferred from the description, include it; otherwise use ""Other"".");
 
-        var departments = EnumHelper.FormatEnumOptions<DepartmentName>();
-        var roles = EnumHelper.FormatEnumOptions<RoleName>();
-        var orgTypes = EnumHelper.FormatEnumOptions<OrganizationType>();
-        var industries = EnumHelper.FormatEnumOptions<Industry>();
-        var states = EnumHelper.FormatEnumOptions<UsState>();
+            var departments = EnumHelper.FormatEnumOptions<DepartmentName>();
+            var roles = EnumHelper.FormatEnumOptions<RoleName>();
+            var orgTypes = EnumHelper.FormatEnumOptions<OrganizationType>();
+            var industries = EnumHelper.FormatEnumOptions<Industry>();
+            var states = EnumHelper.FormatEnumOptions<UsState>();
 
-        var schema = """
+            var schema = """
 {
   "entities": [
     {
@@ -81,7 +99,7 @@ Rules:
 }
 """;
 
-        var userPrompt = PromptScaffolding.JoinSections($@"Topic: {topic}
+            var userPrompt = PromptScaffolding.JoinSections($@"Topic: {topic}
 
 Storyline title: {storyline.Title}
 Storyline summary:
@@ -105,16 +123,42 @@ Allowed US states (use exact values only):
 Enum values are shown as Raw (Humanized). Return only the Raw enum value.
 ", PromptScaffolding.JsonSchemaSection(schema));
 
-        var response = await _openAI.GetJsonCompletionAsync<OrganizationSeedResponse>(
-            systemPrompt,
-            userPrompt,
-            "Organization Extraction",
-            ct);
+            var response = await _openAI.GetJsonCompletionAsync<OrganizationSeedResponse>(
+                systemPrompt,
+                userPrompt,
+                "Organization Extraction",
+                ct);
 
-        if (response?.Organizations == null || response.Organizations.Count == 0)
-            throw new InvalidOperationException($"Organization extraction returned no organizations for storyline '{storyline.Title}'.");
+            if (response?.Organizations == null || response.Organizations.Count == 0)
+            {
+                _logger.LogError(
+                    "Organization extraction returned no organizations for storyline {StorylineTitle}.",
+                    storyline.Title);
+                throw new InvalidOperationException($"Organization extraction returned no organizations for storyline '{storyline.Title}'.");
+            }
 
-        return ParseSeedOrganizations(response);
+            var organizations = ParseSeedOrganizations(response);
+            _logger.LogInformation(
+                "Generated {OrganizationCount} known organizations in {DurationMs} ms.",
+                organizations.Count,
+                stopwatch.ElapsedMilliseconds);
+            return organizations;
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning(
+                "Known organization generation canceled after {DurationMs} ms.",
+                stopwatch.ElapsedMilliseconds);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "Known organization generation failed after {DurationMs} ms.",
+                stopwatch.ElapsedMilliseconds);
+            throw;
+        }
     }
 
     internal static List<Organization> ParseSeedOrganizations(OrganizationSeedResponse response)
@@ -142,7 +186,20 @@ Enum values are shown as Raw (Humanized). Return only the Raw enum value.
             throw new ArgumentException("Storyline start date is required.", nameof(storyline));
         ArgumentNullException.ThrowIfNull(seed);
 
-        var systemPrompt = PromptScaffolding.AppendJsonOnlyInstruction(@"You are the EvidenceFoundry Organization Builder.
+        using var scope = _logger.BeginScope(new Dictionary<string, object>
+        {
+            ["OrganizationId"] = seed.Id,
+            ["OrganizationName"] = seed.Name,
+            ["StorylineId"] = storyline.Id,
+            ["StorylineTitle"] = storyline.Title
+        });
+
+        var stopwatch = Stopwatch.StartNew();
+        _logger.LogInformation("Enriching organization details.");
+
+        try
+        {
+            var systemPrompt = PromptScaffolding.AppendJsonOnlyInstruction(@"You are the EvidenceFoundry Organization Builder.
 Fill in missing organization details and build out a realistic department/role structure.
 
 Rules:
@@ -155,36 +212,65 @@ Rules:
 - OrganizationType, Industry, and State must be provided using enum values.
  - plaintiff and defendant cannot both be true.");
 
-        var allowedDepartmentsJson = DepartmentGenerator.BuildAllowedDepartmentsJson(seed.Industry, seed.OrganizationType);
-        var allowedDepartmentRoleMapJson = DepartmentGenerator.BuildAllowedDepartmentRoleMapJson(seed.Industry, seed.OrganizationType);
-        var includeScopedMaps = seed.Industry != Industry.Other || seed.OrganizationType != OrganizationType.Unknown;
-        var departments = EnumHelper.FormatEnumOptions<DepartmentName>();
-        var roles = EnumHelper.FormatEnumOptions<RoleName>();
-        var orgTypes = EnumHelper.FormatEnumOptions<OrganizationType>();
-        var industries = EnumHelper.FormatEnumOptions<Industry>();
-        var states = EnumHelper.FormatEnumOptions<UsState>();
-        var orgJson = PromptPayloadSerializer.SerializeOrganization(seed);
+            var allowedDepartmentsJson = DepartmentGenerator.BuildAllowedDepartmentsJson(
+                seed.Industry,
+                seed.OrganizationType,
+                _logger);
+            var allowedDepartmentRoleMapJson = DepartmentGenerator.BuildAllowedDepartmentRoleMapJson(
+                seed.Industry,
+                seed.OrganizationType,
+                _logger);
+            var includeScopedMaps = seed.Industry != Industry.Other || seed.OrganizationType != OrganizationType.Unknown;
+            var departments = EnumHelper.FormatEnumOptions<DepartmentName>();
+            var roles = EnumHelper.FormatEnumOptions<RoleName>();
+            var orgTypes = EnumHelper.FormatEnumOptions<OrganizationType>();
+            var industries = EnumHelper.FormatEnumOptions<Industry>();
+            var states = EnumHelper.FormatEnumOptions<UsState>();
+            var orgJson = PromptPayloadSerializer.SerializeOrganization(seed);
 
-        var userPrompt = BuildOrganizationPrompt(
-            storyline,
-            new OrganizationPromptOptions(
-                orgJson,
-                departments,
-                roles,
-                includeScopedMaps,
-                allowedDepartmentsJson,
-                allowedDepartmentRoleMapJson,
-                orgTypes,
-                industries,
-                states));
+            var userPrompt = BuildOrganizationPrompt(
+                storyline,
+                new OrganizationPromptOptions(
+                    orgJson,
+                    departments,
+                    roles,
+                    includeScopedMaps,
+                    allowedDepartmentsJson,
+                    allowedDepartmentRoleMapJson,
+                    orgTypes,
+                    industries,
+                    states));
 
-        var response = await _openAI.GetJsonCompletionAsync<OrganizationDto>(
-            systemPrompt,
-            userPrompt,
-            $"Organization Build: {seed.Name}",
-            ct);
+            var response = await _openAI.GetJsonCompletionAsync<OrganizationDto>(
+                systemPrompt,
+                userPrompt,
+                $"Organization Build: {seed.Name}",
+                ct);
 
-        return BuildOrganizationFromResponse(seed, response);
+            var organization = BuildOrganizationFromResponse(seed, response);
+            var roleCount = organization.Departments.Sum(d => d.Roles.Count);
+            _logger.LogInformation(
+                "Enriched organization with {DepartmentCount} departments and {RoleCount} roles in {DurationMs} ms.",
+                organization.Departments.Count,
+                roleCount,
+                stopwatch.ElapsedMilliseconds);
+            return organization;
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning(
+                "Organization enrichment canceled after {DurationMs} ms.",
+                stopwatch.ElapsedMilliseconds);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "Organization enrichment failed after {DurationMs} ms.",
+                stopwatch.ElapsedMilliseconds);
+            throw;
+        }
     }
 
     private static string BuildOrganizationPrompt(
@@ -378,13 +464,23 @@ Enum values are shown as Raw (Humanized). Return only the Raw enum value.
         }
     }
 
-    internal static void NormalizeOrganization(Organization organization, DateTime storylineStartDate, HashSet<string> usedDomains)
+    internal static void NormalizeOrganization(
+        Organization organization,
+        DateTime storylineStartDate,
+        HashSet<string> usedDomains,
+        ILogger? logger = null)
     {
+        var log = logger ?? NullLogger.Instance;
+
         if (string.IsNullOrWhiteSpace(organization.Name))
             throw new InvalidOperationException("Organization name is required.");
 
         if (organization.IsPlaintiff && organization.IsDefendant)
             throw new InvalidOperationException($"Organization '{organization.Name}' cannot be both plaintiff and defendant.");
+
+        var originalDomain = organization.Domain;
+        var originalOrgType = organization.OrganizationType;
+        var originalState = organization.State;
 
         organization.Id = organization.Id == Guid.Empty
             ? DeterministicIdHelper.CreateGuid("organization", organization.Name)
@@ -394,7 +490,32 @@ Enum values are shown as Raw (Humanized). Return only the Raw enum value.
         organization.Founded = DateHelper.NormalizeFoundedDate(organization.Founded, storylineStartDate);
         organization.OrganizationType = NormalizeOrganizationType(organization.OrganizationType, organization.Name);
         organization.State = NormalizeState(organization.State, organization.Name);
-        DepartmentGenerator.ApplyDepartmentRoleConstraints(organization);
+        DepartmentGenerator.ApplyDepartmentRoleConstraints(organization, log);
+
+        if (!string.Equals(originalDomain, organization.Domain, StringComparison.OrdinalIgnoreCase))
+        {
+            log.LogWarning(
+                "Normalized organization domain from {OriginalDomain} to {NormalizedDomain} for {OrganizationName}.",
+                originalDomain,
+                organization.Domain,
+                organization.Name);
+        }
+
+        if (originalOrgType == OrganizationType.Unknown && organization.OrganizationType != OrganizationType.Unknown)
+        {
+            log.LogWarning(
+                "Applied default organization type {OrganizationType} for {OrganizationName}.",
+                organization.OrganizationType,
+                organization.Name);
+        }
+
+        if (originalState == UsState.Unknown && organization.State != UsState.Unknown)
+        {
+            log.LogWarning(
+                "Applied default organization state {State} for {OrganizationName}.",
+                organization.State,
+                organization.Name);
+        }
 
         if (organization.Departments.Count == 0)
         {
@@ -404,9 +525,12 @@ Enum values are shown as Raw (Humanized). Return only the Raw enum value.
             };
             executive.SetRoles(new List<Role> { new() { Name = RoleName.ChiefExecutiveOfficer } });
             organization.AddDepartment(executive);
+            log.LogWarning(
+                "Organization {OrganizationName} lacked departments; added Executive with default role.",
+                organization.Name);
         }
 
-        RoleGenerator.EnsureSingleOccupantRolesInExecutive(organization);
+        RoleGenerator.EnsureSingleOccupantRolesInExecutive(organization, log);
 
         foreach (var department in organization.Departments)
         {
@@ -419,7 +543,11 @@ Enum values are shown as Raw (Humanized). Return only the Raw enum value.
             }
             if (department.Roles.Count == 0)
             {
-                var defaults = DepartmentGenerator.GetAllowedRoles(organization.Industry, organization.OrganizationType, department.Name);
+                var defaults = DepartmentGenerator.GetAllowedRoles(
+                    organization.Industry,
+                    organization.OrganizationType,
+                    department.Name,
+                    log);
                 if (defaults.Count > 0)
                     department.AddRole(new Role { Name = defaults[0] });
             }

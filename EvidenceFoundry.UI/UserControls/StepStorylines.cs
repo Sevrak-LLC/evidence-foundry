@@ -538,7 +538,11 @@ public class StepStorylines : UserControl, IWizardStep
             async progress =>
             {
                 var openAI = _state.CreateOpenAIService();
-                var generator = new StorylineGenerator(openAI, _state.GenerationRandom);
+                var generator = new StorylineGenerator(
+                    openAI,
+                    _state.GenerationRandom,
+                    _state.CreateLogger<StorylineGenerator>(),
+                    _state.LoggerFactory);
 
                 var request = new StorylineGenerationRequest
                 {

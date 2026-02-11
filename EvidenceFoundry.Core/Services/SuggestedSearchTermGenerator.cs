@@ -1,17 +1,22 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
 using EvidenceFoundry.Helpers;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace EvidenceFoundry.Services;
 
 public class SuggestedSearchTermGenerator
 {
     private readonly OpenAIService _openAI;
+    private readonly ILogger<SuggestedSearchTermGenerator> _logger;
 
-    public SuggestedSearchTermGenerator(OpenAIService openAI)
+    public SuggestedSearchTermGenerator(OpenAIService openAI, ILogger<SuggestedSearchTermGenerator>? logger = null)
     {
         ArgumentNullException.ThrowIfNull(openAI);
         _openAI = openAI;
+        _logger = logger ?? NullLogger<SuggestedSearchTermGenerator>.Instance;
+        _logger.LogDebug("SuggestedSearchTermGenerator initialized.");
     }
 
     internal async Task<List<string>> GenerateSuggestedSearchTermsAsync(
@@ -22,7 +27,16 @@ public class SuggestedSearchTermGenerator
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(exportedEmail))
+        {
+            _logger.LogWarning("Skipped suggested term generation due to empty exported email content.");
             return new List<string>();
+        }
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        _logger.LogInformation(
+            "Generating suggested search terms (IsHot={IsHot}, EmailLength={EmailLength}).",
+            isHot,
+            exportedEmail.Length);
 
         var precisionGuidance = isHot
             ? "HIGH PRECISION: Use specific phrases or unique names from the email. Minimize false positives."
@@ -53,16 +67,39 @@ Instructions:
 - Prefer quoted phrases for specificity and use AND/OR or w/n when helpful.
 - Avoid message-id strings or raw header tokens.", PromptScaffolding.JsonSchemaSection(schema));
 
-        var response = await _openAI.GetJsonCompletionAsync<SuggestedSearchTermsResponse>(
-            systemPrompt,
-            userPrompt,
-            "Suggested Search Terms",
-            ct);
+        try
+        {
+            var response = await _openAI.GetJsonCompletionAsync<SuggestedSearchTermsResponse>(
+                systemPrompt,
+                userPrompt,
+                "Suggested Search Terms",
+                ct);
 
-        if (response?.Terms == null || response.Terms.Count == 0)
-            throw new InvalidOperationException("Suggested search term generation returned no terms.");
+            if (response?.Terms == null || response.Terms.Count == 0)
+                throw new InvalidOperationException("Suggested search term generation returned no terms.");
 
-        return FilterTermsAgainstEmail(response.Terms, exportedEmail, 3);
+            var filtered = FilterTermsAgainstEmail(response.Terms, exportedEmail, 3);
+            _logger.LogInformation(
+                "Generated {TermCount} suggested search terms in {DurationMs} ms.",
+                filtered.Count,
+                stopwatch.ElapsedMilliseconds);
+            return filtered;
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning(
+                "Suggested search term generation canceled after {DurationMs} ms.",
+                stopwatch.ElapsedMilliseconds);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "Suggested search term generation failed after {DurationMs} ms.",
+                stopwatch.ElapsedMilliseconds);
+            throw;
+        }
     }
 
     private sealed class SuggestedSearchTermsResponse

@@ -6,6 +6,8 @@ using System.Globalization;
 using System.Text.Json.Serialization;
 using EvidenceFoundry.Models;
 using EvidenceFoundry.Helpers;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace EvidenceFoundry.Services;
 
@@ -16,6 +18,8 @@ public class EmailGenerator
     private readonly EmailThreadGenerator _threadGenerator;
     private readonly SuggestedSearchTermGenerator _searchTermGenerator;
     private readonly Random _rng;
+    private readonly ILogger<EmailGenerator> _logger;
+    private readonly ILoggerFactory? _loggerFactory;
 
     // Track document chains across threads for versioning
     private readonly ConcurrentDictionary<string, DocumentChainState> _documentChains = new();
@@ -43,16 +47,28 @@ public class EmailGenerator
         "Cordially,"
     };
 
-    public EmailGenerator(OpenAIService openAI, Random rng)
+    public EmailGenerator(
+        OpenAIService openAI,
+        Random rng,
+        ILogger<EmailGenerator>? logger = null,
+        ILoggerFactory? loggerFactory = null)
     {
         ArgumentNullException.ThrowIfNull(openAI);
         ArgumentNullException.ThrowIfNull(rng);
         _openAI = openAI;
-        _officeService = new OfficeDocumentService();
-        _threadGenerator = new EmailThreadGenerator();
-        _searchTermGenerator = new SuggestedSearchTermGenerator(openAI);
         _rng = rng;
+        _loggerFactory = loggerFactory;
+        _logger = ResolveLogger(logger, loggerFactory);
+        _officeService = new OfficeDocumentService(ResolveLogger<OfficeDocumentService>(null, loggerFactory));
+        _threadGenerator = new EmailThreadGenerator(ResolveLogger<EmailThreadGenerator>(null, loggerFactory));
+        _searchTermGenerator = new SuggestedSearchTermGenerator(
+            openAI,
+            ResolveLogger<SuggestedSearchTermGenerator>(null, loggerFactory));
+        _logger.LogDebug("EmailGenerator initialized.");
     }
+
+    private static ILogger<T> ResolveLogger<T>(ILogger<T>? logger, ILoggerFactory? loggerFactory)
+        => logger ?? loggerFactory?.CreateLogger<T>() ?? NullLogger<T>.Instance;
 
     private sealed class DocumentChainState
     {
@@ -77,6 +93,7 @@ public class EmailGenerator
             OutputFolder = state.Config.OutputFolder
         };
 
+        var runId = Guid.NewGuid();
         var stopwatch = Stopwatch.StartNew();
         var activeStorylines = state.GetActiveStorylines().ToList();
         var progressData = new GenerationProgress
@@ -85,10 +102,24 @@ public class EmailGenerator
             CurrentOperation = "Initializing..."
         };
 
+        using var scope = _logger.BeginScope(new Dictionary<string, object>
+        {
+            ["RunId"] = runId,
+            ["OutputFolder"] = state.Config.OutputFolder
+        });
+
+        _logger.LogInformation(
+            "Starting email generation for {StorylineCount} storylines and {TotalEmailCount} planned emails.",
+            activeStorylines.Count,
+            progressData.TotalEmails);
+
         try
         {
             if (activeStorylines.Count == 0)
+            {
+                _logger.LogWarning("No active storylines found; email generation cannot proceed.");
                 throw new InvalidOperationException("No storyline available for email generation.");
+            }
             var characterContexts = BuildCharacterContextMap(state.Organizations);
 
             var threads = new ConcurrentBag<EmailThread>();
@@ -97,7 +128,7 @@ public class EmailGenerator
             var saveSemaphore = new SemaphoreSlim(1, 1);
 
             // EML service for incremental saving
-            var emlService = new EmlFileService();
+            var emlService = new EmlFileService(ResolveLogger<EmlFileService>(null, _loggerFactory));
             Directory.CreateDirectory(state.Config.OutputFolder);
 
             var processContext = new ProcessStorylineContext(
@@ -124,6 +155,13 @@ public class EmailGenerator
             var threadsList = threads.ToList();
 
             // Save any remaining EML files (threads that weren't saved incrementally)
+            var unsavedCount = threadsList.Count(t => !savedThreads.ContainsKey(t.Id));
+            if (unsavedCount > 0)
+            {
+                _logger.LogInformation(
+                    "Saving remaining EML files for {ThreadCount} threads.",
+                    unsavedCount);
+            }
             await SaveRemainingEmlAsync(
                 threadsList,
                 state,
@@ -153,16 +191,30 @@ public class EmailGenerator
 
             ReportProgress(progress, progressData, progressLock, p => p.CurrentOperation = "Complete!");
 
+            _logger.LogInformation(
+                "Email generation completed with {ThreadCount} threads, {EmailCount} emails, and {AttachmentCount} attachments in {DurationMs} ms.",
+                result.TotalThreadsGenerated,
+                result.TotalEmailsGenerated,
+                result.TotalAttachmentsGenerated,
+                stopwatch.ElapsedMilliseconds);
+
             return result;
         }
         catch (OperationCanceledException)
         {
             result.WasCancelled = true;
             result.ElapsedTime = stopwatch.Elapsed;
+            _logger.LogWarning(
+                "Email generation canceled after {DurationMs} ms.",
+                stopwatch.ElapsedMilliseconds);
             return result;
         }
         catch (Exception ex)
         {
+            _logger.LogError(
+                ex,
+                "Email generation failed after {DurationMs} ms.",
+                stopwatch.ElapsedMilliseconds);
             throw new InvalidOperationException($"Email generation failed: {ex.Message}", ex);
         }
     }
@@ -212,9 +264,22 @@ public class EmailGenerator
         var beats = storyline.Beats ?? new List<StoryBeat>();
         var completedAtStart = 0;
 
+        using var scope = _logger.BeginScope(new Dictionary<string, object>
+        {
+            ["StorylineId"] = storyline.Id,
+            ["StorylineTitle"] = storyline.Title
+        });
+
+        var stopwatch = Stopwatch.StartNew();
+
         try
         {
             ct.ThrowIfCancellationRequested();
+
+            _logger.LogInformation(
+                "Processing storyline with {EmailCount} planned emails across {BeatCount} beats.",
+                emailCount,
+                beats.Count);
 
             // Report that we're starting this storyline
             ReportProgress(context.Progress, context.ProgressData, context.ProgressLock, p =>
@@ -241,6 +306,11 @@ public class EmailGenerator
             {
                 context.Threads.Add(thread);
             }
+
+            _logger.LogInformation(
+                "Storyline processing generated {ThreadCount} threads in {DurationMs} ms.",
+                storylineThreads.Count,
+                stopwatch.ElapsedMilliseconds);
         }
         catch (OperationCanceledException)
         {
@@ -373,14 +443,24 @@ public class EmailGenerator
         CancellationToken ct)
     {
         if (threads.Count == 0)
+        {
+            _logger.LogInformation("Skipping suggested search terms; no threads available.");
             return;
+        }
 
         var responsiveThreads = threads
             .Where(t => t.Relevance == EmailThread.ThreadRelevance.Responsive || t.IsHot)
             .ToList();
 
         if (responsiveThreads.Count == 0)
+        {
+            _logger.LogInformation("Skipping suggested search terms; no responsive or hot threads found.");
             return;
+        }
+
+        _logger.LogInformation(
+            "Generating suggested search terms for {ThreadCount} responsive/hot threads.",
+            responsiveThreads.Count);
 
         var beatLookup = storylines
             .SelectMany(s => s.Beats ?? new List<StoryBeat>())
@@ -446,6 +526,10 @@ public class EmailGenerator
         {
             Directory.CreateDirectory(config.OutputFolder);
             await File.WriteAllTextAsync(outputPath, markdown, ct);
+            _logger.LogInformation(
+                "Wrote suggested search terms markdown for {ThreadCount} threads to {OutputPath}.",
+                results.Count,
+                outputPath);
         }
         catch (Exception ex)
         {
@@ -682,10 +766,27 @@ public class EmailGenerator
         ProcessStorylineContext processContext,
         CancellationToken ct)
     {
-        if (beats == null || beats.Count == 0) return new List<EmailThread>();
+        if (beats == null || beats.Count == 0)
+        {
+            _logger.LogWarning(
+                "No story beats available for storyline {StorylineTitle}; skipping thread generation.",
+                storyline.Title);
+            return new List<EmailThread>();
+        }
 
         var threadPlans = BuildThreadPlans(storyline, state.Characters, beats, processContext.CharacterContexts, state);
-        if (threadPlans.Count == 0) return new List<EmailThread>();
+        if (threadPlans.Count == 0)
+        {
+            _logger.LogWarning(
+                "No thread plans generated for storyline {StorylineTitle}.",
+                storyline.Title);
+            return new List<EmailThread>();
+        }
+
+        _logger.LogInformation(
+            "Generating {ThreadPlanCount} threads for storyline {StorylineTitle}.",
+            threadPlans.Count,
+            storyline.Title);
 
         var threads = new EmailThread?[threadPlans.Count];
         var systemPrompt = BuildEmailSystemPrompt();
@@ -1483,18 +1584,36 @@ public class EmailGenerator
             {
                 if (IsContractViolation(ex))
                 {
+                    _logger.LogError(
+                        ex,
+                        "Thread generation contract violation for beat {BeatName} (ThreadId {ThreadId}).",
+                        plan.BeatName,
+                        plan.Thread.Id);
                     throw new InvalidOperationException(
                         $"Thread generation contract violation for beat '{plan.BeatName}' (thread {plan.Thread.Id}): {ex.Message}",
                         ex);
                 }
 
                 lastException = ex;
+                _logger.LogWarning(
+                    ex,
+                    "Thread generation attempt {Attempt}/{MaxAttempts} failed for beat {BeatName} (ThreadId {ThreadId}).",
+                    attempt,
+                    MaxThreadGenerationAttempts,
+                    plan.BeatName,
+                    plan.Thread.Id);
             }
         }
 
         var failureDetail = lastException == null
             ? "Unknown error."
             : $"{lastException.GetType().Name} - {lastException.Message}";
+        _logger.LogError(
+            lastException,
+            "Thread generation failed after {AttemptCount} attempts for beat {BeatName} (ThreadId {ThreadId}).",
+            MaxThreadGenerationAttempts,
+            plan.BeatName,
+            plan.Thread.Id);
         throw new InvalidOperationException(
             $"Thread generation failed after {MaxThreadGenerationAttempts} attempts for beat '{plan.BeatName}' (thread {plan.Thread.Id}): {failureDetail}",
             lastException);
@@ -3102,15 +3221,17 @@ If details are vague or missing, set hasMeeting to false.
             .Select(c => (c.FullName, c.Email))
             .ToList();
 
-        var icsContent = CalendarService.CreateCalendarInvite(new CalendarService.CalendarInviteRequest(
-            response.MeetingTitle ?? email.Subject,
-            response.MeetingDescription ?? "",
-            startTime,
-            endTime,
-            response.Location ?? "TBD",
-            email.From.FullName,
-            email.From.Email,
-            attendees));
+        var icsContent = CalendarService.CreateCalendarInvite(
+            new CalendarService.CalendarInviteRequest(
+                response.MeetingTitle ?? email.Subject,
+                response.MeetingDescription ?? "",
+                startTime,
+                endTime,
+                response.Location ?? "TBD",
+                email.From.FullName,
+                email.From.Email,
+                attendees),
+            ResolveLogger<CalendarService>(null, _loggerFactory));
 
         var attachment = new Attachment
         {

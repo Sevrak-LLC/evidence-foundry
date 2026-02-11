@@ -1,17 +1,23 @@
+using System.Diagnostics;
 using System.Text.Json.Serialization;
 using EvidenceFoundry.Helpers;
 using EvidenceFoundry.Models;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace EvidenceFoundry.Services;
 
 public class ThemeGenerator
 {
     private readonly OpenAIService _openAI;
+    private readonly ILogger<ThemeGenerator> _logger;
 
-    public ThemeGenerator(OpenAIService openAI)
+    public ThemeGenerator(OpenAIService openAI, ILogger<ThemeGenerator>? logger = null)
     {
         ArgumentNullException.ThrowIfNull(openAI);
         _openAI = openAI;
+        _logger = logger ?? NullLogger<ThemeGenerator>.Instance;
+        _logger.LogDebug("ThemeGenerator initialized.");
     }
 
     /// <summary>
@@ -39,7 +45,15 @@ public class ThemeGenerator
                 StringComparer.OrdinalIgnoreCase);
 
         if (domainOrgs.Count == 0)
+        {
+            _logger.LogInformation("Skipping theme generation; no organization domains available.");
             return themes;
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+        _logger.LogInformation(
+            "Generating organization themes for {DomainCount} domains.",
+            domainOrgs.Count);
 
         progress?.Report($"Generating organization themes for {domainOrgs.Count} organizations...");
 
@@ -102,6 +116,14 @@ Sans-serif: Segoe UI, Arial, Calibri, Trebuchet MS, Century Gothic, Verdana, Tah
 
         ApplyThemeResponse(themes, domainOrgs, response);
 
+        var missingCount = domainOrgs.Keys.Count(domain => !themes.ContainsKey(domain));
+        if (missingCount > 0)
+        {
+            _logger.LogWarning(
+                "Theme generation missing {MissingThemeCount} domain(s); applying defaults.",
+                missingCount);
+        }
+
         // Ensure all domains have a theme (use defaults for any missing)
         foreach (var domain in domainOrgs.Keys)
         {
@@ -117,6 +139,10 @@ Sans-serif: Segoe UI, Arial, Calibri, Trebuchet MS, Century Gothic, Verdana, Tah
         }
 
         progress?.Report($"Generated {themes.Count} presentation themes.");
+        _logger.LogInformation(
+            "Generated {ThemeCount} organization themes in {DurationMs} ms.",
+            themes.Count,
+            stopwatch.ElapsedMilliseconds);
         return themes;
     }
 

@@ -1,10 +1,15 @@
 using EvidenceFoundry.Helpers;
 using EvidenceFoundry.Models;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace EvidenceFoundry.Services;
 
 public static class RoleGenerator
 {
+    private static ILogger GetLogger(ILogger? logger)
+        => logger ?? NullLogger.Instance;
+
     internal static readonly HashSet<RoleName> SingleOccupantRoles = new()
     {
         RoleName.ChiefExecutiveOfficer,
@@ -21,8 +26,13 @@ public static class RoleGenerator
         RoleName.ExecutiveDirector
     };
 
-    internal static void EnsureSingleOccupantRolesInExecutive(Organization organization)
+    internal static void EnsureSingleOccupantRolesInExecutive(
+        Organization organization,
+        ILogger? logger = null)
     {
+        var log = GetLogger(logger);
+        log.LogDebug("Ensuring single-occupant roles are in the executive department.");
+
         if (organization.Departments.Count == 0)
             return;
 

@@ -1,4 +1,6 @@
 using EvidenceFoundry.Helpers;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using EvidenceFoundry.Models;
 using EvidenceFoundry.UserControls;
 
@@ -22,7 +24,13 @@ public partial class WizardForm : Form
     private System.Windows.Forms.Timer _costUpdateTimer = null!;
 
     public WizardForm()
+        : this(null)
     {
+    }
+
+    public WizardForm(ILoggerFactory? loggerFactory)
+    {
+        _state.LoggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
         InitializeComponent();
         InitializeWizardUI();
         LoadSteps();

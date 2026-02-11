@@ -1,7 +1,10 @@
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using EvidenceFoundry.Helpers;
 using EvidenceFoundry.Models;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace EvidenceFoundry.Services;
 
@@ -22,6 +25,7 @@ public class WorldModelGenerator
 {
     private readonly OpenAIService _openAI;
     private readonly Random _rng;
+    private readonly ILogger<WorldModelGenerator> _logger;
     private static readonly JsonSerializerOptions WorldModelSerializerOptions = JsonSerializationDefaults.CaseInsensitiveWithEnums;
     private static readonly Dictionary<string, UsState> UsStateAbbreviations = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -78,12 +82,14 @@ public class WorldModelGenerator
         ["DC"] = UsState.DistrictOfColumbia
     };
 
-    public WorldModelGenerator(OpenAIService openAI, Random rng)
+    public WorldModelGenerator(OpenAIService openAI, Random rng, ILogger<WorldModelGenerator>? logger = null)
     {
         ArgumentNullException.ThrowIfNull(openAI);
         ArgumentNullException.ThrowIfNull(rng);
         _openAI = openAI;
         _rng = rng;
+        _logger = logger ?? NullLogger<WorldModelGenerator>.Instance;
+        _logger.LogDebug("WorldModelGenerator initialized.");
     }
 
     public async Task<World> GenerateWorldModelAsync(
@@ -101,18 +107,27 @@ public class WorldModelGenerator
         if (string.IsNullOrWhiteSpace(request.IssueDescription))
             throw new ArgumentException("Issue description is required.", nameof(request.IssueDescription));
 
+        var stopwatch = Stopwatch.StartNew();
         var normalizedPlaintiffIndustry = GenerationRequestNormalizer.NormalizeIndustryPreference(request.PlaintiffIndustry);
         var normalizedDefendantIndustry = GenerationRequestNormalizer.NormalizeIndustryPreference(request.DefendantIndustry);
         var normalizedPlaintiffCount = GenerationRequestNormalizer.NormalizePartyCount(request.PlaintiffOrganizationCount);
         var normalizedDefendantCount = GenerationRequestNormalizer.NormalizePartyCount(request.DefendantOrganizationCount);
 
+        _logger.LogInformation(
+            "Generating world model with {PlaintiffCount} plaintiff(s) and {DefendantCount} defendant(s).",
+            normalizedPlaintiffCount,
+            normalizedDefendantCount);
+
         var industriesForPrompt = ResolveIndustriesForPrompt(normalizedPlaintiffIndustry, normalizedDefendantIndustry, _rng);
         if (industriesForPrompt.Count == 0)
         {
             industriesForPrompt = new List<Industry> { Industry.Other };
+            _logger.LogWarning("No industries resolved; defaulting to Industry.Other for world model generation.");
         }
 
-        var departmentRolesJson = DepartmentGenerator.BuildIndustryOrganizationRoleCatalogJson(industriesForPrompt);
+        var departmentRolesJson = DepartmentGenerator.BuildIndustryOrganizationRoleCatalogJson(
+            industriesForPrompt,
+            _logger);
         var orgTypes = EnumHelper.FormatEnumOptions<OrganizationType>();
         var industries = FormatIndustryOptions(industriesForPrompt);
         var states = EnumHelper.FormatEnumOptions<UsState>();
@@ -263,16 +278,41 @@ Generate the world model ONLY: organizations + minimal directly-involved key peo
 
         progress?.Report("Generating world model...");
 
-        var response = await _openAI.GetJsonCompletionAsync<WorldModelResponse>(
-            systemPrompt,
-            userPrompt,
-            "World Model Generation",
-            ct);
+        try
+        {
+            var response = await _openAI.GetJsonCompletionAsync<WorldModelResponse>(
+                systemPrompt,
+                userPrompt,
+                "World Model Generation",
+                ct);
 
-        if (response == null)
-            throw new InvalidOperationException("Failed to generate a world model.");
+            if (response == null)
+                throw new InvalidOperationException("Failed to generate a world model.");
 
-        return ParseWorldModelResponse(response, normalizedPlaintiffCount, normalizedDefendantCount);
+            var world = ParseWorldModelResponse(response, normalizedPlaintiffCount, normalizedDefendantCount);
+            _logger.LogInformation(
+                "Generated world model with {PlaintiffCount} plaintiff(s), {DefendantCount} defendant(s), and {KeyPersonCount} key people in {DurationMs} ms.",
+                world.Plaintiffs.Count,
+                world.Defendants.Count,
+                world.KeyPeople.Count,
+                stopwatch.ElapsedMilliseconds);
+            return world;
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning(
+                "World model generation canceled after {DurationMs} ms.",
+                stopwatch.ElapsedMilliseconds);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "World model generation failed after {DurationMs} ms.",
+                stopwatch.ElapsedMilliseconds);
+            throw;
+        }
     }
 
     internal static World ParseWorldModelJson(string json, int plaintiffCount, int defendantCount)

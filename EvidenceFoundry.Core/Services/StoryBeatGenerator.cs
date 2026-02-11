@@ -1,18 +1,24 @@
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using EvidenceFoundry.Helpers;
 using EvidenceFoundry.Models;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace EvidenceFoundry.Services;
 
 public class StoryBeatGenerator
 {
     private readonly OpenAIService _openAI;
+    private readonly ILogger<StoryBeatGenerator> _logger;
 
-    public StoryBeatGenerator(OpenAIService openAI)
+    public StoryBeatGenerator(OpenAIService openAI, ILogger<StoryBeatGenerator>? logger = null)
     {
         ArgumentNullException.ThrowIfNull(openAI);
         _openAI = openAI;
+        _logger = logger ?? NullLogger<StoryBeatGenerator>.Instance;
+        _logger.LogDebug("StoryBeatGenerator initialized.");
     }
 
     public async Task<List<StoryBeat>> GenerateStoryBeatsAsync(
@@ -27,9 +33,23 @@ public class StoryBeatGenerator
 
         var (startDate, endDate) = GetStorylineDateRange(storyline);
 
-        progress?.Report("Generating story beats...");
+        using var scope = _logger.BeginScope(new Dictionary<string, object>
+        {
+            ["StorylineId"] = storyline.Id,
+            ["StorylineTitle"] = storyline.Title
+        });
 
-        var systemPrompt = PromptScaffolding.AppendJsonOnlyInstruction(@"You are the EvidenceFoundry Narrative Enricher.
+        var stopwatch = Stopwatch.StartNew();
+        _logger.LogInformation(
+            "Generating story beats for {OrganizationCount} organizations and {CharacterCount} characters.",
+            organizations.Count,
+            characters.Count);
+
+        try
+        {
+            progress?.Report("Generating story beats...");
+
+            var systemPrompt = PromptScaffolding.AppendJsonOnlyInstruction(@"You are the EvidenceFoundry Narrative Enricher.
 
 Your job: expand a storyline summary into a structured, ordered list of story beats suitable for generating realistic fictional emails.
 
@@ -91,7 +111,28 @@ Character pool (JSON):
             endDate,
             ct);
 
-        return beats;
+        _logger.LogInformation(
+            "Generated {BeatCount} story beats in {DurationMs} ms.",
+            beats.Count,
+            stopwatch.ElapsedMilliseconds);
+
+            return beats;
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning(
+                "Story beat generation canceled after {DurationMs} ms.",
+                stopwatch.ElapsedMilliseconds);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "Story beat generation failed after {DurationMs} ms.",
+                stopwatch.ElapsedMilliseconds);
+            throw;
+        }
     }
 
     private static void ValidateGenerationInputs(
@@ -170,6 +211,9 @@ Character pool (JSON):
         var invalidIndex = FindFirstInvalidBeatIndex(beats, startDate, endDate);
         if (invalidIndex.HasValue)
         {
+            _logger.LogWarning(
+                "Detected invalid story beat ordering at index {BeatIndex}; attempting repair.",
+                invalidIndex.Value);
             var repaired = await RepairStoryBeatDatesAsync(
                 topic,
                 storyline,
@@ -182,6 +226,11 @@ Character pool (JSON):
             if (repaired)
             {
                 DateHelper.NormalizeStoryBeats(beats, startDate, endDate);
+                _logger.LogInformation("Story beat dates repaired successfully.");
+            }
+            else
+            {
+                _logger.LogWarning("Story beat date repair did not resolve all issues.");
             }
         }
 

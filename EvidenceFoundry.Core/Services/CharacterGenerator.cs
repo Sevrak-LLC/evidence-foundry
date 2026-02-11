@@ -1,7 +1,10 @@
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using EvidenceFoundry.Helpers;
 using EvidenceFoundry.Models;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace EvidenceFoundry.Services;
 
@@ -9,6 +12,7 @@ public class CharacterGenerator
 {
     private readonly OpenAIService _openAI;
     private readonly Random _rng;
+    private readonly ILogger<CharacterGenerator> _logger;
 
     // Available TTS voices with characteristics
     private static readonly string[] MaleVoices = ["echo", "onyx", "fable"];
@@ -16,12 +20,14 @@ public class CharacterGenerator
 
     private const int MaxCharactersPerOrganization = 15;
 
-    public CharacterGenerator(OpenAIService openAI, Random rng)
+    public CharacterGenerator(OpenAIService openAI, Random rng, ILogger<CharacterGenerator>? logger = null)
     {
         ArgumentNullException.ThrowIfNull(openAI);
         ArgumentNullException.ThrowIfNull(rng);
         _openAI = openAI;
         _rng = rng;
+        _logger = logger ?? NullLogger<CharacterGenerator>.Instance;
+        _logger.LogDebug("CharacterGenerator initialized.");
     }
 
     /// <summary>
@@ -81,7 +87,21 @@ public class CharacterGenerator
         HashSet<string> usedEmails,
         CancellationToken ct)
     {
-        var systemPrompt = PromptScaffolding.AppendJsonOnlyInstruction(@"You are the EvidenceFoundry Character Mapper.
+        using var scope = _logger.BeginScope(new Dictionary<string, object>
+        {
+            ["OrganizationId"] = organization.Id,
+            ["OrganizationName"] = organization.Name,
+            ["StorylineId"] = storyline.Id,
+            ["StorylineTitle"] = storyline.Title
+        });
+
+        var stopwatch = Stopwatch.StartNew();
+        var startingCount = organization.EnumerateCharacters().Count();
+        _logger.LogInformation("Mapping known characters.");
+
+        try
+        {
+            var systemPrompt = PromptScaffolding.AppendJsonOnlyInstruction(@"You are the EvidenceFoundry Character Mapper.
 Identify explicitly named people in the storyline who belong to the given organization and map them to roles.
 
 Rules:
@@ -90,9 +110,9 @@ Rules:
 - Do NOT invent new people.
  - Use the organization's domain for email addresses.");
 
-        var orgJson = PromptPayloadSerializer.SerializeOrganization(organization, includeCharacters: false);
+            var orgJson = PromptPayloadSerializer.SerializeOrganization(organization, includeCharacters: false);
 
-        var rolesSchema = """
+            var rolesSchema = """
 {
   "roles": [
     {
@@ -109,7 +129,7 @@ Rules:
 }
 """;
 
-        var userPrompt = PromptScaffolding.JoinSections($@"Topic: {topic}
+            var userPrompt = PromptScaffolding.JoinSections($@"Topic: {topic}
 Storyline title: {storyline.Title}
 Storyline summary:
 {storyline.Summary}
@@ -126,16 +146,39 @@ Role/Department legend (Raw -> Humanized):
 {RoleGenerator.BuildRoleDepartmentLegend(organization)}
 ", PromptScaffolding.JsonSchemaSection(rolesSchema));
 
-        var response = await _openAI.GetJsonCompletionAsync<RoleCharactersResponse>(
-            systemPrompt,
-            userPrompt,
-            $"Known Character Mapping: {organization.Name}",
-            ct);
+            var response = await _openAI.GetJsonCompletionAsync<RoleCharactersResponse>(
+                systemPrompt,
+                userPrompt,
+                $"Known Character Mapping: {organization.Name}",
+                ct);
 
-        if (response?.Roles == null)
-            throw new InvalidOperationException($"Known character mapping failed for organization '{organization.Name}' in storyline '{storyline.Title}'.");
+            if (response?.Roles == null)
+                throw new InvalidOperationException($"Known character mapping failed for organization '{organization.Name}' in storyline '{storyline.Title}'.");
 
-        AddCharactersToRole(organization, response.Roles, usedNames, usedEmails, allowSingleOccupant: true);
+            AddCharactersToRole(organization, response.Roles, usedNames, usedEmails, allowSingleOccupant: true);
+
+            var total = organization.EnumerateCharacters().Count();
+            var added = Math.Max(0, total - startingCount);
+            _logger.LogInformation(
+                "Mapped {AddedCharacterCount} known characters in {DurationMs} ms.",
+                added,
+                stopwatch.ElapsedMilliseconds);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning(
+                "Known character mapping canceled after {DurationMs} ms.",
+                stopwatch.ElapsedMilliseconds);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "Known character mapping failed after {DurationMs} ms.",
+                stopwatch.ElapsedMilliseconds);
+            throw;
+        }
     }
 
     internal async Task GenerateAdditionalCharactersAsync(
@@ -148,9 +191,29 @@ Role/Department legend (Raw -> Humanized):
     {
         var existingCount = organization.EnumerateCharacters().Count();
         if (existingCount >= MaxCharactersPerOrganization)
+        {
+            _logger.LogInformation(
+                "Skipping additional character generation; existing count {ExistingCount} meets max {MaxCharactersPerOrganization} for {OrganizationName}.",
+                existingCount,
+                MaxCharactersPerOrganization,
+                organization.Name);
             return;
+        }
 
-        var systemPrompt = PromptScaffolding.AppendJsonOnlyInstruction(@"You are the EvidenceFoundry Character Generator.
+        using var scope = _logger.BeginScope(new Dictionary<string, object>
+        {
+            ["OrganizationId"] = organization.Id,
+            ["OrganizationName"] = organization.Name,
+            ["StorylineId"] = storyline.Id,
+            ["StorylineTitle"] = storyline.Title
+        });
+
+        var stopwatch = Stopwatch.StartNew();
+        _logger.LogInformation("Generating additional characters.");
+
+        try
+        {
+            var systemPrompt = PromptScaffolding.AppendJsonOnlyInstruction(@"You are the EvidenceFoundry Character Generator.
 Generate additional key characters for the organization.
 
 Rules:
@@ -159,13 +222,13 @@ Rules:
 - Avoid duplicate names or emails.
  - Return up to the requested number of characters.");
 
-        var orgJson = PromptPayloadSerializer.SerializeOrganization(organization, includeCharacters: true);
-        var existingNames = string.Join(", ", usedNames.OrderBy(n => n));
-        var singletonRoles = string.Join(", ", RoleGenerator.SingleOccupantRoles.Select(r =>
-            $"{r} ({EnumHelper.HumanizeEnumName(r.ToString())})"));
-        var remaining = MaxCharactersPerOrganization - existingCount;
+            var orgJson = PromptPayloadSerializer.SerializeOrganization(organization, includeCharacters: true);
+            var existingNames = string.Join(", ", usedNames.OrderBy(n => n));
+            var singletonRoles = string.Join(", ", RoleGenerator.SingleOccupantRoles.Select(r =>
+                $"{r} ({EnumHelper.HumanizeEnumName(r.ToString())})"));
+            var remaining = MaxCharactersPerOrganization - existingCount;
 
-        var additionalSchema = """
+            var additionalSchema = """
 {
   "roles": [
     {
@@ -182,7 +245,7 @@ Rules:
 }
 """;
 
-        var userPrompt = PromptScaffolding.JoinSections($@"Topic: {topic}
+            var userPrompt = PromptScaffolding.JoinSections($@"Topic: {topic}
 Storyline title: {storyline.Title}
 Storyline summary:
 {storyline.Summary}
@@ -207,16 +270,39 @@ Existing character names (do not reuse):
 Generate up to {remaining} additional characters for this organization.
 ", PromptScaffolding.JsonSchemaSection(additionalSchema));
 
-        var response = await _openAI.GetJsonCompletionAsync<RoleCharactersResponse>(
-            systemPrompt,
-            userPrompt,
-            $"Additional Characters: {organization.Name}",
-            ct);
+            var response = await _openAI.GetJsonCompletionAsync<RoleCharactersResponse>(
+                systemPrompt,
+                userPrompt,
+                $"Additional Characters: {organization.Name}",
+                ct);
 
-        if (response?.Roles == null)
-            throw new InvalidOperationException($"Additional character generation failed for organization '{organization.Name}' in storyline '{storyline.Title}'.");
+            if (response?.Roles == null)
+                throw new InvalidOperationException($"Additional character generation failed for organization '{organization.Name}' in storyline '{storyline.Title}'.");
 
-        AddCharactersToRole(organization, response.Roles, usedNames, usedEmails, allowSingleOccupant: false, maxTotalCharacters: MaxCharactersPerOrganization);
+            AddCharactersToRole(organization, response.Roles, usedNames, usedEmails, allowSingleOccupant: false, maxTotalCharacters: MaxCharactersPerOrganization);
+
+            var total = organization.EnumerateCharacters().Count();
+            var added = Math.Max(0, total - existingCount);
+            _logger.LogInformation(
+                "Generated {AddedCharacterCount} additional characters in {DurationMs} ms.",
+                added,
+                stopwatch.ElapsedMilliseconds);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning(
+                "Additional character generation canceled after {DurationMs} ms.",
+                stopwatch.ElapsedMilliseconds);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "Additional character generation failed after {DurationMs} ms.",
+                stopwatch.ElapsedMilliseconds);
+            throw;
+        }
     }
 
     internal async Task EnrichCharactersAsync(
@@ -227,9 +313,27 @@ Generate up to {remaining} additional characters for this organization.
     {
         var assignments = organization.EnumerateCharacters().ToList();
         if (assignments.Count == 0)
+        {
+            _logger.LogInformation(
+                "Skipping character enrichment; no characters found for {OrganizationName}.",
+                organization.Name);
             return;
+        }
 
-        var systemPrompt = PromptScaffolding.AppendJsonOnlyInstruction(@"You are the EvidenceFoundry Character Detailer.
+        using var scope = _logger.BeginScope(new Dictionary<string, object>
+        {
+            ["OrganizationId"] = organization.Id,
+            ["OrganizationName"] = organization.Name,
+            ["StorylineId"] = storyline.Id,
+            ["StorylineTitle"] = storyline.Title
+        });
+
+        var stopwatch = Stopwatch.StartNew();
+        _logger.LogInformation("Enriching character details.");
+
+        try
+        {
+            var systemPrompt = PromptScaffolding.AppendJsonOnlyInstruction(@"You are the EvidenceFoundry Character Detailer.
 Fill in personality notes, communication style, and signature blocks for each character.
 
 Rules:
@@ -239,9 +343,9 @@ Rules:
 - Signature blocks should be consistent with organization name and role.
  - Return JSON matching the schema exactly.");
 
-        var characterJson = PromptPayloadSerializer.SerializeCharacters(organization, humanizeRoleDepartment: true);
+            var characterJson = PromptPayloadSerializer.SerializeCharacters(organization, humanizeRoleDepartment: true);
 
-        var detailSchema = """
+            var detailSchema = """
 {
   "characters": [
     {
@@ -255,7 +359,7 @@ Rules:
 }
 """;
 
-        var userPrompt = PromptScaffolding.JoinSections($@"Topic: {topic}
+            var userPrompt = PromptScaffolding.JoinSections($@"Topic: {topic}
 Storyline title: {storyline.Title}
 Storyline summary:
 {storyline.Summary}
@@ -265,27 +369,48 @@ Organization: {organization.Name} ({organization.Domain})
 Characters (JSON):
 {characterJson}", PromptScaffolding.JsonSchemaSection(detailSchema));
 
-        var response = await _openAI.GetJsonCompletionAsync<CharacterDetailResponse>(
-            systemPrompt,
-            userPrompt,
-            $"Character Details: {organization.Name}",
-            ct);
+            var response = await _openAI.GetJsonCompletionAsync<CharacterDetailResponse>(
+                systemPrompt,
+                userPrompt,
+                $"Character Details: {organization.Name}",
+                ct);
 
-        if (response?.Characters == null || response.Characters.Count == 0)
-            throw new InvalidOperationException($"Character enrichment returned no details for organization '{organization.Name}' in storyline '{storyline.Title}'.");
+            if (response?.Characters == null || response.Characters.Count == 0)
+                throw new InvalidOperationException($"Character enrichment returned no details for organization '{organization.Name}' in storyline '{storyline.Title}'.");
 
-        var lookup = assignments.ToDictionary(a => a.Character.Email, a => a.Character, StringComparer.OrdinalIgnoreCase);
-        foreach (var detail in response.Characters)
+            var lookup = assignments.ToDictionary(a => a.Character.Email, a => a.Character, StringComparer.OrdinalIgnoreCase);
+            foreach (var detail in response.Characters)
+            {
+                if (string.IsNullOrWhiteSpace(detail.Email))
+                    continue;
+                if (!lookup.TryGetValue(detail.Email, out var character))
+                    continue;
+
+                character.Personality = detail.PersonalityNotes?.Trim() ?? character.Personality;
+                character.CommunicationStyle = detail.CommunicationStyle?.Trim() ?? character.CommunicationStyle;
+                character.SignatureBlock = detail.SignatureBlock?.Trim() ?? character.SignatureBlock;
+                character.VoiceId = AssignVoice(detail.Gender ?? string.Empty, character.FirstName, character.Personality);
+            }
+
+            _logger.LogInformation(
+                "Enriched {CharacterCount} characters in {DurationMs} ms.",
+                assignments.Count,
+                stopwatch.ElapsedMilliseconds);
+        }
+        catch (OperationCanceledException)
         {
-            if (string.IsNullOrWhiteSpace(detail.Email))
-                continue;
-            if (!lookup.TryGetValue(detail.Email, out var character))
-                continue;
-
-            character.Personality = detail.PersonalityNotes?.Trim() ?? character.Personality;
-            character.CommunicationStyle = detail.CommunicationStyle?.Trim() ?? character.CommunicationStyle;
-            character.SignatureBlock = detail.SignatureBlock?.Trim() ?? character.SignatureBlock;
-            character.VoiceId = AssignVoice(detail.Gender ?? string.Empty, character.FirstName, character.Personality);
+            _logger.LogWarning(
+                "Character enrichment canceled after {DurationMs} ms.",
+                stopwatch.ElapsedMilliseconds);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "Character enrichment failed after {DurationMs} ms.",
+                stopwatch.ElapsedMilliseconds);
+            throw;
         }
     }
 
@@ -311,9 +436,25 @@ Characters (JSON):
         if (characters.Count == 0)
             throw new ArgumentException("At least one character is required before evaluating character relevance.", nameof(characters));
 
-        progress?.Report("Assessing character relevance...");
+        var beats = storyline.Beats!;
 
-        var systemPrompt = PromptScaffolding.AppendJsonOnlyInstruction(@"You are the EvidenceFoundry Character Relevance Analyst.
+        using var scope = _logger.BeginScope(new Dictionary<string, object>
+        {
+            ["StorylineId"] = storyline.Id,
+            ["StorylineTitle"] = storyline.Title
+        });
+
+        var stopwatch = Stopwatch.StartNew();
+        _logger.LogInformation(
+            "Assessing character relevance for {CharacterCount} characters across {BeatCount} beats.",
+            characters.Count,
+            beats.Count);
+
+        try
+        {
+            progress?.Report("Assessing character relevance...");
+
+            var systemPrompt = PromptScaffolding.AppendJsonOnlyInstruction(@"You are the EvidenceFoundry Character Relevance Analyst.
 Determine whether each character is likely to communicate in email threads relevant to the storyline overall.
 
 Rules:
@@ -323,34 +464,34 @@ Rules:
 - storylineRelevance must be exactly two concise sentences.
  - plotRelevance must include an entry for EVERY story beat ID, each with exactly two concise sentences (even if tangential).");
 
-        var assignments = organizations
-            .SelectMany(o => o.EnumerateCharacters())
-            .GroupBy(a => a.Character.Email, StringComparer.OrdinalIgnoreCase)
-            .Select(g => g.First())
-            .Select(a => new
+            var assignments = organizations
+                .SelectMany(o => o.EnumerateCharacters())
+                .GroupBy(a => a.Character.Email, StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.First())
+                .Select(a => new
+                {
+                    firstName = a.Character.FirstName,
+                    lastName = a.Character.LastName,
+                    email = a.Character.Email,
+                    role = EnumHelper.HumanizeEnumName(a.Role.Name.ToString()),
+                    department = EnumHelper.HumanizeEnumName(a.Department.Name.ToString()),
+                    organization = a.Organization.Name,
+                    organizationDescription = a.Organization.Description,
+                    organizationType = a.Organization.OrganizationType.ToString(),
+                    isPlaintiff = a.Organization.IsPlaintiff,
+                    isDefendant = a.Organization.IsDefendant
+                })
+                .ToList();
+
+            var characterJson = JsonSerializer.Serialize(assignments, JsonSerializationDefaults.Indented);
+            var beatsJson = JsonSerializer.Serialize(beats.Select(b => new
             {
-                firstName = a.Character.FirstName,
-                lastName = a.Character.LastName,
-                email = a.Character.Email,
-                role = EnumHelper.HumanizeEnumName(a.Role.Name.ToString()),
-                department = EnumHelper.HumanizeEnumName(a.Department.Name.ToString()),
-                organization = a.Organization.Name,
-                organizationDescription = a.Organization.Description,
-                organizationType = a.Organization.OrganizationType.ToString(),
-                isPlaintiff = a.Organization.IsPlaintiff,
-                isDefendant = a.Organization.IsDefendant
-            })
-            .ToList();
+                id = b.Id,
+                name = b.Name,
+                plot = b.Plot
+            }), JsonSerializationDefaults.Indented);
 
-        var characterJson = JsonSerializer.Serialize(assignments, JsonSerializationDefaults.Indented);
-        var beatsJson = JsonSerializer.Serialize(storyline.Beats.Select(b => new
-        {
-            id = b.Id,
-            name = b.Name,
-            plot = b.Plot
-        }), JsonSerializationDefaults.Indented);
-
-        var relevanceSchema = """
+            var relevanceSchema = """
 {
   "characters": [
     {
@@ -365,7 +506,7 @@ Rules:
 }
 """;
 
-        var userPrompt = PromptScaffolding.JoinSections($@"Topic: {topic}
+            var userPrompt = PromptScaffolding.JoinSections($@"Topic: {topic}
 
 Storyline title: {storyline.Title}
 Storyline summary:
@@ -377,16 +518,38 @@ Story beats (JSON):
 Characters (JSON):
 {characterJson}", PromptScaffolding.JsonSchemaSection(relevanceSchema));
 
-        var response = await _openAI.GetJsonCompletionAsync<CharacterRelevanceResponse>(
-            systemPrompt,
-            userPrompt,
-            "Character Relevance",
-            ct);
+            var response = await _openAI.GetJsonCompletionAsync<CharacterRelevanceResponse>(
+                systemPrompt,
+                userPrompt,
+                "Character Relevance",
+                ct);
 
-        if (response?.Characters == null || response.Characters.Count == 0)
-            throw new InvalidOperationException($"Character relevance analysis returned no results for storyline '{storyline.Title}'.");
+            if (response?.Characters == null || response.Characters.Count == 0)
+                throw new InvalidOperationException($"Character relevance analysis returned no results for storyline '{storyline.Title}'.");
 
-        ApplyStorylineRelevance(characters, storyline.Beats, response.Characters);
+            ApplyStorylineRelevance(characters, beats, response.Characters);
+
+            var keyCount = characters.Count(c => c.IsKeyCharacter);
+            _logger.LogInformation(
+                "Character relevance completed with {KeyCharacterCount} key characters in {DurationMs} ms.",
+                keyCount,
+                stopwatch.ElapsedMilliseconds);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning(
+                "Character relevance canceled after {DurationMs} ms.",
+                stopwatch.ElapsedMilliseconds);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "Character relevance failed after {DurationMs} ms.",
+                stopwatch.ElapsedMilliseconds);
+            throw;
+        }
     }
 
     internal static void AddCharactersToRole(

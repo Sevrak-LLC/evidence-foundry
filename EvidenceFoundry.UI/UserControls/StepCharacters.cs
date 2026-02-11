@@ -392,7 +392,11 @@ public class StepCharacters : UserControl, IWizardStep
                     throw new InvalidOperationException("Storyline is required before generating characters.");
 
                 var openAI = _state.CreateOpenAIService();
-                var generator = new EntityGeneratorOrchestrator(openAI, _state.GenerationRandom);
+                var generator = new EntityGeneratorOrchestrator(
+                    openAI,
+                    _state.GenerationRandom,
+                    _state.CreateLogger<EntityGeneratorOrchestrator>(),
+                    _state.LoggerFactory);
 
                 var result = await generator.GenerateEntitiesAsync(
                     _state.Topic,
@@ -408,7 +412,9 @@ public class StepCharacters : UserControl, IWizardStep
                 RefreshCharacterGrid();
 
                 progress.Report("Generating presentation themes...");
-                var themeGenerator = new ThemeGenerator(openAI);
+                var themeGenerator = new ThemeGenerator(
+                    openAI,
+                    _state.CreateLogger<ThemeGenerator>());
                 _state.DomainThemes = await themeGenerator.GenerateThemesForOrganizationsAsync(
                     _state.Topic,
                     _state.Organizations,

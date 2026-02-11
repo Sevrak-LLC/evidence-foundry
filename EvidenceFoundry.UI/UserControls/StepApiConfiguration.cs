@@ -268,7 +268,11 @@ public class StepApiConfiguration : UserControl, IWizardStep
         {
             var modelConfig = _cboModel.SelectedItem as AIModelConfig;
             var modelId = modelConfig?.ModelId ?? "gpt-4o-mini";
-            var service = new OpenAIService(_txtApiKey.Text.Trim(), modelId, _state.GenerationRandom);
+            var service = new OpenAIService(
+                _txtApiKey.Text.Trim(),
+                modelId,
+                _state.GenerationRandom,
+                _state.CreateLogger<OpenAIService>());
             var success = await service.TestConnectionAsync();
 
             if (success)

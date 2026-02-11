@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
@@ -7,11 +8,21 @@ using DocumentFormat.OpenXml.Presentation;
 using A = DocumentFormat.OpenXml.Drawing;
 using P = DocumentFormat.OpenXml.Presentation;
 using EvidenceFoundry.Models;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace EvidenceFoundry.Services;
 
 public class OfficeDocumentService
 {
+    private readonly ILogger<OfficeDocumentService> _logger;
+
+    public OfficeDocumentService(ILogger<OfficeDocumentService>? logger = null)
+    {
+        _logger = logger ?? NullLogger<OfficeDocumentService>.Instance;
+        _logger.LogDebug("OfficeDocumentService initialized.");
+    }
+
     public byte[] CreateWordDocument(string title, string content, OrganizationTheme? theme = null)
     {
         if (string.IsNullOrWhiteSpace(title))
@@ -19,6 +30,7 @@ public class OfficeDocumentService
         if (string.IsNullOrWhiteSpace(content))
             throw new ArgumentException("Content is required.", nameof(content));
 
+        var stopwatch = Stopwatch.StartNew();
         var t = theme ?? OrganizationTheme.Default;
         var safeTitle = SanitizeXmlText(title);
         var safeContent = SanitizeXmlText(content);
@@ -144,7 +156,12 @@ public class OfficeDocumentService
             mainPart.Document.Save();
         }
 
-        return stream.ToArray();
+        var output = stream.ToArray();
+        _logger.LogInformation(
+            "Created Word document in {DurationMs} ms with {ContentLength} characters.",
+            stopwatch.ElapsedMilliseconds,
+            content.Length);
+        return output;
     }
 
     public byte[] CreateExcelDocument(string title, List<string> headers, List<List<string>> rows)
@@ -156,6 +173,7 @@ public class OfficeDocumentService
         if (headers.Count == 0)
             throw new ArgumentException("Headers are required.", nameof(headers));
 
+        var stopwatch = Stopwatch.StartNew();
         using var stream = new MemoryStream();
         using (var doc = SpreadsheetDocument.Create(stream, SpreadsheetDocumentType.Workbook, true))
         {
@@ -199,7 +217,13 @@ public class OfficeDocumentService
             workbookPart.Workbook.Save();
         }
 
-        return stream.ToArray();
+        var output = stream.ToArray();
+        _logger.LogInformation(
+            "Created Excel document in {DurationMs} ms with {RowCount} rows and {ColumnCount} columns.",
+            stopwatch.ElapsedMilliseconds,
+            rows.Count,
+            headers.Count);
+        return output;
     }
 
     public byte[] CreatePowerPointDocument(string title, List<(string slideTitle, string content)> slides, OrganizationTheme? theme = null)
@@ -210,6 +234,7 @@ public class OfficeDocumentService
         if (slides.Count == 0)
             throw new ArgumentException("Slides are required.", nameof(slides));
 
+        var stopwatch = Stopwatch.StartNew();
         // Use provided theme or default colors
         var t = theme ?? OrganizationTheme.Default;
         var safeTitle = SanitizeXmlText(title);
@@ -286,7 +311,12 @@ public class OfficeDocumentService
             presentationPart.Presentation.Save();
         }
 
-        return stream.ToArray();
+        var output = stream.ToArray();
+        _logger.LogInformation(
+            "Created PowerPoint document in {DurationMs} ms with {SlideCount} slides.",
+            stopwatch.ElapsedMilliseconds,
+            slides.Count);
+        return output;
     }
 
     private static string SanitizeSheetName(string? title)
