@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using EvidenceFoundry.Helpers;
@@ -137,9 +136,9 @@ Character pool (JSON):
             if (!beat.Plot.Contains('\n'))
                 throw new InvalidOperationException($"Story beat '{beat.Name}' must include newline characters in the plot text.");
 
-            if (!DateTime.TryParse(beat.StartDate, CultureInfo.InvariantCulture, DateTimeStyles.None, out var beatStart))
+            if (!DateHelper.TryParseIsoDate(beat.StartDate, out var beatStart))
                 throw new InvalidOperationException($"Story beat '{beat.Name}' has an invalid startDate.");
-            if (!DateTime.TryParse(beat.EndDate, CultureInfo.InvariantCulture, DateTimeStyles.None, out var beatEnd))
+            if (!DateHelper.TryParseIsoDate(beat.EndDate, out var beatEnd))
                 throw new InvalidOperationException($"Story beat '{beat.Name}' has an invalid endDate.");
 
             beats.Add(new StoryBeat
@@ -335,8 +334,8 @@ Beats to re-date (preserve order, names, plots):
         for (var i = 0; i < response.Beats.Count; i++)
         {
             var repaired = response.Beats[i];
-            if (!DateTime.TryParse(repaired.StartDate, CultureInfo.InvariantCulture, DateTimeStyles.None, out var start) ||
-                !DateTime.TryParse(repaired.EndDate, CultureInfo.InvariantCulture, DateTimeStyles.None, out var end))
+            if (!DateHelper.TryParseIsoDate(repaired.StartDate, out var start) ||
+                !DateHelper.TryParseIsoDate(repaired.EndDate, out var end))
             {
                 return false;
             }

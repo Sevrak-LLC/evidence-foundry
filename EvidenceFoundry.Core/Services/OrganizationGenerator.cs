@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text.Json.Serialization;
 using EvidenceFoundry.Helpers;
 using EvidenceFoundry.Models;
@@ -283,7 +282,7 @@ Enum values are shown as Raw (Humanized). Return only the Raw enum value.
             IsDefendant = response.Defendant
         };
 
-        if (DateTime.TryParse(response.Founded, CultureInfo.InvariantCulture, DateTimeStyles.None, out var founded))
+        if (DateHelper.TryParseAiDate(response.Founded, out var founded))
         {
             organization.Founded = founded;
         }

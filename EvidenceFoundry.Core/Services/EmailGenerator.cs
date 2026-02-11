@@ -2059,7 +2059,7 @@ For threads with 5+ emails, include at least ONE of these realistic patterns:
 
     private DateTime ResolveSentDate(EmailDto e, DateTime startDate, DateTime endDate)
     {
-        if (DateTime.TryParse(e.SentDateTime, CultureInfo.CurrentCulture, DateTimeStyles.AllowWhiteSpaces, out var sentDate))
+        if (DateHelper.TryParseAiDate(e.SentDateTime, out var sentDate))
         {
             return Clock.EnsureKind(sentDate, DateTimeKind.Local);
         }
@@ -3127,7 +3127,7 @@ If details are vague or missing, set hasMeeting to false.
             return;
 
         // Parse the meeting date and time
-        if (!DateTime.TryParse(response.SuggestedDate, out var meetingDate))
+        if (!DateHelper.TryParseAiDate(response.SuggestedDate, out var meetingDate))
         {
             meetingDate = email.SentDate.AddDays(1); // Default to next day
         }

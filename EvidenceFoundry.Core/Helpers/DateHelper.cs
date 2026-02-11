@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -7,6 +8,70 @@ namespace EvidenceFoundry.Helpers;
 
 public static partial class DateHelper
 {
+    private static readonly string[] IsoDateFormats = { "yyyy-MM-dd" };
+    private static readonly string[] AiDateFormats =
+    {
+        "yyyy-MM-dd",
+        "yyyy/MM/dd",
+        "MM/dd/yyyy",
+        "M/d/yyyy",
+        "MMM d, yyyy",
+        "MMMM d, yyyy",
+        "yyyy-MM",
+        "yyyy"
+    };
+
+    private static readonly string[] AiDateTimeFormats =
+    {
+        "yyyy-MM-dd'T'HH:mm",
+        "yyyy-MM-dd'T'HH:mm:ss",
+        "yyyy-MM-dd'T'HH:mm:ss.FFF",
+        "yyyy-MM-dd'T'HH:mm:ssK",
+        "yyyy-MM-dd'T'HH:mm:ss.fffK",
+        "yyyy-MM-dd HH:mm",
+        "yyyy-MM-dd HH:mm:ss",
+        "o"
+    };
+
+    public static bool TryParseIsoDate(string? value, out DateTime date)
+    {
+        date = default;
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
+
+        return DateTime.TryParseExact(
+            value.Trim(),
+            IsoDateFormats,
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.AllowWhiteSpaces,
+            out date);
+    }
+
+    public static bool TryParseAiDate(string? value, out DateTime date)
+    {
+        date = default;
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
+
+        var trimmed = value.Trim();
+        if (DateTime.TryParseExact(
+                trimmed,
+                AiDateTimeFormats,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AllowWhiteSpaces | DateTimeStyles.RoundtripKind,
+                out date))
+        {
+            return true;
+        }
+
+        return DateTime.TryParseExact(
+            trimmed,
+            AiDateFormats,
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.AllowWhiteSpaces,
+            out date);
+    }
+
     public static List<DateTime> DistributeDatesForThread(
         int emailCount,
         DateTime threadStart,

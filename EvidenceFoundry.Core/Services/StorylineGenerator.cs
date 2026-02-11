@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using EvidenceFoundry.Helpers;
@@ -413,8 +412,8 @@ Summary: {storyline.Summary}
         if (response == null)
             return;
 
-        if (!DateTime.TryParseExact(response.StartDate, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var start) ||
-            !DateTime.TryParseExact(response.EndDate, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var end))
+        if (!DateHelper.TryParseIsoDate(response.StartDate, out var start) ||
+            !DateHelper.TryParseIsoDate(response.EndDate, out var end))
         {
             return;
         }
