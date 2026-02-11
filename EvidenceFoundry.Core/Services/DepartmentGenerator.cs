@@ -6,6 +6,26 @@ namespace EvidenceFoundry.Services;
 
 public static class DepartmentGenerator
 {
+    private static readonly JsonSerializerOptions IndentedJsonOptions = new()
+    {
+        WriteIndented = true
+    };
+
+    private static readonly JsonSerializerOptions CatalogJsonOptions = CreateCatalogJsonOptions();
+
+    private static JsonSerializerOptions CreateCatalogJsonOptions()
+    {
+        var options = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        };
+
+        options.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+
+        return options;
+    }
+
     private static OrganizationStructureCatalogData.OrganizationTypeStructure? GetOrganizationTypeStructure(
         Industry industry,
         OrganizationType organizationType)
@@ -79,7 +99,7 @@ public static class DepartmentGenerator
             .Select(d => $"{d} ({EnumHelper.HumanizeEnumName(d.ToString())})")
             .ToArray();
 
-        return JsonSerializer.Serialize(departments, new JsonSerializerOptions { WriteIndented = true });
+        return JsonSerializer.Serialize(departments, IndentedJsonOptions);
     }
 
     internal static string BuildAllowedDepartmentRoleMapJson(Industry industry, OrganizationType organizationType)
@@ -91,7 +111,7 @@ public static class DepartmentGenerator
                 .Select(r => $"{r} ({EnumHelper.HumanizeEnumName(r.ToString())})")
                 .ToArray());
 
-        return JsonSerializer.Serialize(map, new JsonSerializerOptions { WriteIndented = true });
+        return JsonSerializer.Serialize(map, IndentedJsonOptions);
     }
 
     internal static string BuildIndustryOrganizationRoleCatalogJson(IEnumerable<Industry> industries)
@@ -112,13 +132,6 @@ public static class DepartmentGenerator
             Industries = filteredIndustries
         };
 
-        var options = new JsonSerializerOptions
-        {
-            WriteIndented = true,
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-        };
-        options.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
-
-        return JsonSerializer.Serialize(filteredCatalog, options);
+        return JsonSerializer.Serialize(filteredCatalog, CatalogJsonOptions);
     }
 }
