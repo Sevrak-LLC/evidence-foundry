@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Text;
+using System.Text.Json;
 using System.Globalization;
 using System.Text.Json.Serialization;
 using EvidenceFoundry.Models;
@@ -44,6 +45,11 @@ public partial class EmailGenerator
         "Thank you!",
         "Respectfully,",
         "Cordially,"
+    };
+
+    private static readonly JsonSerializerOptions IndentedJsonOptions = new()
+    {
+        WriteIndented = true
     };
 
     public EmailGenerator(
@@ -1246,6 +1252,7 @@ Signature:
         public string ThreadTopic { get; set; } = string.Empty;
         public string ThreadSubject { get; set; } = string.Empty;
         public bool ThreadSubjectGenerated { get; set; }
+        public NonResponsiveArchetypeSelection? NonResponsiveArchetypeSelection { get; set; }
         public Dictionary<Guid, EmailMessage> TargetLookup { get; }
         public Dictionary<Guid, EmailMessage> GeneratedLookup { get; } = new();
         public List<EmailMessage> Chronological { get; } = new();
@@ -1290,6 +1297,16 @@ Signature:
         Character From,
         List<Character> To,
         List<Character> Cc);
+
+    private sealed record ParticipantScoringProfile(
+        Character Character,
+        string IndustryKey,
+        Dictionary<string, double> TagPresence);
+
+    private sealed record NonResponsiveArchetypeSelection(
+        TopicArchetype Archetype,
+        string Subject,
+        Dictionary<string, string> EntityValues);
 
     private sealed class EmailValidationResult
     {
@@ -1856,6 +1873,10 @@ Signature:
 
     private static void InitializeThreadMetadata(ThreadExecutionState state)
     {
+        var isResponsive = state.Plan.Thread.Relevance == EmailThread.ThreadRelevance.Responsive || state.Plan.Thread.IsHot;
+        if (!isResponsive)
+            return;
+
         if (string.IsNullOrWhiteSpace(state.ThreadTopic))
             state.ThreadTopic = ResolveThreadTopic(state);
         if (string.IsNullOrWhiteSpace(state.ThreadSubject) && !string.IsNullOrWhiteSpace(state.ThreadTopic))
@@ -1890,55 +1911,9 @@ Signature:
     private static string ResolveThreadSubjectFromTopic(ThreadExecutionState state)
     {
         var topic = string.IsNullOrWhiteSpace(state.ThreadTopic) ? "Project update" : state.ThreadTopic;
-        string subject;
-
-        if (state.Plan.Thread.Relevance == EmailThread.ThreadRelevance.NonResponsive)
-        {
-            var template = NonResponsiveSubjectTemplates[state.Rng.Next(NonResponsiveSubjectTemplates.Length)];
-            subject = template.Replace("{topic}", topic, StringComparison.OrdinalIgnoreCase);
-        }
-        else
-        {
-            subject = topic;
-        }
-
+        var subject = topic;
         subject = ThreadingHelper.GetCleanSubject(subject);
         return string.IsNullOrWhiteSpace(subject) ? "Project update" : subject;
-    }
-
-    private void EnsureNonResponsiveThreadTopic(
-        ThreadExecutionState state,
-        ResolvedEmailParticipants participants)
-    {
-        if (state.Plan.Thread.Relevance != EmailThread.ThreadRelevance.NonResponsive)
-            return;
-
-        if (!string.IsNullOrWhiteSpace(state.ThreadTopic))
-            return;
-
-        var source = "routing";
-        if (!string.IsNullOrWhiteSpace(state.Plan.Thread.Topic))
-        {
-            state.ThreadTopic = state.Plan.Thread.Topic;
-            source = "planned";
-        }
-        else
-        {
-            var routedTopic = TryResolveNonResponsiveTopicFromRouting(participants, state);
-            if (string.IsNullOrWhiteSpace(routedTopic))
-            {
-                source = "fallback";
-                state.ThreadTopic = NonResponsiveTopicHints[state.Rng.Next(NonResponsiveTopicHints.Length)];
-            }
-            else
-            {
-                state.ThreadTopic = routedTopic;
-            }
-        }
-
-        state.ThreadSubject = ResolveThreadSubjectFromTopic(state);
-        state.Plan.Thread.Topic = state.ThreadTopic;
-        Log.ResolvedNonResponsiveThreadTopic(_logger, state.ThreadTopic, state.Plan.Thread.Id, source);
     }
 
     private async Task EnsureThreadSubjectAsync(
@@ -1952,40 +1927,85 @@ Signature:
 
         state.ThreadSubjectGenerated = true;
 
-        if (string.IsNullOrWhiteSpace(state.ThreadTopic))
-            state.ThreadTopic = ResolveThreadTopic(state);
-
         var isResponsive = state.Plan.Thread.Relevance == EmailThread.ThreadRelevance.Responsive || state.Plan.Thread.IsHot;
-        if (!isResponsive)
+        if (isResponsive)
         {
-            var audience = IsExternalAudience(participants) ? "external" : "internal";
-            Log.GeneratingNonResponsiveSubject(
-                _logger,
-                state.Plan.Thread.Id,
-                audience,
-                state.ThreadTopic);
+            if (string.IsNullOrWhiteSpace(state.ThreadTopic))
+                state.ThreadTopic = ResolveThreadTopic(state);
+
+            var fallback = string.IsNullOrWhiteSpace(state.ThreadSubject)
+                ? ResolveThreadSubjectFromTopic(state)
+                : state.ThreadSubject;
+
+            try
+            {
+                var prompt = BuildThreadSubjectPrompt(participants, state);
+                var response = await GetEmailSubjectResponseAsync(
+                    BuildEmailSubjectSystemPrompt(),
+                    prompt,
+                    $"Email Subject (thread {state.Plan.Thread.Id})",
+                    ct);
+
+                var resolved = NormalizeSubject(response?.Subject, fallback);
+                state.ThreadSubject = resolved;
+            }
+            catch (Exception ex)
+            {
+                Log.FailedToGenerateSubject(_logger, state.Plan.Thread.Id, ex);
+                state.ThreadSubject = NormalizeSubject(state.ThreadSubject, fallback);
+            }
+
+            return;
         }
 
-        var fallback = string.IsNullOrWhiteSpace(state.ThreadSubject)
-            ? ResolveThreadSubjectFromTopic(state)
+        var audience = IsExternalAudience(participants) ? "external" : "internal";
+        Log.GeneratingNonResponsiveSubject(
+            _logger,
+            state.Plan.Thread.Id,
+            audience,
+            state.ThreadTopic);
+
+        var nonResponsiveFallback = string.IsNullOrWhiteSpace(state.ThreadSubject)
+            ? "Project update"
             : state.ThreadSubject;
 
+        TopicArchetype? archetype = null;
         try
         {
-            var prompt = BuildThreadSubjectPrompt(participants, state);
-            var response = await GetEmailSubjectResponseAsync(
+            archetype = SelectNonResponsiveArchetype(participants, state, slot.SentDate)
+                        ?? TopicGenerationModelStore.Model.Archetypes.FirstOrDefault();
+
+            if (archetype == null)
+                throw new InvalidOperationException("No archetypes available for non-responsive subject generation.");
+
+            var subjectPrompt = BuildNonResponsiveSubjectPrompt(participants, state, archetype);
+            var response = await GetNonResponsiveSubjectResponseAsync(
                 BuildEmailSubjectSystemPrompt(),
-                prompt,
-                $"Email Subject (thread {state.Plan.Thread.Id})",
+                subjectPrompt,
+                $"Non-responsive Subject (thread {state.Plan.Thread.Id})",
                 ct);
 
-            var resolved = NormalizeSubject(response?.Subject, fallback);
-            state.ThreadSubject = resolved;
+            var entityValues = NormalizeEntityValues(archetype, response?.EntityValues, state.Rng, slot.SentDate, participants);
+            var subject = NormalizeNonResponsiveSubject(response?.Subject, nonResponsiveFallback, archetype);
+
+            state.ThreadSubject = subject;
+            state.NonResponsiveArchetypeSelection = new NonResponsiveArchetypeSelection(archetype, subject, entityValues);
         }
         catch (Exception ex)
         {
             Log.FailedToGenerateSubject(_logger, state.Plan.Thread.Id, ex);
-            state.ThreadSubject = NormalizeSubject(state.ThreadSubject, fallback);
+            var fallbackArchetype = archetype ?? TopicGenerationModelStore.Model.Archetypes.FirstOrDefault();
+            if (fallbackArchetype != null)
+            {
+                state.ThreadSubject = NormalizeNonResponsiveSubject(state.ThreadSubject, nonResponsiveFallback, fallbackArchetype);
+                var entityValues = NormalizeEntityValues(fallbackArchetype, null, state.Rng, slot.SentDate, participants);
+                state.NonResponsiveArchetypeSelection =
+                    new NonResponsiveArchetypeSelection(fallbackArchetype, state.ThreadSubject, entityValues);
+            }
+            else
+            {
+                state.ThreadSubject = NormalizeSubject(state.ThreadSubject, nonResponsiveFallback);
+            }
         }
     }
 
@@ -2012,64 +2032,6 @@ Signature:
     {
         public HashSet<int> Topics { get; } = new();
         public Dictionary<int, TopicTier> Tiers { get; } = new();
-    }
-
-    private static string? TryResolveNonResponsiveTopicFromRouting(
-        ResolvedEmailParticipants participants,
-        ThreadExecutionState state)
-    {
-        var recipients = CollectRecipients(participants);
-        if (recipients.Count == 0)
-            return null;
-
-        var senderContext = ResolveRoutingContext(participants.From, state);
-        var routing = TopicRoutingCatalog.Instance;
-        var aggregated = new Dictionary<int, TopicTier>();
-
-        foreach (var recipient in recipients)
-        {
-            var audience = recipient.OrganizationId == participants.From.OrganizationId
-                ? TopicRoutingAudience.Internal
-                : TopicRoutingAudience.External;
-
-            var senderSet = BuildParticipantTopicSet(senderContext, TopicRoutingDirection.Send, audience, routing);
-            var recipientContext = ResolveRoutingContext(recipient, state);
-            var recipientSet = BuildParticipantTopicSet(recipientContext, TopicRoutingDirection.Receive, audience, routing);
-
-            if (senderSet.Topics.Count == 0 || recipientSet.Topics.Count == 0)
-                continue;
-
-            foreach (var topicId in senderSet.Topics)
-            {
-                if (!recipientSet.Topics.Contains(topicId))
-                    continue;
-
-                var senderTier = senderSet.Tiers[topicId];
-                var recipientTier = recipientSet.Tiers[topicId];
-                var tier = senderTier >= recipientTier ? senderTier : recipientTier;
-
-                if (aggregated.TryGetValue(topicId, out var existing))
-                {
-                    if (tier > existing)
-                        aggregated[topicId] = tier;
-                }
-                else
-                {
-                    aggregated[topicId] = tier;
-                }
-            }
-        }
-
-        if (aggregated.Count == 0)
-            return null;
-
-        var candidates = aggregated.Keys.ToList();
-        var sampleCount = Math.Min(15, candidates.Count);
-        var sampled = SampleWeightedTopics(candidates, aggregated, sampleCount, state.Rng);
-        if (sampled.Count == 0)
-            return null;
-
-        return TrySelectTopicText(sampled, routing, state.Rng);
     }
 
     private static List<Character> CollectRecipients(ResolvedEmailParticipants participants)
@@ -2249,11 +2211,6 @@ Signature:
             slot.Index == state.Plan.EmailCount - 1);
 
         var participants = ResolveParticipantsForSlot(slot, state, parentEmail);
-        EnsureNonResponsiveThreadTopic(state, participants);
-        if (!isResponsive && slot.Index == 0)
-        {
-            Log.NonResponsiveThreadUsingTopic(_logger, thread.Id, state.ThreadTopic);
-        }
         await EnsureThreadSubjectAsync(slot, participants, state, ct);
         var attachmentDetails = BuildAttachmentPlanDetails(requirement, state, slot);
         var draftResult = await GenerateValidatedEmailDraftAsync(
@@ -2506,6 +2463,8 @@ Signature:
         ThreadExecutionState state,
         CancellationToken ct)
     {
+        var isResponsive = state.Plan.Thread.Relevance == EmailThread.ThreadRelevance.Responsive || state.Plan.Thread.IsHot;
+        var isNonResponsiveFirstEmail = !isResponsive && slot.Index == 0;
         var maxRepairs = Math.Max(0, state.Context.Config.MaxEmailRepairAttempts);
         EmailDraft? draft = null;
         List<string> errors = new();
@@ -2518,18 +2477,54 @@ Signature:
             SingleEmailApiResponse? response;
             if (attempt == 0)
             {
-                var prompt = BuildSingleEmailUserPrompt(
-                    slot,
-                    parentEmail,
-                    requirement,
-                    attachmentDetails,
-                    participants,
-                    state);
-                response = await GetEmailResponseAsync(
-                    state.Context.SystemPrompt,
-                    prompt,
-                    $"Email Generation (thread {state.Plan.Thread.Id}, slot {slot.Index + 1})",
-                    ct);
+                if (isNonResponsiveFirstEmail)
+                {
+                    var archetypeSelection = state.NonResponsiveArchetypeSelection;
+                    if (archetypeSelection == null)
+                    {
+                        var fallbackArchetype = SelectNonResponsiveArchetype(participants, state, slot.SentDate)
+                                                ?? TopicGenerationModelStore.Model.Archetypes.FirstOrDefault();
+                        if (fallbackArchetype == null)
+                            throw new InvalidOperationException("No archetypes available for non-responsive body generation.");
+
+                        var entityValues = NormalizeEntityValues(fallbackArchetype, null, state.Rng, slot.SentDate, participants);
+                        archetypeSelection = new NonResponsiveArchetypeSelection(
+                            fallbackArchetype,
+                            NormalizeNonResponsiveSubject(state.ThreadSubject, "Project update", fallbackArchetype),
+                            entityValues);
+                        state.NonResponsiveArchetypeSelection = archetypeSelection;
+                        state.ThreadSubject = archetypeSelection.Subject;
+                    }
+
+                    var prompt = BuildNonResponsiveBodyPrompt(
+                        slot,
+                        parentEmail,
+                        requirement,
+                        attachmentDetails,
+                        participants,
+                        state,
+                        archetypeSelection);
+                    response = await GetEmailResponseAsync(
+                        state.Context.SystemPrompt,
+                        prompt,
+                        $"Non-responsive Email Generation (thread {state.Plan.Thread.Id}, slot {slot.Index + 1})",
+                        ct);
+                }
+                else
+                {
+                    var prompt = BuildSingleEmailUserPrompt(
+                        slot,
+                        parentEmail,
+                        requirement,
+                        attachmentDetails,
+                        participants,
+                        state);
+                    response = await GetEmailResponseAsync(
+                        state.Context.SystemPrompt,
+                        prompt,
+                        $"Email Generation (thread {state.Plan.Thread.Id}, slot {slot.Index + 1})",
+                        ct);
+                }
             }
             else
             {
@@ -2886,6 +2881,101 @@ Available Characters:
 {guidance}", PromptScaffolding.JsonSchemaSection(schema));
     }
 
+    private static string BuildNonResponsiveSubjectPrompt(
+        ResolvedEmailParticipants participants,
+        ThreadExecutionState state,
+        TopicArchetype archetype)
+    {
+        var orgLookup = BuildOrganizationLookup(state);
+        var sender = BuildParticipantDescriptor(participants.From, state, orgLookup);
+        var recipients = participants.To.Count == 0
+            ? "None"
+            : string.Join("\n", participants.To.Select(p => BuildParticipantDescriptor(p, state, orgLookup)));
+        var archetypeMeta = $@"Id: {archetype.Id}
+Category: {archetype.Category}
+Intent: {archetype.Intent}
+Archetype tags: {string.Join(", ", archetype.ArchetypeTags)}";
+        var entitiesSection = $@"Required entities: {FormatEntityList(archetype.EntitiesRequired)}
+Optional entities: {FormatEntityList(archetype.EntitiesOptional)}
+Entity values MUST include all required entities. Use strings for all values.";
+        var schema = BuildNonResponsiveSubjectSchema();
+
+        return PromptScaffolding.JoinSections(
+            PromptScaffolding.Section("PRIMARY INSTRUCTION", archetype.ArchetypeSubjectPrompt),
+            PromptScaffolding.Section("SENDER", sender),
+            PromptScaffolding.Section("RECIPIENTS (To)", recipients),
+            PromptScaffolding.Section("ARCHETYPE METADATA", archetypeMeta),
+            PromptScaffolding.Section("ENTITIES", entitiesSection),
+            PromptScaffolding.JsonSchemaSection(schema));
+    }
+
+    private static string BuildNonResponsiveBodyPrompt(
+        ThreadEmailSlotPlan slot,
+        EmailMessage? parentEmail,
+        AttachmentRequirement requirement,
+        AttachmentPlanDetails attachmentDetails,
+        ResolvedEmailParticipants participants,
+        ThreadExecutionState state,
+        NonResponsiveArchetypeSelection selection)
+    {
+        var archetype = selection.Archetype;
+        var schema = BuildSingleEmailSchema();
+        var addressing = BuildAddressingSection(participants);
+        var senderProfile = BuildSenderProfileSection(participants.From, state.Context.CharacterContexts);
+        var attachmentInstructions = BuildSingleEmailAttachmentInstructions(requirement, attachmentDetails, isResponsiveThread: false);
+        var bodyRules = BuildBodyFormattingRules(slot.Intent);
+        var availableCharacters = $"Available Characters:\n{state.Plan.ParticipantList}";
+        var plannedSentTime = $"Planned Sent Time: {slot.SentDate:O}";
+        var threadTopicLine = string.IsNullOrWhiteSpace(state.ThreadTopic)
+            ? string.Empty
+            : $"Thread topic (for attachment relevance only): {state.ThreadTopic}";
+        var orgLookup = BuildOrganizationLookup(state);
+        var senderDescriptor = BuildParticipantDescriptor(participants.From, state, orgLookup);
+        var recipientDescriptors = participants.To.Count == 0
+            ? "None"
+            : string.Join("\n", participants.To.Select(p => BuildParticipantDescriptor(p, state, orgLookup)));
+        var ccDescriptors = participants.Cc.Count == 0
+            ? "None"
+            : string.Join("\n", participants.Cc.Select(p => BuildParticipantDescriptor(p, state, orgLookup)));
+        var participantContext = $@"Sender: {senderDescriptor}
+Recipients (To):
+{recipientDescriptors}
+Cc:
+{ccDescriptors}";
+        var entityValuesJson = JsonSerializer.Serialize(selection.EntityValues, IndentedJsonOptions);
+        var archetypeMeta = $@"Id: {archetype.Id}
+Category: {archetype.Category}
+Intent: {archetype.Intent}
+Archetype tags: {string.Join(", ", archetype.ArchetypeTags)}
+Required entities: {FormatEntityList(archetype.EntitiesRequired)}
+Optional entities: {FormatEntityList(archetype.EntitiesOptional)}";
+
+        var parentContext = parentEmail == null
+            ? "This is the first email in the thread."
+            : $"Parent email: {BuildParentSummary(parentEmail)}";
+
+        var criticalRules = $@"CRITICAL RULES:
+{bodyRules}";
+
+        return PromptScaffolding.JoinSections(
+            PromptScaffolding.Section("PRIMARY INSTRUCTION", archetype.ArchetypeBodyPrompt),
+            PromptScaffolding.Section("SUBJECT", selection.Subject),
+            threadTopicLine,
+            addressing,
+            PromptScaffolding.Section("PARTICIPANT CONTEXT", participantContext),
+            senderProfile,
+            availableCharacters,
+            plannedSentTime,
+            PromptScaffolding.Section("ARCHETYPE METADATA", archetypeMeta),
+            PromptScaffolding.Section("ENTITY VALUES (JSON)", entityValuesJson),
+            PromptScaffolding.Section("ALIGNMENT REQUIREMENT",
+                "The body MUST align with the provided subject and use all required entity values."),
+            parentContext,
+            PromptScaffolding.Section("ATTACHMENT REQUIREMENTS", attachmentInstructions),
+            PromptScaffolding.JsonSchemaSection(schema),
+            criticalRules);
+    }
+
     private static string BuildSingleEmailUserPrompt(
         ThreadEmailSlotPlan slot,
         EmailMessage? parentEmail,
@@ -3019,6 +3109,18 @@ Previous Draft (for reference):
 """;
     }
 
+    private static string BuildNonResponsiveSubjectSchema()
+    {
+        return """
+{
+  "subject": "string (4-12 words)",
+  "entityValues": {
+    "entity_name": "string value"
+  }
+}
+""";
+    }
+
     private static string BuildParentSummary(EmailMessage parent)
     {
         var preview = parent.BodyPlain ?? string.Empty;
@@ -3033,6 +3135,44 @@ Previous Draft (for reference):
             ? "None"
             : string.Join(", ", participants.Cc.Select(p => $"{p.FullName} <{p.Email}>"));
         return $"From: {participants.From.FullName} <{participants.From.Email}>\nTo: {toList}\nCc: {ccList}";
+    }
+
+    private static Dictionary<Guid, Organization> BuildOrganizationLookup(ThreadExecutionState state)
+    {
+        return state.Context.State.Organizations.ToDictionary(o => o.Id);
+    }
+
+    private static string BuildParticipantDescriptor(
+        Character character,
+        ThreadExecutionState state,
+        IReadOnlyDictionary<Guid, Organization> orgLookup)
+    {
+        var display = $"{character.FullName} <{character.Email}>";
+        var organizationName = "Unknown";
+        var industryLabel = "Unknown";
+        var departmentLabel = "Unknown";
+        var roleLabel = "Unknown";
+
+        if (state.Context.CharacterContexts.TryGetValue(character.Id, out var context))
+        {
+            organizationName = context.Organization;
+            departmentLabel = context.Department;
+            roleLabel = context.Role;
+        }
+
+        if (state.Context.CharacterRoutingContexts.TryGetValue(character.Id, out var routing)
+            && orgLookup.TryGetValue(routing.OrganizationId, out var organization))
+        {
+            organizationName = organization.Name;
+            industryLabel = EnumHelper.HumanizeEnumName(organization.Industry.ToString());
+        }
+
+        return $"Name: {display} | Org: {organizationName} | Industry: {industryLabel} | Department: {departmentLabel} | Role: {roleLabel}";
+    }
+
+    private static string FormatEntityList(IReadOnlyCollection<string> entities)
+    {
+        return entities.Count == 0 ? "None" : string.Join(", ", entities);
     }
 
     private static bool IsExternalAudience(ResolvedEmailParticipants participants)
@@ -3223,6 +3363,13 @@ Previous Draft (for reference):
         CancellationToken ct)
         => _openAI.GetJsonCompletionAsync<EmailSubjectResponse>(systemPrompt, userPrompt, operationName, ct);
 
+    protected virtual Task<NonResponsiveSubjectResponse?> GetNonResponsiveSubjectResponseAsync(
+        string systemPrompt,
+        string userPrompt,
+        string operationName,
+        CancellationToken ct)
+        => _openAI.GetJsonCompletionAsync<NonResponsiveSubjectResponse>(systemPrompt, userPrompt, operationName, ct);
+
     internal static string GetNarrativePhase(int batchIndex, int totalBatches)
     {
         if (totalBatches <= 1)
@@ -3302,6 +3449,447 @@ OUTPUT:
 - Return JSON only, matching the schema provided in the user prompt.");
     }
 
+    private const string RelationshipInternalInternal = "internal_internal";
+    private const string RelationshipInternalExternal = "internal_external";
+    private const double TagPresenceThreshold = 0.35;
+    private const double TagPresenceSharpness = 8.0;
+    private const double MinSenderGate = 0.12;
+    private const double MinRecipientGateMax = 0.12;
+    private const double CoverageBase = 0.80;
+    private const double CoverageSpan = 0.40;
+    private const double AlphaSender = 0.8;
+    private const double BetaRecipient = 1.0;
+    private const double GammaSender = 1.0;
+    private const double GammaRecipient = 1.0;
+    private const double TemperatureMean = 1.05;
+    private const double TemperatureSigma = 0.10;
+
+    private static TopicArchetype? SelectNonResponsiveArchetype(
+        ResolvedEmailParticipants participants,
+        ThreadExecutionState state,
+        DateTime sentDate)
+    {
+        var model = TopicGenerationModelStore.Model;
+        if (model.Archetypes.Count == 0)
+            return null;
+
+        var orgLookup = BuildOrganizationLookup(state);
+        var senderProfile = BuildScoringProfile(participants.From, state, model, orgLookup);
+        var recipientProfiles = participants.To
+            .Select(p => BuildScoringProfile(p, state, model, orgLookup))
+            .ToList();
+        var ccProfiles = participants.Cc
+            .Select(p => BuildScoringProfile(p, state, model, orgLookup))
+            .ToList();
+        var relationshipType = IsExternalAudience(participants)
+            ? RelationshipInternalExternal
+            : RelationshipInternalInternal;
+
+        var temperature = SampleTemperature(state.Rng);
+        var candidates = new List<(TopicArchetype Archetype, double Weight)>();
+
+        foreach (var archetype in model.Archetypes)
+        {
+            var rel = GetRelationshipModifier(archetype, relationshipType);
+            if (rel <= 0)
+                continue;
+
+            var senderGate = GateAny(senderProfile.TagPresence, archetype.Constraints.SenderTagsAny);
+            if (senderGate < MinSenderGate)
+                continue;
+
+            var recGateValues = recipientProfiles
+                .Select(r => GateAny(r.TagPresence, archetype.Constraints.RecipientTagsAny))
+                .ToList();
+            var recGateMax = recGateValues.Count == 0 ? 1.0 : recGateValues.Max();
+            var recGateAvg = recGateValues.Count == 0 ? 1.0 : recGateValues.Average();
+            if (recGateMax < MinRecipientGateMax)
+                continue;
+
+            if (archetype.Constraints.CcTagsAny is { Count: > 0 } && ccProfiles.Count > 0)
+            {
+                var ccGateMax = ccProfiles.Max(c => GateAny(c.TagPresence, archetype.Constraints.CcTagsAny));
+                if (ccGateMax < MinRecipientGateMax)
+                    continue;
+            }
+
+            var coverage = recipientProfiles.Count == 0
+                ? 1.0
+                : recipientProfiles.Average(r => GateAny(r.TagPresence, archetype.ArchetypeTags));
+            var coverageFactor = CoverageBase + CoverageSpan * coverage;
+
+            var senderAffinity = MeanPresence(senderProfile.TagPresence, archetype.ArchetypeTags);
+            var recipAffinityMax = recipientProfiles.Count == 0
+                ? 0.0
+                : recipientProfiles.Max(r => MeanPresence(r.TagPresence, archetype.ArchetypeTags));
+            var affinityFactor = (1 + AlphaSender * senderAffinity) * (1 + BetaRecipient * recipAffinityMax);
+
+            var senderIndFactor = GetIndustryFactor(model, senderProfile.IndustryKey, archetype);
+            var recipIndFactors = recipientProfiles
+                .Select(r => GetIndustryFactor(model, r.IndustryKey, archetype))
+                .ToList();
+            var recipIndFactor = AverageTopTwo(recipIndFactors);
+
+            var seasonFactor = GetSeasonFactor(archetype, sentDate);
+
+            var score = archetype.BaseWeight;
+            score *= rel;
+            score *= seasonFactor;
+            score *= senderIndFactor;
+            score *= recipIndFactor;
+            score *= Math.Pow(senderGate, GammaSender);
+            score *= Math.Pow(0.7 * recGateMax + 0.3 * recGateAvg, GammaRecipient);
+            score *= affinityFactor;
+            score *= coverageFactor;
+
+            if (!double.IsFinite(score) || score <= 0)
+                continue;
+
+            var weight = Math.Pow(score, 1.0 / temperature);
+            if (!double.IsFinite(weight) || weight <= 0)
+                continue;
+
+            candidates.Add((archetype, weight));
+        }
+
+        return candidates.Count == 0 ? null : SampleWeightedCandidate(candidates, state.Rng);
+    }
+
+    private static ParticipantScoringProfile BuildScoringProfile(
+        Character character,
+        ThreadExecutionState state,
+        TopicGenerationModel model,
+        IReadOnlyDictionary<Guid, Organization> orgLookup)
+    {
+        var departmentKey = string.Empty;
+        var roleKey = string.Empty;
+        var industryKey = Industry.Other.ToString();
+
+        if (state.Context.CharacterRoutingContexts.TryGetValue(character.Id, out var routing))
+        {
+            departmentKey = routing.Department?.ToString() ?? string.Empty;
+            roleKey = routing.Role?.ToString() ?? string.Empty;
+            if (orgLookup.TryGetValue(routing.OrganizationId, out var organization))
+                industryKey = organization.Industry.ToString();
+        }
+
+        var tagPresence = BuildTagPresenceMap(model, departmentKey, roleKey, industryKey);
+        return new ParticipantScoringProfile(character, industryKey, tagPresence);
+    }
+
+    private static Dictionary<string, double> BuildTagPresenceMap(
+        TopicGenerationModel model,
+        string? departmentKey,
+        string? roleKey,
+        string industryKey)
+    {
+        var deptWeights = !string.IsNullOrWhiteSpace(departmentKey)
+            && model.DepartmentDefaultTagMultipliers.TryGetValue(departmentKey, out var deptMap)
+            ? deptMap
+            : null;
+        var roleWeights = !string.IsNullOrWhiteSpace(roleKey)
+            && model.RoleDefaultTagMultipliers.TryGetValue(roleKey, out var roleMap)
+            ? roleMap
+            : null;
+        var industryWeights = model.IndustryMultipliers.TryGetValue(industryKey, out var industry)
+            ? industry.TagMultipliers
+            : null;
+
+        var presence = new Dictionary<string, double>(model.Tags.Count);
+        foreach (var tag in model.Tags)
+        {
+            var tagId = tag.Id;
+            var roleWeight = roleWeights != null && roleWeights.TryGetValue(tagId, out var rWeight) ? rWeight : 0.0;
+            var deptWeight = deptWeights != null && deptWeights.TryGetValue(tagId, out var dWeight) ? dWeight : 0.0;
+            var baseWeight = Math.Max(roleWeight, deptWeight);
+            var industryMultiplier = industryWeights != null && industryWeights.TryGetValue(tagId, out var iWeight) ? iWeight : 1.0;
+            var weight = baseWeight * industryMultiplier;
+            presence[tagId] = Sigmoid(TagPresenceSharpness * (weight - TagPresenceThreshold));
+        }
+
+        return presence;
+    }
+
+    private static double GateAny(Dictionary<string, double> tagPresence, IReadOnlyCollection<string>? tags)
+    {
+        if (tags == null || tags.Count == 0)
+            return 1.0;
+
+        var product = 1.0;
+        foreach (var tag in tags)
+        {
+            if (!tagPresence.TryGetValue(tag, out var presence))
+                presence = 0.0;
+            product *= (1.0 - presence);
+        }
+
+        return 1.0 - product;
+    }
+
+    private static double MeanPresence(Dictionary<string, double> tagPresence, IReadOnlyCollection<string>? tags)
+    {
+        if (tags == null || tags.Count == 0)
+            return 0.0;
+
+        var sum = 0.0;
+        var count = 0;
+        foreach (var tag in tags)
+        {
+            if (!tagPresence.TryGetValue(tag, out var presence))
+                presence = 0.0;
+            sum += presence;
+            count++;
+        }
+
+        return count == 0 ? 0.0 : sum / count;
+    }
+
+    private static double GetIndustryFactor(TopicGenerationModel model, string industryKey, TopicArchetype archetype)
+    {
+        if (!model.IndustryMultipliers.TryGetValue(industryKey, out var multipliers))
+            return 1.0;
+
+        var category = multipliers.CategoryMultipliers.TryGetValue(archetype.Category, out var c) ? c : 1.0;
+        var intent = multipliers.IntentMultipliers.TryGetValue(archetype.Intent, out var i) ? i : 1.0;
+        var idOverride = multipliers.ArchetypeIdOverrides.TryGetValue(archetype.Id, out var o) ? o : 1.0;
+        return category * intent * idOverride;
+    }
+
+    private static double GetRelationshipModifier(TopicArchetype archetype, string relationshipType)
+    {
+        return archetype.Constraints.RelationshipModifiers.TryGetValue(relationshipType, out var modifier)
+            ? modifier
+            : 0.0;
+    }
+
+    private static double GetSeasonFactor(TopicArchetype archetype, DateTime sentDate)
+    {
+        if (archetype.Seasonality?.MonthsBoost == null)
+            return 1.0;
+
+        var monthKey = sentDate.Month.ToString(CultureInfo.InvariantCulture);
+        return archetype.Seasonality.MonthsBoost.TryGetValue(monthKey, out var boost)
+            ? boost
+            : 1.0;
+    }
+
+    private static double AverageTopTwo(IReadOnlyList<double> values)
+    {
+        if (values.Count == 0)
+            return 1.0;
+        if (values.Count == 1)
+            return values[0];
+
+        var top1 = double.MinValue;
+        var top2 = double.MinValue;
+        foreach (var value in values)
+        {
+            if (value >= top1)
+            {
+                top2 = top1;
+                top1 = value;
+            }
+            else if (value > top2)
+            {
+                top2 = value;
+            }
+        }
+
+        return (top1 + top2) / 2.0;
+    }
+
+    private static TopicArchetype SampleWeightedCandidate(
+        IReadOnlyList<(TopicArchetype Archetype, double Weight)> candidates,
+        Random rng)
+    {
+        var total = candidates.Sum(c => c.Weight);
+        if (!double.IsFinite(total) || total <= 0)
+            return candidates[0].Archetype;
+
+        var roll = rng.NextDouble() * total;
+        var cumulative = 0.0;
+        foreach (var candidate in candidates)
+        {
+            cumulative += candidate.Weight;
+            if (roll <= cumulative)
+                return candidate.Archetype;
+        }
+
+        return candidates[^1].Archetype;
+    }
+
+    private static double SampleTemperature(Random rng)
+    {
+        var standardNormal = SampleStandardNormal(rng);
+        return TemperatureMean * Math.Exp(standardNormal * TemperatureSigma);
+    }
+
+    private static double SampleStandardNormal(Random rng)
+    {
+        var u1 = 1.0 - rng.NextDouble();
+        var u2 = 1.0 - rng.NextDouble();
+        return Math.Sqrt(-2.0 * Math.Log(u1)) * Math.Cos(2.0 * Math.PI * u2);
+    }
+
+    private static double Sigmoid(double value)
+    {
+        return 1.0 / (1.0 + Math.Exp(-value));
+    }
+
+    private static Dictionary<string, string> NormalizeEntityValues(
+        TopicArchetype archetype,
+        Dictionary<string, string>? rawValues,
+        Random rng,
+        DateTime sentDate,
+        ResolvedEmailParticipants participants)
+    {
+        var rawLookup = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (rawValues != null)
+        {
+            foreach (var (key, value) in rawValues)
+            {
+                if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(value))
+                    continue;
+                rawLookup[key.Trim()] = value.Trim();
+            }
+        }
+
+        var normalized = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var required in archetype.EntitiesRequired)
+        {
+            if (!TryGetEntityValue(rawLookup, required, out var value))
+                value = BuildFallbackEntityValue(required, rng, sentDate, participants);
+            normalized[required] = value;
+        }
+
+        foreach (var optional in archetype.EntitiesOptional)
+        {
+            if (TryGetEntityValue(rawLookup, optional, out var value))
+                normalized[optional] = value;
+        }
+
+        return normalized;
+    }
+
+    private static bool TryGetEntityValue(
+        IReadOnlyDictionary<string, string> values,
+        string key,
+        [NotNullWhen(true)] out string? value)
+    {
+        if (values.TryGetValue(key, out var direct) && !string.IsNullOrWhiteSpace(direct))
+        {
+            value = direct;
+            return true;
+        }
+
+        value = null;
+        return false;
+    }
+
+    private static string BuildFallbackEntityValue(
+        string entityKey,
+        Random rng,
+        DateTime sentDate,
+        ResolvedEmailParticipants participants)
+    {
+        var lowered = entityKey.ToLowerInvariant();
+        if (lowered.Contains("person", StringComparison.Ordinal)
+            || lowered.Contains("employee", StringComparison.Ordinal)
+            || lowered.Contains("manager", StringComparison.Ordinal)
+            || lowered.Contains("contact", StringComparison.Ordinal))
+        {
+            var person = participants.To.Count > 0 ? participants.To[0] : participants.From;
+            return person.FullName;
+        }
+
+        if (lowered.Contains("date", StringComparison.Ordinal)
+            || lowered.Contains("deadline", StringComparison.Ordinal)
+            || lowered.Contains("time", StringComparison.Ordinal))
+        {
+            return sentDate.AddDays(rng.Next(2, 10)).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        }
+
+        if (lowered.Contains("list", StringComparison.Ordinal)
+            || lowered.Contains("systems", StringComparison.Ordinal)
+            || lowered.Contains("assets", StringComparison.Ordinal)
+            || lowered.Contains("items", StringComparison.Ordinal))
+        {
+            return "Item A, Item B";
+        }
+
+        if (lowered.Contains("ticket", StringComparison.Ordinal)
+            || lowered.Contains("case", StringComparison.Ordinal)
+            || lowered.Contains("id", StringComparison.Ordinal))
+        {
+            return $"TKT-{rng.Next(1000, 9999)}";
+        }
+
+        if (lowered.Contains("link", StringComparison.Ordinal))
+        {
+            return "https://intranet.local/request";
+        }
+
+        if (lowered.Contains("summary", StringComparison.Ordinal)
+            || lowered.Contains("description", StringComparison.Ordinal)
+            || lowered.Contains("reason", StringComparison.Ordinal))
+        {
+            return "brief summary";
+        }
+
+        return "details needed";
+    }
+
+    private static string NormalizeNonResponsiveSubject(
+        string? subject,
+        string fallback,
+        TopicArchetype archetype)
+    {
+        var resolved = ThreadingHelper.GetCleanSubject(subject ?? string.Empty);
+        if (string.IsNullOrWhiteSpace(resolved))
+            resolved = ThreadingHelper.GetCleanSubject(fallback);
+        if (string.IsNullOrWhiteSpace(resolved))
+            resolved = BuildFallbackSubject(archetype);
+
+        var words = SplitWords(resolved);
+        if (words.Count < 4)
+        {
+            resolved = BuildFallbackSubject(archetype);
+            words = SplitWords(resolved);
+        }
+
+        if (words.Count > 12)
+            resolved = string.Join(" ", words.Take(12));
+        else if (words.Count < 4)
+            resolved = $"{resolved} update";
+
+        return resolved.Trim();
+    }
+
+    private static string BuildFallbackSubject(TopicArchetype archetype)
+    {
+        var humanized = HumanizeIdentifier(archetype.Id);
+        var subject = $"Action needed: {humanized}";
+        var words = SplitWords(subject);
+        if (words.Count < 4)
+            subject = $"Action needed: {humanized} update";
+        return subject;
+    }
+
+    private static string HumanizeIdentifier(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return "update";
+
+        var cleaned = value.Replace('_', ' ').Replace('-', ' ').Trim();
+        return CultureInfo.InvariantCulture.TextInfo.ToTitleCase(cleaned);
+    }
+
+    private static List<string> SplitWords(string value)
+    {
+        return value.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
+    }
+
     private static readonly string[] NonResponsiveTopicHints =
     {
         "meeting scheduling or rescheduling",
@@ -3314,15 +3902,6 @@ OUTPUT:
         "travel planning or reimbursement",
         "invoice questions or billing clarifications",
         "internal documentation clean-up"
-    };
-
-    private static readonly string[] NonResponsiveSubjectTemplates =
-    {
-        "Quick question about {topic}",
-        "Update on {topic}",
-        "Follow-up: {topic}",
-        "{topic} - next steps",
-        "{topic} check-in"
     };
 
     private static string BuildNonResponsiveContext(string? topic)
@@ -4584,6 +5163,15 @@ The voicemail should:
     {
         [JsonPropertyName("subject")]
         public string Subject { get; set; } = string.Empty;
+    }
+
+    protected internal sealed class NonResponsiveSubjectResponse
+    {
+        [JsonPropertyName("subject")]
+        public string Subject { get; set; } = string.Empty;
+
+        [JsonPropertyName("entityValues")]
+        public Dictionary<string, string> EntityValues { get; set; } = new();
     }
 
     private sealed class WordDocResponse
