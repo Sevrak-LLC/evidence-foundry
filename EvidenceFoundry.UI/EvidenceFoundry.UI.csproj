@@ -19,8 +19,8 @@
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
 
     <!-- Application metadata -->
-    <Version>1.1.2</Version>
-    <Company>EvidenceFoundry</Company>
+    <Version>1.3.0</Version>
+    <Company>Sevrak LLC</Company>
     <Product>EvidenceFoundry - E-Discovery Dataset Generator</Product>
     <Description>Generate realistic email datasets for e-discovery training and testing</Description>
   </PropertyGroup>
