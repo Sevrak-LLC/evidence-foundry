@@ -7,7 +7,7 @@ namespace EvidenceFoundry.Tests;
 public class ThreadStructurePlannerTests
 {
     [Fact]
-    public void BuildPlan_IsDeterministicForSeed()
+    public void BuildPlanIsDeterministicForSeed()
     {
         var thread = new EmailThread
         {
@@ -16,8 +16,7 @@ public class ThreadStructurePlannerTests
             Topic = "Forecast"
         };
 
-        var threadGenerator = new EmailThreadGenerator();
-        threadGenerator.EnsurePlaceholderMessages(thread, 5);
+        EmailThreadGenerator.EnsurePlaceholderMessages(thread, 5);
 
         var config = new GenerationConfig
         {
@@ -41,7 +40,7 @@ public class ThreadStructurePlannerTests
     }
 
     [Fact]
-    public void BuildPlan_UsesValidParentsAndAttachmentCounts()
+    public void BuildPlanUsesValidParentsAndAttachmentCounts()
     {
         var thread = new EmailThread
         {
@@ -50,8 +49,7 @@ public class ThreadStructurePlannerTests
             Topic = "Audit"
         };
 
-        var threadGenerator = new EmailThreadGenerator();
-        threadGenerator.EnsurePlaceholderMessages(thread, 6);
+        EmailThreadGenerator.EnsurePlaceholderMessages(thread, 6);
 
         var config = new GenerationConfig
         {

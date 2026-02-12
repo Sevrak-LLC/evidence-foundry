@@ -6,20 +6,19 @@ using System.Globalization;
 using System.Text.Json.Serialization;
 using EvidenceFoundry.Models;
 using EvidenceFoundry.Helpers;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
+using Serilog;
+using Serilog.Context;
 
 namespace EvidenceFoundry.Services;
 
-public class EmailGenerator
+public partial class EmailGenerator
 {
     private readonly OpenAIService _openAI;
     private readonly OfficeDocumentService _officeService;
     private readonly EmailThreadGenerator _threadGenerator;
     private readonly SuggestedSearchTermGenerator _searchTermGenerator;
     private readonly Random _rng;
-    private readonly ILogger<EmailGenerator> _logger;
-    private readonly ILoggerFactory? _loggerFactory;
+    private readonly ILogger _logger;
 
     // Track document chains across threads for versioning
     private readonly ConcurrentDictionary<string, DocumentChainState> _documentChains = new();
@@ -50,25 +49,21 @@ public class EmailGenerator
     public EmailGenerator(
         OpenAIService openAI,
         Random rng,
-        ILogger<EmailGenerator>? logger = null,
-        ILoggerFactory? loggerFactory = null)
+        ILogger? logger = null)
     {
         ArgumentNullException.ThrowIfNull(openAI);
         ArgumentNullException.ThrowIfNull(rng);
         _openAI = openAI;
         _rng = rng;
-        _loggerFactory = loggerFactory;
-        _logger = ResolveLogger(logger, loggerFactory);
-        _officeService = new OfficeDocumentService(ResolveLogger<OfficeDocumentService>(null, loggerFactory));
-        _threadGenerator = new EmailThreadGenerator(ResolveLogger<EmailThreadGenerator>(null, loggerFactory));
+        var baseLogger = logger ?? Serilog.Log.Logger;
+        _logger = baseLogger.ForContext<EmailGenerator>();
+        _officeService = new OfficeDocumentService(baseLogger.ForContext<OfficeDocumentService>());
+        _threadGenerator = new EmailThreadGenerator(baseLogger.ForContext<EmailThreadGenerator>());
         _searchTermGenerator = new SuggestedSearchTermGenerator(
             openAI,
-            ResolveLogger<SuggestedSearchTermGenerator>(null, loggerFactory));
-        _logger.LogDebug("EmailGenerator initialized.");
+            baseLogger.ForContext<SuggestedSearchTermGenerator>());
+        Log.EmailGeneratorInitialized(_logger);
     }
-
-    private static ILogger<T> ResolveLogger<T>(ILogger<T>? logger, ILoggerFactory? loggerFactory)
-        => logger ?? loggerFactory?.CreateLogger<T>() ?? NullLogger<T>.Instance;
 
     private sealed class DocumentChainState
     {
@@ -105,22 +100,16 @@ public class EmailGenerator
             CurrentOperation = "Initializing..."
         };
 
-        using var scope = _logger.BeginScope(new Dictionary<string, object>
-        {
-            ["RunId"] = runId,
-            ["OutputFolder"] = state.Config.OutputFolder
-        });
+        using var runIdScope = LogContext.PushProperty("RunId", runId);
+        using var outputFolderScope = LogContext.PushProperty("OutputFolder", state.Config.OutputFolder);
 
-        _logger.LogInformation(
-            "Starting email generation for {StorylineCount} storylines and {TotalEmailCount} planned emails.",
-            activeStorylines.Count,
-            progressData.TotalEmails);
+        Log.StartingEmailGeneration(_logger, activeStorylines.Count, progressData.TotalEmails);
 
         try
         {
             if (activeStorylines.Count == 0)
             {
-                _logger.LogWarning("No active storylines found; email generation cannot proceed.");
+                Log.NoActiveStorylines(_logger);
                 throw new InvalidOperationException("No storyline available for email generation.");
             }
             var characterContexts = BuildCharacterContextMap(state.Organizations);
@@ -137,7 +126,7 @@ public class EmailGenerator
             ReportProgress(progress, progressData, progressLock, p => p.CurrentOperation = "Initializing...");
 
             // EML service for incremental saving
-            var emlService = new EmlFileService(ResolveLogger<EmlFileService>(null, _loggerFactory));
+            var emlService = new EmlFileService(_logger.ForContext<EmlFileService>());
             Directory.CreateDirectory(state.Config.OutputFolder);
 
             var processContext = new ProcessStorylineContext(
@@ -168,9 +157,7 @@ public class EmailGenerator
             var unsavedCount = threadsList.Count(t => !savedThreads.ContainsKey(t.Id));
             if (unsavedCount > 0)
             {
-                _logger.LogInformation(
-                    "Saving remaining EML files for {ThreadCount} threads.",
-                    unsavedCount);
+                Log.SavingRemainingEmlFiles(_logger, unsavedCount);
             }
             await SaveRemainingEmlAsync(
                 threadsList,
@@ -208,8 +195,8 @@ public class EmailGenerator
 
             ReportProgress(progress, progressData, progressLock, p => p.CurrentOperation = "Complete!");
 
-            _logger.LogInformation(
-                "Email generation completed with {ThreadCount} threads, {EmailCount} emails, and {AttachmentCount} attachments in {DurationMs} ms.",
+            Log.EmailGenerationCompleted(
+                _logger,
                 result.TotalThreadsGenerated,
                 result.TotalEmailsGenerated,
                 result.TotalAttachmentsGenerated,
@@ -221,17 +208,12 @@ public class EmailGenerator
         {
             result.WasCancelled = true;
             result.ElapsedTime = stopwatch.Elapsed;
-            _logger.LogWarning(
-                "Email generation canceled after {DurationMs} ms.",
-                stopwatch.ElapsedMilliseconds);
+            Log.EmailGenerationCanceled(_logger, stopwatch.ElapsedMilliseconds);
             return result;
         }
         catch (Exception ex)
         {
-            _logger.LogError(
-                ex,
-                "Email generation failed after {DurationMs} ms.",
-                stopwatch.ElapsedMilliseconds);
+            Log.EmailGenerationFailed(_logger, stopwatch.ElapsedMilliseconds, ex);
             result.ElapsedTime = stopwatch.Elapsed;
             result.AddError($"Email generation failed ({ex.GetType().Name}): {ex.Message}");
             if (ex.InnerException != null)
@@ -288,11 +270,8 @@ public class EmailGenerator
         var beats = storyline.Beats ?? new List<StoryBeat>();
         var completedAtStart = 0;
 
-        using var scope = _logger.BeginScope(new Dictionary<string, object>
-        {
-            ["StorylineId"] = storyline.Id,
-            ["StorylineTitle"] = storyline.Title
-        });
+        using var storylineIdScope = LogContext.PushProperty("StorylineId", storyline.Id);
+        using var storylineTitleScope = LogContext.PushProperty("StorylineTitle", storyline.Title);
 
         var stopwatch = Stopwatch.StartNew();
 
@@ -300,10 +279,7 @@ public class EmailGenerator
         {
             ct.ThrowIfCancellationRequested();
 
-            _logger.LogInformation(
-                "Processing storyline with {EmailCount} planned emails across {BeatCount} beats.",
-                emailCount,
-                beats.Count);
+            Log.ProcessingStoryline(_logger, emailCount, beats.Count);
 
             // Report that we're starting this storyline
             ReportProgress(context.Progress, context.ProgressData, context.ProgressLock, p =>
@@ -331,8 +307,8 @@ public class EmailGenerator
                 context.Threads.Add(thread);
             }
 
-            _logger.LogInformation(
-                "Storyline processing generated {ThreadCount} threads in {DurationMs} ms.",
+            Log.StorylineProcessingGeneratedThreads(
+                _logger,
                 storylineThreads.Count,
                 stopwatch.ElapsedMilliseconds);
         }
@@ -342,10 +318,7 @@ public class EmailGenerator
         }
         catch (Exception ex)
         {
-            _logger.LogError(
-                ex,
-                "Storyline '{StorylineTitle}' failed during email generation.",
-                storyline.Title);
+            Log.StorylineProcessingFailed(_logger, storyline.Title, ex);
             context.Result.AddError($"Storyline '{storyline.Title}' failed during email generation: {ex.Message}");
         }
     }
@@ -391,7 +364,7 @@ public class EmailGenerator
         catch (Exception ex)
         {
             result.AddError($"Failed to save remaining EML files: {ex.Message}");
-            _logger.LogError(ex, "Failed to save remaining EML files for {ThreadCount} threads.", unsavedThreads.Count);
+            Log.FailedToSaveRemainingEmlFiles(_logger, unsavedThreads.Count, ex);
         }
     }
 
@@ -399,12 +372,13 @@ public class EmailGenerator
     {
         if (string.IsNullOrEmpty(signature)) return "    (no signature)";
         var lines = signature.Replace("\\n", "\n").Split('\n');
-        return string.Join("\n", lines.Select(l => $"    {l}"));
+        var indentedLines = Array.ConvertAll(lines, line => $"    {line}");
+        return string.Join("\n", indentedLines);
     }
 
     private static string GetThreadSubject(EmailThread thread)
     {
-        var subject = thread.EmailMessages.FirstOrDefault()?.Subject;
+        var subject = thread.EmailMessages.Count > 0 ? thread.EmailMessages[0].Subject : null;
         return string.IsNullOrWhiteSpace(subject) ? "Untitled thread" : subject;
     }
 
@@ -432,23 +406,27 @@ public class EmailGenerator
     private static string BuildExportedEmailForPrompt(EmailMessage email)
     {
         var sb = new StringBuilder();
-        sb.AppendLine($"Subject: {email.Subject}");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"Subject: {email.Subject}");
         if (email.From != null)
         {
-            sb.AppendLine($"From: {email.From.FullName} <{email.From.Email}>");
+            sb.AppendLine(CultureInfo.InvariantCulture, $"From: {email.From.FullName} <{email.From.Email}>");
         }
 
         if (email.To.Count > 0)
         {
-            sb.AppendLine($"To: {string.Join("; ", email.To.Select(c => $"{c.FullName} <{c.Email}>"))}");
+            sb.AppendLine(
+                CultureInfo.InvariantCulture,
+                $"To: {string.Join("; ", email.To.Select(c => $"{c.FullName} <{c.Email}>"))}");
         }
 
         if (email.Cc.Count > 0)
         {
-            sb.AppendLine($"Cc: {string.Join("; ", email.Cc.Select(c => $"{c.FullName} <{c.Email}>"))}");
+            sb.AppendLine(
+                CultureInfo.InvariantCulture,
+                $"Cc: {string.Join("; ", email.Cc.Select(c => $"{c.FullName} <{c.Email}>"))}");
         }
 
-        sb.AppendLine($"Date: {email.SentDate:yyyy-MM-dd HH:mm}");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"Date: {email.SentDate:yyyy-MM-dd HH:mm}");
 
         if (email.Attachments.Count > 0)
         {
@@ -458,7 +436,7 @@ public class EmailGenerator
                 var description = string.IsNullOrWhiteSpace(attachment.ContentDescription)
                     ? ""
                     : $" - {attachment.ContentDescription}";
-                sb.AppendLine($"- {attachment.Type} {attachment.FileName}{description}");
+                sb.AppendLine(CultureInfo.InvariantCulture, $"- {attachment.Type} {attachment.FileName}{description}");
             }
         }
 
@@ -468,7 +446,7 @@ public class EmailGenerator
     }
 
     private async Task GenerateSuggestedSearchTermsAsync(
-        IReadOnlyList<EmailThread> threads,
+        List<EmailThread> threads,
         IReadOnlyList<Storyline> storylines,
         GenerationConfig config,
         SuggestedSearchTermsContext context,
@@ -476,7 +454,7 @@ public class EmailGenerator
     {
         if (threads.Count == 0)
         {
-            _logger.LogInformation("Skipping suggested search terms; no threads available.");
+            Log.SkippingSuggestedSearchTermsNoThreads(_logger);
             return;
         }
 
@@ -486,13 +464,11 @@ public class EmailGenerator
 
         if (responsiveThreads.Count == 0)
         {
-            _logger.LogInformation("Skipping suggested search terms; no responsive or hot threads found.");
+            Log.SkippingSuggestedSearchTermsNoResponsiveThreads(_logger);
             return;
         }
 
-        _logger.LogInformation(
-            "Generating suggested search terms for {ThreadCount} responsive/hot threads.",
-            responsiveThreads.Count);
+        Log.GeneratingSuggestedSearchTerms(_logger, responsiveThreads.Count);
 
         var beatLookup = storylines
             .SelectMany(s => s.Beats ?? new List<StoryBeat>())
@@ -552,10 +528,7 @@ public class EmailGenerator
                     context.Result.AddError(
                         $"Suggested search terms failed for thread {thread.Id} ({GetThreadSubject(thread)}): {ex.Message}");
                 }
-                _logger.LogError(
-                    ex,
-                    "Suggested search terms failed for thread {ThreadId}.",
-                    thread.Id);
+                Log.SuggestedSearchTermsFailed(_logger, thread.Id, ex);
             }
         }
 
@@ -573,10 +546,7 @@ public class EmailGenerator
         {
             Directory.CreateDirectory(config.OutputFolder);
             await File.WriteAllTextAsync(outputPath, markdown, ct);
-            _logger.LogInformation(
-                "Wrote suggested search terms markdown for {ThreadCount} threads to {OutputPath}.",
-                results.Count,
-                outputPath);
+            Log.WroteSuggestedSearchTermsMarkdown(_logger, results.Count, outputPath);
         }
         catch (Exception ex)
         {
@@ -670,7 +640,7 @@ public class EmailGenerator
 
     private static void WriteSection(StringBuilder sb, string title, List<SuggestedSearchTermResult> items)
     {
-        sb.AppendLine($"## {title}");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"## {title}");
         if (items.Count == 0)
         {
             WriteEmptySection(sb);
@@ -720,7 +690,7 @@ public class EmailGenerator
 
         foreach (var term in aggregated)
         {
-            sb.AppendLine($"- {term}");
+            sb.AppendLine(CultureInfo.InvariantCulture, $"- {term}");
         }
     }
 
@@ -736,7 +706,7 @@ public class EmailGenerator
 
     private static void WriteThreadItem(StringBuilder sb, SuggestedSearchTermResult item)
     {
-        sb.AppendLine($"- Subject: {item.Subject}");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"- Subject: {item.Subject}");
         if (item.Terms.Count == 0)
         {
             sb.AppendLine("  - (no terms generated)");
@@ -745,7 +715,7 @@ public class EmailGenerator
 
         foreach (var term in item.Terms)
         {
-            sb.AppendLine($"  - {term}");
+            sb.AppendLine(CultureInfo.InvariantCulture, $"  - {term}");
         }
     }
 
@@ -819,7 +789,7 @@ public class EmailGenerator
     {
         var seed = DeterministicSeedHelper.CreateSeed(
             scope,
-            generationSeed.ToString(),
+            generationSeed.ToString(CultureInfo.InvariantCulture),
             threadId.ToString("N"));
         return new Random(seed);
     }
@@ -890,10 +860,7 @@ public class EmailGenerator
 
         if (success)
         {
-            _logger.LogInformation(
-                "Thread completed successfully in stage {Stage}: {Subject}.",
-                stage,
-                subject);
+            Log.ThreadCompletedSuccessfully(_logger, stage, subject);
         }
     }
 
@@ -910,10 +877,7 @@ public class EmailGenerator
                 $"Thread '{subject}' (ThreadId {plan.Thread.Id}) failed during {stage}: {ex.Message}");
         }
 
-        _logger.LogError(
-            ex,
-            "Thread failed during {Stage}.",
-            stage);
+        Log.ThreadFailedDuringStage(_logger, stage, ex);
 
         RecordThreadCompletion(context, plan, plan.Thread, success: false, stage: stage);
     }
@@ -959,14 +923,188 @@ public class EmailGenerator
             var reason = string.IsNullOrWhiteSpace(email.GenerationFailureReason)
                 ? "No failure reason recorded."
                 : email.GenerationFailureReason;
-            _logger.LogWarning(
-                "Email failed during {Stage} in thread {ThreadId} (slot {Slot}): {Subject}. Reason: {Reason}",
+            Log.EmailFailedDuringStage(
+                _logger,
                 stage,
                 thread.Id,
                 email.SequenceInThread + 1,
                 subject,
                 reason);
         }
+    }
+
+    private static class Log
+    {
+        public static void EmailGeneratorInitialized(ILogger logger)
+            => logger.Debug("EmailGenerator initialized.");
+
+        public static void StartingEmailGeneration(ILogger logger, int storylineCount, int totalEmailCount)
+            => logger.Information(
+                "Starting email generation for {StorylineCount} storylines and {TotalEmailCount} planned emails.",
+                storylineCount,
+                totalEmailCount);
+
+        public static void NoActiveStorylines(ILogger logger)
+            => logger.Warning("No active storylines found; email generation cannot proceed.");
+
+        public static void SavingRemainingEmlFiles(ILogger logger, int threadCount)
+            => logger.Information("Saving remaining EML files for {ThreadCount} threads.", threadCount);
+
+        public static void EmailGenerationCompleted(
+            ILogger logger,
+            int threadCount,
+            int emailCount,
+            int attachmentCount,
+            long durationMs)
+            => logger.Information(
+                "Email generation completed with {ThreadCount} threads, {EmailCount} emails, and {AttachmentCount} attachments in {DurationMs} ms.",
+                threadCount,
+                emailCount,
+                attachmentCount,
+                durationMs);
+
+        public static void EmailGenerationCanceled(ILogger logger, long durationMs)
+            => logger.Warning("Email generation canceled after {DurationMs} ms.", durationMs);
+
+        public static void EmailGenerationFailed(ILogger logger, long durationMs, Exception exception)
+            => logger.Error(exception, "Email generation failed after {DurationMs} ms.", durationMs);
+
+        public static void ProcessingStoryline(ILogger logger, int emailCount, int beatCount)
+            => logger.Information(
+                "Processing storyline with {EmailCount} planned emails across {BeatCount} beats.",
+                emailCount,
+                beatCount);
+
+        public static void StorylineProcessingGeneratedThreads(ILogger logger, int threadCount, long durationMs)
+            => logger.Information(
+                "Storyline processing generated {ThreadCount} threads in {DurationMs} ms.",
+                threadCount,
+                durationMs);
+
+        public static void StorylineProcessingFailed(ILogger logger, string storylineTitle, Exception exception)
+            => logger.Error(
+                exception,
+                "Storyline '{StorylineTitle}' failed during email generation.",
+                storylineTitle);
+
+        public static void FailedToSaveRemainingEmlFiles(ILogger logger, int threadCount, Exception exception)
+            => logger.Error(
+                exception,
+                "Failed to save remaining EML files for {ThreadCount} threads.",
+                threadCount);
+
+        public static void SkippingSuggestedSearchTermsNoThreads(ILogger logger)
+            => logger.Information("Skipping suggested search terms; no threads available.");
+
+        public static void SkippingSuggestedSearchTermsNoResponsiveThreads(ILogger logger)
+            => logger.Information("Skipping suggested search terms; no responsive or hot threads found.");
+
+        public static void GeneratingSuggestedSearchTerms(ILogger logger, int threadCount)
+            => logger.Information(
+                "Generating suggested search terms for {ThreadCount} responsive/hot threads.",
+                threadCount);
+
+        public static void SuggestedSearchTermsFailed(ILogger logger, Guid threadId, Exception exception)
+            => logger.Error(exception, "Suggested search terms failed for thread {ThreadId}.", threadId);
+
+        public static void WroteSuggestedSearchTermsMarkdown(ILogger logger, int threadCount, string outputPath)
+            => logger.Information(
+                "Wrote suggested search terms markdown for {ThreadCount} threads to {OutputPath}.",
+                threadCount,
+                outputPath);
+
+        public static void ThreadCompletedSuccessfully(ILogger logger, string stage, string subject)
+            => logger.Information("Thread completed successfully in stage {Stage}: {Subject}.", stage, subject);
+
+        public static void ThreadFailedDuringStage(ILogger logger, string stage, Exception exception)
+            => logger.Error(exception, "Thread failed during {Stage}.", stage);
+
+        public static void EmailFailedDuringStage(
+            ILogger logger,
+            string stage,
+            Guid threadId,
+            int slot,
+            string subject,
+            string reason)
+            => logger.Warning(
+                "Email failed during {Stage} in thread {ThreadId} (slot {Slot}): {Subject}. Reason: {Reason}",
+                stage,
+                threadId,
+                slot,
+                subject,
+                reason);
+
+        public static void NoStoryBeatsForStoryline(ILogger logger, string storylineTitle)
+            => logger.Warning(
+                "No story beats available for storyline {StorylineTitle}; skipping thread generation.",
+                storylineTitle);
+
+        public static void NoThreadPlansGenerated(ILogger logger, string storylineTitle)
+            => logger.Warning("No thread plans generated for storyline {StorylineTitle}.", storylineTitle);
+
+        public static void GeneratingThreadsForStoryline(ILogger logger, int threadPlanCount, string storylineTitle)
+            => logger.Information(
+                "Generating {ThreadPlanCount} threads for storyline {StorylineTitle}.",
+                threadPlanCount,
+                storylineTitle);
+
+        public static void CreatedThreadStructurePlan(
+            ILogger logger,
+            Guid threadId,
+            int emailCount,
+            int branchCount)
+            => logger.Information(
+                "Created thread structure plan for {ThreadId} with {EmailCount} emails and {BranchCount} branch(es).",
+                threadId,
+                emailCount,
+                branchCount);
+
+        public static void GeneratingThread(ILogger logger, Guid threadId, int emailCount)
+            => logger.Information("Generating thread {ThreadId} with {EmailCount} planned emails.", threadId, emailCount);
+
+        public static void ResolvedNonResponsiveThreadTopic(
+            ILogger logger,
+            string topic,
+            Guid threadId,
+            string source)
+            => logger.Information(
+                "Resolved non-responsive thread topic '{Topic}' for thread {ThreadId} (source: {Source}).",
+                topic,
+                threadId,
+                source);
+
+        public static void GeneratingNonResponsiveSubject(
+            ILogger logger,
+            Guid threadId,
+            string audience,
+            string topic)
+            => logger.Debug(
+                "Generating non-responsive subject for thread {ThreadId} (audience: {Audience}) with topic '{Topic}'.",
+                threadId,
+                audience,
+                topic);
+
+        public static void FailedToGenerateSubject(ILogger logger, Guid threadId, Exception exception)
+            => logger.Warning(exception, "Failed to generate subject for thread {ThreadId}; using fallback.", threadId);
+
+        public static void NonResponsiveThreadUsingTopic(ILogger logger, Guid threadId, string topic)
+            => logger.Debug(
+                "Non-responsive thread {ThreadId} using topic '{Topic}' for initial email generation.",
+                threadId,
+                topic);
+
+        public static void ThreadCompletedWithPendingAttachments(
+            ILogger logger,
+            Guid threadId,
+            int docs,
+            int images,
+            int voicemails)
+            => logger.Warning(
+                "Thread {ThreadId} completed with {Docs} document(s), {Images} image(s), {Voicemails} voicemail(s) still pending attachment placement.",
+                threadId,
+                docs,
+                images,
+                voicemails);
     }
 
     private async Task<List<EmailThread>> GenerateThreadsForStorylineAsync(
@@ -978,25 +1116,18 @@ public class EmailGenerator
     {
         if (beats == null || beats.Count == 0)
         {
-            _logger.LogWarning(
-                "No story beats available for storyline {StorylineTitle}; skipping thread generation.",
-                storyline.Title);
+            Log.NoStoryBeatsForStoryline(_logger, storyline.Title);
             return new List<EmailThread>();
         }
 
         var threadPlans = BuildThreadPlans(storyline, state.Characters, beats, processContext.CharacterContexts, state);
         if (threadPlans.Count == 0)
         {
-            _logger.LogWarning(
-                "No thread plans generated for storyline {StorylineTitle}.",
-                storyline.Title);
+            Log.NoThreadPlansGenerated(_logger, storyline.Title);
             return new List<EmailThread>();
         }
 
-        _logger.LogInformation(
-            "Generating {ThreadPlanCount} threads for storyline {StorylineTitle}.",
-            threadPlans.Count,
-            storyline.Title);
+        Log.GeneratingThreadsForStoryline(_logger, threadPlans.Count, storyline.Title);
 
         var threads = new EmailThread?[threadPlans.Count];
         var systemPrompt = BuildEmailSystemPrompt();
@@ -1178,14 +1309,14 @@ public class EmailGenerator
                 var threadStartDate = DateHelper.InterpolateDateInRange(beat.StartDate, beat.EndDate, (double)emailsAssigned / beat.EmailCount);
                 var threadEndDate = DateHelper.InterpolateDateInRange(beat.StartDate, beat.EndDate, (double)(emailsAssigned + threadEmailCount) / beat.EmailCount);
                 _threadGenerator.AssignThreadParticipants(thread, state.Organizations, _rng);
-                _threadGenerator.EnsurePlaceholderMessages(thread, threadEmailCount);
+                EmailThreadGenerator.EnsurePlaceholderMessages(thread, threadEmailCount);
 
                 var participants = ResolveThreadParticipants(thread, characters);
                 var participantLookup = participants.ToDictionary(c => c.Email, StringComparer.OrdinalIgnoreCase);
                 var participantList = BuildCharacterList(participants, characterContexts);
                 var threadSeed = DeterministicSeedHelper.CreateSeed(
                     "thread-gen",
-                    state.GenerationSeed.ToString(),
+                    state.GenerationSeed.ToString(CultureInfo.InvariantCulture),
                     thread.Id.ToString("N"));
                 var structurePlan = ThreadStructurePlanner.BuildPlan(
                     thread,
@@ -1196,11 +1327,7 @@ public class EmailGenerator
                     state.GenerationSeed);
                 var branchCount = CountBranches(structurePlan);
 
-                _logger.LogInformation(
-                    "Created thread structure plan for {ThreadId} with {EmailCount} emails and {BranchCount} branch(es).",
-                    thread.Id,
-                    threadEmailCount,
-                    branchCount);
+                Log.CreatedThreadStructurePlan(_logger, thread.Id, threadEmailCount, branchCount);
 
                 threadPlans.Add(new ThreadPlan(
                     planIndex++,
@@ -1325,13 +1452,10 @@ public class EmailGenerator
     {
         var stage = "thread-generation";
 
-        using var scope = _logger.BeginScope(new Dictionary<string, object>
-        {
-            ["ThreadId"] = plan.Thread.Id,
-            ["StorylineId"] = context.Storyline.Id,
-            ["BeatName"] = plan.BeatName,
-            ["PlannedEmailCount"] = plan.EmailCount
-        });
+        using var threadIdScope = LogContext.PushProperty("ThreadId", plan.Thread.Id);
+        using var storylineIdScope = LogContext.PushProperty("StorylineId", context.Storyline.Id);
+        using var beatNameScope = LogContext.PushProperty("BeatName", plan.BeatName);
+        using var plannedEmailCountScope = LogContext.PushProperty("PlannedEmailCount", plan.EmailCount);
 
         try
         {
@@ -1397,7 +1521,8 @@ public class EmailGenerator
         if (!string.IsNullOrWhiteSpace(thread.Topic))
             return thread.Topic;
 
-        var subject = ThreadingHelper.GetCleanSubject(thread.EmailMessages.FirstOrDefault()?.Subject ?? string.Empty);
+        var subjectSource = thread.EmailMessages.Count > 0 ? thread.EmailMessages[0].Subject : string.Empty;
+        var subject = ThreadingHelper.GetCleanSubject(subjectSource);
         if (!string.IsNullOrWhiteSpace(subject))
             return subject;
 
@@ -1613,7 +1738,7 @@ public class EmailGenerator
         }
     }
 
-    private async Task SaveThreadAsync(
+    private static async Task SaveThreadAsync(
         EmailThread thread,
         ThreadPlanContext context,
         CancellationToken ct)
@@ -1660,7 +1785,7 @@ public class EmailGenerator
         GenerationConfig config,
         int emailCount)
     {
-        if (config == null) throw new ArgumentNullException(nameof(config));
+        ArgumentNullException.ThrowIfNull(config);
 
         var totalDocAttachments = config.AttachmentPercentage > 0 && config.EnabledAttachmentTypes.Count > 0
             ? Math.Max(0, (int)Math.Round(emailCount * config.AttachmentPercentage / 100.0))
@@ -1685,17 +1810,14 @@ public class EmailGenerator
         CancellationToken ct)
     {
         var thread = plan.Thread;
-        _threadGenerator.ResetThreadForRetry(thread, plan.EmailCount);
+        EmailThreadGenerator.ResetThreadForRetry(thread, plan.EmailCount);
         var rng = new Random(plan.ThreadSeed);
         var executionState = new ThreadExecutionState(plan, context, rng);
 
         InitializeFactTable(executionState);
         InitializeThreadMetadata(executionState);
 
-        _logger.LogInformation(
-            "Generating thread {ThreadId} with {EmailCount} planned emails.",
-            thread.Id,
-            plan.EmailCount);
+        Log.GeneratingThread(_logger, thread.Id, plan.EmailCount);
 
         foreach (var slot in plan.StructurePlan.Slots)
         {
@@ -1707,7 +1829,7 @@ public class EmailGenerator
         return thread;
     }
 
-    private void InitializeFactTable(ThreadExecutionState state)
+    private static void InitializeFactTable(ThreadExecutionState state)
     {
         foreach (var participant in state.Plan.Participants)
         {
@@ -1716,7 +1838,7 @@ public class EmailGenerator
         }
     }
 
-    private void InitializeThreadMetadata(ThreadExecutionState state)
+    private static void InitializeThreadMetadata(ThreadExecutionState state)
     {
         if (string.IsNullOrWhiteSpace(state.ThreadTopic))
             state.ThreadTopic = ResolveThreadTopic(state);
@@ -1800,11 +1922,7 @@ public class EmailGenerator
 
         state.ThreadSubject = ResolveThreadSubjectFromTopic(state);
         state.Plan.Thread.Topic = state.ThreadTopic;
-        _logger.LogInformation(
-            "Resolved non-responsive thread topic '{Topic}' for thread {ThreadId} (source: {Source}).",
-            state.ThreadTopic,
-            state.Plan.Thread.Id,
-            source);
+        Log.ResolvedNonResponsiveThreadTopic(_logger, state.ThreadTopic, state.Plan.Thread.Id, source);
     }
 
     private async Task EnsureThreadSubjectAsync(
@@ -1825,8 +1943,8 @@ public class EmailGenerator
         if (!isResponsive)
         {
             var audience = IsExternalAudience(participants) ? "external" : "internal";
-            _logger.LogDebug(
-                "Generating non-responsive subject for thread {ThreadId} (audience: {Audience}) with topic '{Topic}'.",
+            Log.GeneratingNonResponsiveSubject(
+                _logger,
                 state.Plan.Thread.Id,
                 audience,
                 state.ThreadTopic);
@@ -1850,10 +1968,7 @@ public class EmailGenerator
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(
-                ex,
-                "Failed to generate subject for thread {ThreadId}; using fallback.",
-                state.Plan.Thread.Id);
+            Log.FailedToGenerateSubject(_logger, state.Plan.Thread.Id, ex);
             state.ThreadSubject = NormalizeSubject(state.ThreadSubject, fallback);
         }
     }
@@ -1883,7 +1998,7 @@ public class EmailGenerator
         public Dictionary<int, TopicTier> Tiers { get; } = new();
     }
 
-    private string? TryResolveNonResponsiveTopicFromRouting(
+    private static string? TryResolveNonResponsiveTopicFromRouting(
         ResolvedEmailParticipants participants,
         ThreadExecutionState state)
     {
@@ -2008,7 +2123,7 @@ public class EmailGenerator
         AddTopics(target, buckets.Both, tierType);
     }
 
-    private static void AddTopics(TopicTieredSet target, IReadOnlyList<int>? topics, TopicTier tier)
+    private static void AddTopics(TopicTieredSet target, List<int>? topics, TopicTier tier)
     {
         if (topics == null || topics.Count == 0)
             return;
@@ -2121,10 +2236,7 @@ public class EmailGenerator
         EnsureNonResponsiveThreadTopic(state, participants);
         if (!isResponsive && slot.Index == 0)
         {
-            _logger.LogDebug(
-                "Non-responsive thread {ThreadId} using topic '{Topic}' for initial email generation.",
-                thread.Id,
-                state.ThreadTopic);
+            Log.NonResponsiveThreadUsingTopic(_logger, thread.Id, state.ThreadTopic);
         }
         await EnsureThreadSubjectAsync(slot, participants, state, ct);
         var attachmentDetails = BuildAttachmentPlanDetails(requirement, state, slot);
@@ -2183,8 +2295,8 @@ public class EmailGenerator
                 || state.AttachmentCarryover.PendingImages > 0
                 || state.AttachmentCarryover.PendingVoicemails > 0)
             {
-                _logger.LogWarning(
-                    "Thread {ThreadId} completed with {Docs} document(s), {Images} image(s), {Voicemails} voicemail(s) still pending attachment placement.",
+                Log.ThreadCompletedWithPendingAttachments(
+                    _logger,
                     thread.Id,
                     state.AttachmentCarryover.PendingDocuments.Count,
                     state.AttachmentCarryover.PendingImages,
@@ -2193,7 +2305,7 @@ public class EmailGenerator
         }
     }
 
-    private AttachmentRequirement BuildAttachmentRequirement(
+    private static AttachmentRequirement BuildAttachmentRequirement(
         ThreadEmailSlotPlan slot,
         AttachmentCarryoverState carryover,
         bool isFinalSlot)
@@ -2250,7 +2362,7 @@ public class EmailGenerator
         return AttachmentType.Word;
     }
 
-    private AttachmentPlanDetails BuildAttachmentPlanDetails(
+    private static AttachmentPlanDetails BuildAttachmentPlanDetails(
         AttachmentRequirement requirement,
         ThreadExecutionState state,
         ThreadEmailSlotPlan slot)
@@ -2281,7 +2393,7 @@ public class EmailGenerator
         return new AttachmentPlanDetails(documentDescription, imageDescription, voicemailContext);
     }
 
-    private ResolvedEmailParticipants ResolveParticipantsForSlot(
+    private static ResolvedEmailParticipants ResolveParticipantsForSlot(
         ThreadEmailSlotPlan slot,
         ThreadExecutionState state,
         EmailMessage? parentEmail)
@@ -2493,7 +2605,7 @@ public class EmailGenerator
         };
     }
 
-    private void ApplyDraftToEmail(
+    private static void ApplyDraftToEmail(
         EmailDraft draft,
         EmailMessage target,
         ThreadExecutionState state,
@@ -2558,7 +2670,7 @@ public class EmailGenerator
         return body + ThreadingHelper.FormatQuotedReply(parentEmail);
     }
 
-    private void PopulateFailureEmail(
+    private static void PopulateFailureEmail(
         EmailMessage target,
         ThreadExecutionState state,
         ThreadEmailSlotPlan slot,
@@ -2612,7 +2724,7 @@ This email could not be generated due to an internal error.
         target.GenerationFailureReason = reason;
     }
 
-    private void UpdateAttachmentCarryover(
+    private static void UpdateAttachmentCarryover(
         AttachmentCarryoverState carryover,
         ThreadEmailSlotPlan slot,
         AttachmentRequirement requirement,
@@ -2658,7 +2770,7 @@ This email could not be generated due to an internal error.
         }
     }
 
-    private void UpdateFactTable(ThreadExecutionState state, EmailMessage email)
+    private static void UpdateFactTable(ThreadExecutionState state, EmailMessage email)
     {
         var subject = ThreadingHelper.GetCleanSubject(email.Subject);
         var toNames = email.To.Count > 0
@@ -2705,7 +2817,7 @@ This email could not be generated due to an internal error.
 - The signature MUST match the From address";
     }
 
-    private string BuildThreadSubjectPrompt(
+    private static string BuildThreadSubjectPrompt(
         ResolvedEmailParticipants participants,
         ThreadExecutionState state)
     {
@@ -2758,7 +2870,7 @@ Available Characters:
 {guidance}", PromptScaffolding.JsonSchemaSection(schema));
     }
 
-    private string BuildSingleEmailUserPrompt(
+    private static string BuildSingleEmailUserPrompt(
         ThreadEmailSlotPlan slot,
         EmailMessage? parentEmail,
         AttachmentRequirement requirement,
@@ -2824,7 +2936,7 @@ CONTENT REQUIREMENTS:
 {attachmentInstructions}", PromptScaffolding.JsonSchemaSection(schema), criticalRules);
     }
 
-    private string BuildEmailRepairPrompt(
+    private static string BuildEmailRepairPrompt(
         ThreadEmailSlotPlan slot,
         EmailMessage? parentEmail,
         AttachmentRequirement requirement,
@@ -2958,7 +3070,7 @@ Previous Draft (for reference):
         return string.IsNullOrWhiteSpace(resolved) ? "Project update" : resolved;
     }
 
-    private static string BuildThreadHistorySection(IReadOnlyList<EmailMessage> history)
+    private static string BuildThreadHistorySection(List<EmailMessage> history)
     {
         if (history.Count == 0)
             return "No prior emails in this thread yet.";
@@ -3444,8 +3556,8 @@ Email body preview: {email.BodyPlain[..Math.Min(300, email.BodyPlain.Length)]}..
             email,
             isDetailed,
             state,
-            ct,
-            chainState);
+            chainState,
+            ct);
         if (attachment == null)
             throw new InvalidOperationException($"Planned {attachmentType} attachment generation failed for email '{email.Subject ?? "Untitled"}'.");
 
@@ -3501,7 +3613,7 @@ Email body preview: {email.BodyPlain[..Math.Min(300, email.BodyPlain.Length)]}..
         AttachmentType attachmentType,
         Random rng)
     {
-        if (!state.Config.EnableAttachmentChains || _documentChains.Count == 0 || rng.Next(100) >= 30)
+        if (!state.Config.EnableAttachmentChains || _documentChains.IsEmpty || rng.Next(100) >= 30)
             return (null, null);
 
         var matchingChains = _documentChains.Values
@@ -3535,8 +3647,8 @@ Email body preview: {email.BodyPlain[..Math.Min(300, email.BodyPlain.Length)]}..
         EmailMessage email,
         bool isDetailed,
         WizardState state,
-        CancellationToken ct,
-        DocumentChainState? chainState)
+        DocumentChainState? chainState,
+        CancellationToken ct)
     {
         return attachmentType switch
         {
@@ -3785,8 +3897,8 @@ The voicemail should:
             email,
             isDetailed,
             state,
-            ct,
-            chainState);
+            chainState,
+            ct);
         if (attachment == null)
             throw new InvalidOperationException($"Attachment generation failed for email '{email.Subject ?? "Untitled"}' (type: {attachmentType}).");
 
@@ -4317,7 +4429,7 @@ If details are vague or missing, set hasMeeting to false.
                 email.From.FullName,
                 email.From.Email,
                 attendees),
-            ResolveLogger<CalendarService>(null, _loggerFactory));
+            _logger.ForContext<CalendarService>());
 
         var attachment = new Attachment
         {

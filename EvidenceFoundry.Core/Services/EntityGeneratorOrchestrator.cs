@@ -1,39 +1,34 @@
 using System.Diagnostics;
 using EvidenceFoundry.Models;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
+using Serilog;
+using Serilog.Context;
 
 namespace EvidenceFoundry.Services;
 
-public class EntityGeneratorOrchestrator
+public partial class EntityGeneratorOrchestrator
 {
     private readonly OrganizationGenerator _organizationGenerator;
     private readonly CharacterGenerator _characterGenerator;
-    private readonly ILogger<EntityGeneratorOrchestrator> _logger;
-    private readonly ILoggerFactory? _loggerFactory;
+    private readonly ILogger _logger;
 
     public EntityGeneratorOrchestrator(
         OpenAIService openAI,
         Random rng,
-        ILogger<EntityGeneratorOrchestrator>? logger = null,
-        ILoggerFactory? loggerFactory = null)
+        ILogger? logger = null)
     {
         ArgumentNullException.ThrowIfNull(openAI);
         ArgumentNullException.ThrowIfNull(rng);
-        _loggerFactory = loggerFactory;
-        _logger = ResolveLogger(logger, loggerFactory);
+        var baseLogger = logger ?? Serilog.Log.Logger;
+        _logger = baseLogger.ForContext<EntityGeneratorOrchestrator>();
         _organizationGenerator = new OrganizationGenerator(
             openAI,
-            ResolveLogger<OrganizationGenerator>(null, loggerFactory));
+            baseLogger.ForContext<OrganizationGenerator>());
         _characterGenerator = new CharacterGenerator(
             openAI,
             rng,
-            ResolveLogger<CharacterGenerator>(null, loggerFactory));
-        _logger.LogDebug("EntityGeneratorOrchestrator initialized.");
+            baseLogger.ForContext<CharacterGenerator>());
+        Log.EntityGeneratorOrchestratorInitialized(_logger);
     }
-
-    private static ILogger<T> ResolveLogger<T>(ILogger<T>? logger, ILoggerFactory? loggerFactory)
-        => logger ?? loggerFactory?.CreateLogger<T>() ?? NullLogger<T>.Instance;
 
     public async Task<CharacterGenerationResult> GenerateEntitiesAsync(
         string topic,
@@ -47,15 +42,12 @@ public class EntityGeneratorOrchestrator
         if (!storyline.StartDate.HasValue || !storyline.EndDate.HasValue)
             throw new ArgumentException("Storyline must have a start and end date before character generation.", nameof(storyline));
 
-        using var scope = _logger.BeginScope(new Dictionary<string, object>
-        {
-            ["Topic"] = topic,
-            ["StorylineId"] = storyline.Id,
-            ["StorylineTitle"] = storyline.Title
-        });
+        using var topicScope = LogContext.PushProperty("Topic", topic);
+        using var storylineIdScope = LogContext.PushProperty("StorylineId", storyline.Id);
+        using var storylineTitleScope = LogContext.PushProperty("StorylineTitle", storyline.Title);
 
         var stopwatch = Stopwatch.StartNew();
-        _logger.LogInformation("Starting entity generation.");
+        Log.StartingEntityGeneration(_logger);
 
         try
         {
@@ -64,9 +56,7 @@ public class EntityGeneratorOrchestrator
             if (seedOrganizations.Count == 0)
                 throw new InvalidOperationException("No organizations were generated from the storyline.");
 
-            _logger.LogInformation(
-                "Extracted {SeedOrganizationCount} seed organizations.",
-                seedOrganizations.Count);
+            Log.ExtractedSeedOrganizations(_logger, seedOrganizations.Count);
 
             progress?.Report($"Filling organization structures ({seedOrganizations.Count})...");
             var organizations = new List<Organization>();
@@ -80,7 +70,7 @@ public class EntityGeneratorOrchestrator
                     enriched,
                     storyline.StartDate.Value.Date,
                     usedDomains,
-                    ResolveLogger<OrganizationGenerator>(null, _loggerFactory));
+                    _logger.ForContext<OrganizationGenerator>());
                 organizations.Add(enriched);
             }
 
@@ -89,18 +79,14 @@ public class EntityGeneratorOrchestrator
             OrganizationGenerator.EnsureCaseParties(organizations);
             if (!hadPlaintiff && organizations.Count > 0)
             {
-                _logger.LogWarning(
-                    "No plaintiff organization specified; defaulted to {OrganizationName}.",
-                    organizations[0].Name);
+                Log.NoPlaintiffOrganizationSpecified(_logger, organizations[0].Name);
             }
             if (!hadDefendant && organizations.Count > 1)
             {
                 var defaultDefendant = organizations.FirstOrDefault(o => o.IsDefendant);
                 if (defaultDefendant != null)
                 {
-                    _logger.LogWarning(
-                        "No defendant organization specified; defaulted to {OrganizationName}.",
-                        defaultDefendant.Name);
+                    Log.NoDefendantOrganizationSpecified(_logger, defaultDefendant.Name);
                 }
             }
 
@@ -137,8 +123,8 @@ public class EntityGeneratorOrchestrator
                 ?? organizations.FirstOrDefault(o => o.IsDefendant)
                 ?? organizations.FirstOrDefault();
 
-            _logger.LogInformation(
-                "Entity generation produced {OrganizationCount} organizations and {CharacterCount} characters in {DurationMs} ms.",
+            Log.EntityGenerationProduced(
+                _logger,
                 organizations.Count,
                 characters.Count,
                 stopwatch.ElapsedMilliseconds);
@@ -152,18 +138,48 @@ public class EntityGeneratorOrchestrator
         }
         catch (OperationCanceledException)
         {
-            _logger.LogWarning(
-                "Entity generation canceled after {DurationMs} ms.",
-                stopwatch.ElapsedMilliseconds);
+            Log.EntityGenerationCanceled(_logger, stopwatch.ElapsedMilliseconds);
             throw;
         }
         catch (Exception ex)
         {
-            _logger.LogError(
-                ex,
-                "Entity generation failed after {DurationMs} ms.",
-                stopwatch.ElapsedMilliseconds);
+            Log.EntityGenerationFailed(_logger, stopwatch.ElapsedMilliseconds, ex);
             throw;
         }
+    }
+
+    private static class Log
+    {
+        public static void EntityGeneratorOrchestratorInitialized(ILogger logger)
+            => logger.Debug("EntityGeneratorOrchestrator initialized.");
+
+        public static void StartingEntityGeneration(ILogger logger)
+            => logger.Information("Starting entity generation.");
+
+        public static void ExtractedSeedOrganizations(ILogger logger, int seedOrganizationCount)
+            => logger.Information("Extracted {SeedOrganizationCount} seed organizations.", seedOrganizationCount);
+
+        public static void NoPlaintiffOrganizationSpecified(ILogger logger, string organizationName)
+            => logger.Warning("No plaintiff organization specified; defaulted to {OrganizationName}.", organizationName);
+
+        public static void NoDefendantOrganizationSpecified(ILogger logger, string organizationName)
+            => logger.Warning("No defendant organization specified; defaulted to {OrganizationName}.", organizationName);
+
+        public static void EntityGenerationProduced(
+            ILogger logger,
+            int organizationCount,
+            int characterCount,
+            long durationMs)
+            => logger.Information(
+                "Entity generation produced {OrganizationCount} organizations and {CharacterCount} characters in {DurationMs} ms.",
+                organizationCount,
+                characterCount,
+                durationMs);
+
+        public static void EntityGenerationCanceled(ILogger logger, long durationMs)
+            => logger.Warning("Entity generation canceled after {DurationMs} ms.", durationMs);
+
+        public static void EntityGenerationFailed(ILogger logger, long durationMs, Exception exception)
+            => logger.Error(exception, "Entity generation failed after {DurationMs} ms.", durationMs);
     }
 }

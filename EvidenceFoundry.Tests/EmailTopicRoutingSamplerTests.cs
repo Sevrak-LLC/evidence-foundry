@@ -6,7 +6,7 @@ namespace EvidenceFoundry.Tests;
 public class EmailTopicRoutingSamplerTests
 {
     [Fact]
-    public void SampleWeightedTopics_ReturnsAllWhenSampleCountExceedsCandidates()
+    public void SampleWeightedTopicsReturnsAllWhenSampleCountExceedsCandidates()
     {
         var candidates = new List<int> { 1, 2, 3 };
         var tiers = new Dictionary<int, EmailGenerator.TopicTier>
@@ -22,7 +22,7 @@ public class EmailTopicRoutingSamplerTests
     }
 
     [Fact]
-    public void SampleWeightedTopics_RespectsWeightThresholds()
+    public void SampleWeightedTopicsRespectsWeightThresholds()
     {
         var candidates = new List<int> { 10, 20 };
         var tiers = new Dictionary<int, EmailGenerator.TopicTier>

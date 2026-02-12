@@ -24,7 +24,7 @@ public class GenerationConfig
     public bool OrganizeBySender { get; set; } = true; // Create subfolders for each sender email address
 
     // Image generation settings
-    public bool IncludeImages { get; set; } = false;
+    public bool IncludeImages { get; set; }
     public int ImagePercentage { get; set; } = 10; // Percentage of emails that get images (separate from document attachments)
 
     // Calendar invite settings
@@ -35,7 +35,7 @@ public class GenerationConfig
     public bool EnableAttachmentChains { get; set; } = true; // Documents evolve across threads with versions
 
     // Voicemail settings (TTS)
-    public bool IncludeVoicemails { get; set; } = false;
+    public bool IncludeVoicemails { get; set; }
     public int VoicemailPercentage { get; set; } = 5; // Percentage of emails that get voicemail attachments
 
     // Email repair settings

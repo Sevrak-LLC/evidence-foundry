@@ -15,8 +15,8 @@ public class StepGeneration : UserControl, IWizardStep
     private Button _btnCancel = null!;
     private CancellationTokenSource? _cts;
     private System.Windows.Forms.Timer? _usageUpdateTimer;
-    private bool _isGenerating = false;
-    private bool _generationComplete = false;
+    private bool _isGenerating;
+    private bool _generationComplete;
     private string? _lastStorylineLogged;
 
     public string StepTitle => "Generating Emails";
@@ -159,8 +159,7 @@ public class StepGeneration : UserControl, IWizardStep
             var generator = new EmailGenerator(
                 openAI,
                 _state.GenerationRandom,
-                _state.CreateLogger<EmailGenerator>(),
-                _state.LoggerFactory);
+                _state.CreateLogger<EmailGenerator>());
 
             var progress = BuildProgressReporter();
 

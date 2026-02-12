@@ -7,7 +7,7 @@ namespace EvidenceFoundry.Tests;
 public class EmailGeneratorAttachmentTotalsTests
 {
     [Fact]
-    public void CalculateAttachmentTotals_UsesEnabledAttachmentTypesAndPercentages()
+    public void CalculateAttachmentTotalsUsesEnabledAttachmentTypesAndPercentages()
     {
         var config = new GenerationConfig
         {
@@ -28,7 +28,7 @@ public class EmailGeneratorAttachmentTotalsTests
     }
 
     [Fact]
-    public void CalculateAttachmentTotals_IgnoresAttachmentsWhenNoneEnabled()
+    public void CalculateAttachmentTotalsIgnoresAttachmentsWhenNoneEnabled()
     {
         var config = new GenerationConfig
         {

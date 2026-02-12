@@ -7,7 +7,7 @@ namespace EvidenceFoundry.Tests;
 public class WorldModelGeneratorTests
 {
     [Fact]
-    public void ParseWorldModelJson_MapsOrganizationsAndKeyPeople()
+    public void ParseWorldModelJsonMapsOrganizationsAndKeyPeople()
     {
         var json = """
         {
@@ -89,7 +89,7 @@ public class WorldModelGeneratorTests
     }
 
     [Fact]
-    public void ParseWorldModelJson_ThrowsOnInvalidEmailFormat()
+    public void ParseWorldModelJsonThrowsOnInvalidEmailFormat()
     {
         var json = """
         {

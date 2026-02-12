@@ -5,7 +5,7 @@ namespace EvidenceFoundry.Tests;
 public class EmailGeneratorThreadSizingTests
 {
     [Fact]
-    public void BuildThreadSizePlan_SumsToTotalAndRespectsMax()
+    public void BuildThreadSizePlanSumsToTotalAndRespectsMax()
     {
         var rng = new Random(1234);
         var sizes = DateHelper.BuildThreadSizePlan(57, rng);
@@ -15,7 +15,7 @@ public class EmailGeneratorThreadSizingTests
     }
 
     [Fact]
-    public void BuildThreadSizePlan_IsDeterministicForSeed()
+    public void BuildThreadSizePlanIsDeterministicForSeed()
     {
         var rng1 = new Random(42);
         var rng2 = new Random(42);
@@ -27,7 +27,7 @@ public class EmailGeneratorThreadSizingTests
     }
 
     [Fact]
-    public void BuildThreadSizePlan_ReturnsEmptyForZero()
+    public void BuildThreadSizePlanReturnsEmptyForZero()
     {
         var rng = new Random(1);
         var sizes = DateHelper.BuildThreadSizePlan(0, rng);
@@ -35,7 +35,7 @@ public class EmailGeneratorThreadSizingTests
     }
 
     [Fact]
-    public void BuildThreadSizePlan_ThrowsOnNegativeTotal()
+    public void BuildThreadSizePlanThrowsOnNegativeTotal()
     {
         var rng = new Random(1);
         var ex = Assert.Throws<ArgumentOutOfRangeException>(() => DateHelper.BuildThreadSizePlan(-1, rng));

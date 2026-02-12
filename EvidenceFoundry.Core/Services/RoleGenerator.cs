@@ -1,14 +1,13 @@
 using EvidenceFoundry.Helpers;
 using EvidenceFoundry.Models;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
+using Serilog;
 
 namespace EvidenceFoundry.Services;
 
 public static class RoleGenerator
 {
     private static ILogger GetLogger(ILogger? logger)
-        => logger ?? NullLogger.Instance;
+        => logger ?? Serilog.Log.Logger;
 
     internal static readonly HashSet<RoleName> SingleOccupantRoles = new()
     {
@@ -31,7 +30,7 @@ public static class RoleGenerator
         ILogger? logger = null)
     {
         var log = GetLogger(logger);
-        log.LogDebug("Ensuring single-occupant roles are in the executive department.");
+        log.Debug("Ensuring single-occupant roles are in the executive department.");
 
         if (organization.Departments.Count == 0)
             return;

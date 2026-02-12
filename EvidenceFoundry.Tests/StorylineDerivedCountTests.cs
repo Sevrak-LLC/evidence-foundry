@@ -5,7 +5,7 @@ namespace EvidenceFoundry.Tests;
 public class StorylineDerivedCountTests
 {
     [Fact]
-    public void EmailCount_IsSumOfBeatEmailCounts()
+    public void EmailCountIsSumOfBeatEmailCounts()
     {
         var storyline = new Storyline();
         storyline.SetBeats(new List<StoryBeat>
@@ -18,7 +18,7 @@ public class StorylineDerivedCountTests
     }
 
     [Fact]
-    public void ThreadCount_IsSumOfBeatThreadCounts()
+    public void ThreadCountIsSumOfBeatThreadCounts()
     {
         var beat1 = new StoryBeat();
         beat1.SetThreads(new List<EmailThread> { new(), new() });

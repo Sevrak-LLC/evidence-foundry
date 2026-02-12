@@ -16,7 +16,7 @@ public class StepCharacters : UserControl, IWizardStep
     private Button _btnDelete = null!;
     private Label _lblStatus = null!;
     private LoadingOverlay _loadingOverlay = null!;
-    private bool _isLoading = false;
+    private bool _isLoading;
     private BindingList<CharacterRow> _characterRows = null!;
     private ListSortDirection _sortDirection = ListSortDirection.Ascending;
     private int _sortColumnIndex = -1;
@@ -395,8 +395,7 @@ public class StepCharacters : UserControl, IWizardStep
                 var generator = new EntityGeneratorOrchestrator(
                     openAI,
                     _state.GenerationRandom,
-                    _state.CreateLogger<EntityGeneratorOrchestrator>(),
-                    _state.LoggerFactory);
+                    _state.CreateLogger<EntityGeneratorOrchestrator>());
 
                 var result = await generator.GenerateEntitiesAsync(
                     _state.Topic,

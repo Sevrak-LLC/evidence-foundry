@@ -1,8 +1,7 @@
 using EvidenceFoundry.Helpers;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using EvidenceFoundry.Models;
 using EvidenceFoundry.UserControls;
+using Serilog;
 
 namespace EvidenceFoundry.Forms;
 
@@ -10,7 +9,7 @@ public partial class WizardForm : Form
 {
     private readonly WizardState _state = new();
     private readonly List<UserControl> _steps = new();
-    private int _currentStepIndex = 0;
+    private int _currentStepIndex;
 
     private Panel _contentPanel = null!;
     private Panel _navigationPanel = null!;
@@ -28,9 +27,9 @@ public partial class WizardForm : Form
     {
     }
 
-    public WizardForm(ILoggerFactory? loggerFactory)
+    public WizardForm(ILogger? logger)
     {
-        _state.LoggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
+        _state.Logger = logger ?? Log.Logger;
         InitializeComponent();
         InitializeWizardUI();
         LoadSteps();

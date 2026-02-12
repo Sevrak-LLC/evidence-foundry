@@ -1,22 +1,21 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
 using EvidenceFoundry.Helpers;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
+using Serilog;
 
 namespace EvidenceFoundry.Services;
 
-public class SuggestedSearchTermGenerator
+public partial class SuggestedSearchTermGenerator
 {
     private readonly OpenAIService _openAI;
-    private readonly ILogger<SuggestedSearchTermGenerator> _logger;
+    private readonly ILogger _logger;
 
-    public SuggestedSearchTermGenerator(OpenAIService openAI, ILogger<SuggestedSearchTermGenerator>? logger = null)
+    public SuggestedSearchTermGenerator(OpenAIService openAI, ILogger? logger = null)
     {
         ArgumentNullException.ThrowIfNull(openAI);
         _openAI = openAI;
-        _logger = logger ?? NullLogger<SuggestedSearchTermGenerator>.Instance;
-        _logger.LogDebug("SuggestedSearchTermGenerator initialized.");
+        _logger = (logger ?? Serilog.Log.Logger).ForContext<SuggestedSearchTermGenerator>();
+        Log.SuggestedSearchTermGeneratorInitialized(_logger);
     }
 
     internal async Task<List<string>> GenerateSuggestedSearchTermsAsync(
@@ -28,15 +27,12 @@ public class SuggestedSearchTermGenerator
     {
         if (string.IsNullOrWhiteSpace(exportedEmail))
         {
-            _logger.LogWarning("Skipped suggested term generation due to empty exported email content.");
+            Log.SkippedSuggestedTermGeneration(_logger);
             return new List<string>();
         }
 
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-        _logger.LogInformation(
-            "Generating suggested search terms (IsHot={IsHot}, EmailLength={EmailLength}).",
-            isHot,
-            exportedEmail.Length);
+        Log.GeneratingSuggestedSearchTerms(_logger, isHot, exportedEmail.Length);
 
         var precisionGuidance = isHot
             ? "HIGH PRECISION: Use specific phrases or unique names from the email. Minimize false positives."
@@ -79,27 +75,46 @@ Instructions:
                 throw new InvalidOperationException("Suggested search term generation returned no terms.");
 
             var filtered = FilterTermsAgainstEmail(response.Terms, exportedEmail, 3);
-            _logger.LogInformation(
-                "Generated {TermCount} suggested search terms in {DurationMs} ms.",
-                filtered.Count,
-                stopwatch.ElapsedMilliseconds);
+            Log.GeneratedSuggestedSearchTerms(_logger, filtered.Count, stopwatch.ElapsedMilliseconds);
             return filtered;
         }
         catch (OperationCanceledException)
         {
-            _logger.LogWarning(
-                "Suggested search term generation canceled after {DurationMs} ms.",
-                stopwatch.ElapsedMilliseconds);
+            Log.SuggestedSearchTermGenerationCanceled(_logger, stopwatch.ElapsedMilliseconds);
             throw;
         }
         catch (Exception ex)
         {
-            _logger.LogError(
-                ex,
-                "Suggested search term generation failed after {DurationMs} ms.",
-                stopwatch.ElapsedMilliseconds);
+            Log.SuggestedSearchTermGenerationFailed(_logger, stopwatch.ElapsedMilliseconds, ex);
             throw;
         }
+    }
+
+    private static class Log
+    {
+        public static void SuggestedSearchTermGeneratorInitialized(ILogger logger)
+            => logger.Debug("SuggestedSearchTermGenerator initialized.");
+
+        public static void SkippedSuggestedTermGeneration(ILogger logger)
+            => logger.Warning("Skipped suggested term generation due to empty exported email content.");
+
+        public static void GeneratingSuggestedSearchTerms(ILogger logger, bool isHot, int emailLength)
+            => logger.Information(
+                "Generating suggested search terms (IsHot={IsHot}, EmailLength={EmailLength}).",
+                isHot,
+                emailLength);
+
+        public static void GeneratedSuggestedSearchTerms(ILogger logger, int termCount, long durationMs)
+            => logger.Information(
+                "Generated {TermCount} suggested search terms in {DurationMs} ms.",
+                termCount,
+                durationMs);
+
+        public static void SuggestedSearchTermGenerationCanceled(ILogger logger, long durationMs)
+            => logger.Warning("Suggested search term generation canceled after {DurationMs} ms.", durationMs);
+
+        public static void SuggestedSearchTermGenerationFailed(ILogger logger, long durationMs, Exception exception)
+            => logger.Error(exception, "Suggested search term generation failed after {DurationMs} ms.", durationMs);
     }
 
     private sealed class SuggestedSearchTermsResponse

@@ -7,7 +7,7 @@ namespace EvidenceFoundry.Tests;
 public class EmailGeneratorPlannedDocumentTests
 {
     [Fact]
-    public void TryResolvePlannedAttachmentType_ReturnsPlannedTypeWhenEnabled()
+    public void TryResolvePlannedAttachmentTypeReturnsPlannedTypeWhenEnabled()
     {
         var config = new GenerationConfig
         {
@@ -23,7 +23,7 @@ public class EmailGeneratorPlannedDocumentTests
     }
 
     [Fact]
-    public void TryResolvePlannedAttachmentType_FallsBackToFirstEnabledType()
+    public void TryResolvePlannedAttachmentTypeFallsBackToFirstEnabledType()
     {
         var config = new GenerationConfig
         {
@@ -39,7 +39,7 @@ public class EmailGeneratorPlannedDocumentTests
     }
 
     [Fact]
-    public void TryResolvePlannedAttachmentType_ReturnsFalseWhenNoneEnabled()
+    public void TryResolvePlannedAttachmentTypeReturnsFalseWhenNoneEnabled()
     {
         var config = new GenerationConfig
         {

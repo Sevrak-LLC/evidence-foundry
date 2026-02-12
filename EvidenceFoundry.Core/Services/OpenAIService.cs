@@ -7,12 +7,11 @@ using OpenAI.Chat;
 using OpenAI.Images;
 using EvidenceFoundry.Helpers;
 using EvidenceFoundry.Models;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
+using Serilog;
 
 namespace EvidenceFoundry.Services;
 
-public class OpenAIService
+public partial class OpenAIService
 {
     public static TimeSpan? RateLimitDelayOverride { get; set; }
 
@@ -21,7 +20,7 @@ public class OpenAIService
     private readonly Random _rng;
     private readonly AIModelConfig? _modelConfig;
     private readonly TokenUsageTracker? _usageTracker;
-    private readonly ILogger<OpenAIService> _logger;
+    private readonly ILogger _logger;
     private const int MaxRetries = 4;
     private static readonly int[] TransientStatusCodes = { 408, 429, 500, 502, 503, 504 };
 
@@ -32,7 +31,7 @@ public class OpenAIService
         return new OpenAIClient(new System.ClientModel.ApiKeyCredential(apiKey), options);
     }
 
-    public OpenAIService(string apiKey, string model, Random rng, ILogger<OpenAIService>? logger = null)
+    public OpenAIService(string apiKey, string model, Random rng, ILogger? logger = null)
     {
         if (string.IsNullOrWhiteSpace(apiKey))
             throw new ArgumentException("API key is required.", nameof(apiKey));
@@ -42,8 +41,8 @@ public class OpenAIService
         _rng = rng;
         _client = CreateClient(apiKey);
         _chatClient = _client.GetChatClient(model);
-        _logger = logger ?? NullLogger<OpenAIService>.Instance;
-        _logger.LogDebug("OpenAIService initialized with model {ModelId}.", model);
+        _logger = (logger ?? Serilog.Log.Logger).ForContext<OpenAIService>();
+        Log.OpenAIServiceInitialized(_logger, model);
     }
 
     public OpenAIService(
@@ -51,7 +50,7 @@ public class OpenAIService
         AIModelConfig modelConfig,
         TokenUsageTracker? usageTracker,
         Random rng,
-        ILogger<OpenAIService>? logger = null)
+        ILogger? logger = null)
     {
         if (string.IsNullOrWhiteSpace(apiKey))
             throw new ArgumentException("API key is required.", nameof(apiKey));
@@ -64,13 +63,13 @@ public class OpenAIService
         _usageTracker = usageTracker;
         _client = CreateClient(apiKey);
         _chatClient = _client.GetChatClient(modelConfig.ModelId);
-        _logger = logger ?? NullLogger<OpenAIService>.Instance;
-        _logger.LogDebug("OpenAIService initialized with model {ModelId}.", modelConfig.ModelId);
+        _logger = (logger ?? Serilog.Log.Logger).ForContext<OpenAIService>();
+        Log.OpenAIServiceInitialized(_logger, modelConfig.ModelId);
     }
 
     public async Task<bool> TestConnectionAsync(CancellationToken ct = default)
     {
-        _logger.LogInformation("Testing OpenAI connection.");
+        Log.TestingOpenAIConnection(_logger);
         try
         {
             var messages = new List<ChatMessage>
@@ -89,7 +88,7 @@ public class OpenAIService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "OpenAI connection test failed.");
+            Log.OpenAIConnectionTestFailed(_logger, ex);
             return false;
         }
     }
@@ -106,7 +105,7 @@ public class OpenAIService
             throw new ArgumentException("User prompt is required.", nameof(userPrompt));
 
         var operation = operationName ?? "Completion";
-        _logger.LogInformation("Requesting OpenAI completion for {OperationName}.", operation);
+        Log.RequestingOpenAICompletion(_logger, operation);
 
         Exception lastException = null!;
         for (int attempt = 0; attempt < MaxRetries; attempt++)
@@ -143,11 +142,7 @@ public class OpenAIService
             }
         }
 
-        _logger.LogError(
-            lastException,
-            "OpenAI completion failed after {AttemptCount} attempts for {OperationName}.",
-            MaxRetries,
-            operation);
+        Log.OpenAICompletionFailed(_logger, MaxRetries, operation, lastException);
         throw new InvalidOperationException(
             $"Failed to get response from OpenAI after multiple attempts. {lastException.Message}",
             lastException);
@@ -165,7 +160,7 @@ public class OpenAIService
             throw new ArgumentException("User prompt is required.", nameof(userPrompt));
 
         var operation = operationName ?? "JSON Completion";
-        _logger.LogInformation("Requesting OpenAI JSON completion for {OperationName}.", operation);
+        Log.RequestingOpenAIJsonCompletion(_logger, operation);
 
         Exception lastException = null!;
         for (int attempt = 0; attempt < MaxRetries; attempt++)
@@ -213,11 +208,7 @@ public class OpenAIService
             }
         }
 
-        _logger.LogError(
-            lastException,
-            "OpenAI JSON completion failed after {AttemptCount} attempts for {OperationName}.",
-            MaxRetries,
-            operation);
+        Log.OpenAIJsonCompletionFailed(_logger, MaxRetries, operation, lastException);
         throw new InvalidOperationException(
             $"Failed to get valid JSON response from OpenAI after multiple attempts. {lastException.Message}",
             lastException);
@@ -263,7 +254,7 @@ public class OpenAIService
             throw new ArgumentException("Prompt is required.", nameof(prompt));
 
         var operation = operationName ?? "Image Generation";
-        _logger.LogInformation("Requesting OpenAI image generation for {OperationName}.", operation);
+        Log.RequestingOpenAIImageGeneration(_logger, operation);
 
         for (int attempt = 0; attempt < MaxRetries; attempt++)
         {
@@ -290,10 +281,7 @@ public class OpenAIService
             catch (ClientResultException ex) when (ex.Status == 400)
             {
                 // Content policy violation or invalid prompt - don't retry
-                _logger.LogWarning(
-                    ex,
-                    "OpenAI image generation rejected request for {OperationName}.",
-                    operation);
+                Log.OpenAIImageGenerationRejected(_logger, operation, ex);
                 return null;
             }
             catch (Exception ex) when (IsRetryable(ex, ct))
@@ -302,10 +290,7 @@ public class OpenAIService
             }
         }
 
-        _logger.LogWarning(
-            "OpenAI image generation failed after {AttemptCount} attempts for {OperationName}.",
-            MaxRetries,
-            operation);
+        Log.OpenAIImageGenerationFailed(_logger, MaxRetries, operation);
         return null;
     }
 
@@ -329,7 +314,7 @@ public class OpenAIService
             throw new ArgumentException("Voice is required.", nameof(voice));
 
         var operation = operationName ?? "Speech Generation";
-        _logger.LogInformation("Requesting OpenAI speech generation for {OperationName}.", operation);
+        Log.RequestingOpenAISpeechGeneration(_logger, operation);
 
         for (int attempt = 0; attempt < MaxRetries; attempt++)
         {
@@ -367,10 +352,7 @@ public class OpenAIService
             catch (ClientResultException ex) when (ex.Status == 400)
             {
                 // Invalid request - don't retry
-                _logger.LogWarning(
-                    ex,
-                    "OpenAI speech generation rejected request for {OperationName}.",
-                    operation);
+                Log.OpenAISpeechGenerationRejected(_logger, operation, ex);
                 return null;
             }
             catch (Exception ex) when (IsRetryable(ex, ct))
@@ -379,10 +361,7 @@ public class OpenAIService
             }
         }
 
-        _logger.LogWarning(
-            "OpenAI speech generation failed after {AttemptCount} attempts for {OperationName}.",
-            MaxRetries,
-            operation);
+        Log.OpenAISpeechGenerationFailed(_logger, MaxRetries, operation);
         return null;
     }
 
@@ -414,13 +393,84 @@ public class OpenAIService
     {
         var delay = GetRetryDelay(attempt, ex);
         int? statusCode = ex is ClientResultException cre ? cre.Status : null;
-        _logger.LogWarning(
-            ex,
-            "Retrying OpenAI request (attempt {Attempt}/{MaxAttempts}) after {DelayMs} ms. StatusCode: {StatusCode}.",
+        Log.RetryingOpenAIRequest(
+            _logger,
             attempt + 1,
             MaxRetries,
             (int)delay.TotalMilliseconds,
-            statusCode);
+            statusCode,
+            ex);
         return Task.Delay(delay, ct);
+    }
+
+    private static class Log
+    {
+        public static void OpenAIServiceInitialized(ILogger logger, string modelId)
+            => logger.Debug("OpenAIService initialized with model {ModelId}.", modelId);
+
+        public static void TestingOpenAIConnection(ILogger logger)
+            => logger.Information("Testing OpenAI connection.");
+
+        public static void OpenAIConnectionTestFailed(ILogger logger, Exception exception)
+            => logger.Warning(exception, "OpenAI connection test failed.");
+
+        public static void RequestingOpenAICompletion(ILogger logger, string operationName)
+            => logger.Information("Requesting OpenAI completion for {OperationName}.", operationName);
+
+        public static void OpenAICompletionFailed(ILogger logger, int attemptCount, string operationName, Exception exception)
+            => logger.Error(
+                exception,
+                "OpenAI completion failed after {AttemptCount} attempts for {OperationName}.",
+                attemptCount,
+                operationName);
+
+        public static void RequestingOpenAIJsonCompletion(ILogger logger, string operationName)
+            => logger.Information("Requesting OpenAI JSON completion for {OperationName}.", operationName);
+
+        public static void OpenAIJsonCompletionFailed(ILogger logger, int attemptCount, string operationName, Exception exception)
+            => logger.Error(
+                exception,
+                "OpenAI JSON completion failed after {AttemptCount} attempts for {OperationName}.",
+                attemptCount,
+                operationName);
+
+        public static void RequestingOpenAIImageGeneration(ILogger logger, string operationName)
+            => logger.Information("Requesting OpenAI image generation for {OperationName}.", operationName);
+
+        public static void OpenAIImageGenerationRejected(ILogger logger, string operationName, Exception exception)
+            => logger.Warning(exception, "OpenAI image generation rejected request for {OperationName}.", operationName);
+
+        public static void OpenAIImageGenerationFailed(ILogger logger, int attemptCount, string operationName)
+            => logger.Warning(
+                "OpenAI image generation failed after {AttemptCount} attempts for {OperationName}.",
+                attemptCount,
+                operationName);
+
+        public static void RequestingOpenAISpeechGeneration(ILogger logger, string operationName)
+            => logger.Information("Requesting OpenAI speech generation for {OperationName}.", operationName);
+
+        public static void OpenAISpeechGenerationRejected(ILogger logger, string operationName, Exception exception)
+            => logger.Warning(exception, "OpenAI speech generation rejected request for {OperationName}.", operationName);
+
+        public static void OpenAISpeechGenerationFailed(ILogger logger, int attemptCount, string operationName)
+            => logger.Warning(
+                "OpenAI speech generation failed after {AttemptCount} attempts for {OperationName}.",
+                attemptCount,
+                operationName);
+
+        public static void RetryingOpenAIRequest(
+            ILogger logger,
+            int attempt,
+            int maxAttempts,
+            int delayMs,
+            int? statusCode,
+            Exception exception)
+            => logger.Warning(
+                exception,
+                "Retrying OpenAI request (attempt {Attempt}/{MaxAttempts}) after {DelayMs} ms. StatusCode: {StatusCode}.",
+                attempt,
+                maxAttempts,
+                delayMs,
+                statusCode);
     }
 }

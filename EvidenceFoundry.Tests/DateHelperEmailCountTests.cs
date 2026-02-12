@@ -5,7 +5,7 @@ namespace EvidenceFoundry.Tests;
 public class DateHelperEmailCountTests
 {
     [Fact]
-    public void CountDayTypesInclusive_ReturnsExpectedCounts()
+    public void CountDayTypesInclusiveReturnsExpectedCounts()
     {
         var start = new DateTime(2024, 1, 1); // Monday
         var end = new DateTime(2024, 1, 7);   // Sunday
@@ -18,7 +18,7 @@ public class DateHelperEmailCountTests
     }
 
     [Fact]
-    public void GetBusinessDayEmailRange_UsesCeilingAndMatchesFormula()
+    public void GetBusinessDayEmailRangeUsesCeilingAndMatchesFormula()
     {
         const int n = 6;
         var (low, high) = DateHelper.GetBusinessDayEmailRange(n);
@@ -42,7 +42,7 @@ public class DateHelperEmailCountTests
     }
 
     [Fact]
-    public void GetWeekendEmailRange_ReflectsSaturdayVsSundayMultipliers()
+    public void GetWeekendEmailRangeReflectsSaturdayVsSundayMultipliers()
     {
         var (satLow, satHigh) = DateHelper.GetWeekendEmailRange(8, DayOfWeek.Saturday);
         var (sunLow, sunHigh) = DateHelper.GetWeekendEmailRange(8, DayOfWeek.Sunday);
@@ -52,7 +52,7 @@ public class DateHelperEmailCountTests
     }
 
     [Fact]
-    public void CalculateEmailCountForRange_IsDeterministicForSeedAndInclusive()
+    public void CalculateEmailCountForRangeIsDeterministicForSeedAndInclusive()
     {
         var start = new DateTime(2024, 1, 5); // Friday
         var end = new DateTime(2024, 1, 7);   // Sunday
@@ -77,7 +77,7 @@ public class DateHelperEmailCountTests
     }
 
     [Fact]
-    public void CalculateEmailCountForRange_ThrowsOnInvalidInputs()
+    public void CalculateEmailCountForRangeThrowsOnInvalidInputs()
     {
         var rng = new Random(1);
         var start = new DateTime(2024, 2, 1);

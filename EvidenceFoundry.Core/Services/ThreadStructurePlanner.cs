@@ -1,3 +1,4 @@
+using System.Globalization;
 using EvidenceFoundry.Helpers;
 using EvidenceFoundry.Models;
 
@@ -20,7 +21,7 @@ internal static class ThreadStructurePlanner
 
         var rng = new Random(DeterministicSeedHelper.CreateSeed(
             "thread-plan",
-            generationSeed.ToString(),
+            generationSeed.ToString(CultureInfo.InvariantCulture),
             thread.Id.ToString("N")));
 
         var dates = DateHelper.DistributeDatesForThread(emailCount, start, end, rng);
@@ -41,7 +42,7 @@ internal static class ThreadStructurePlanner
                 .Select(i => DeterministicIdHelper.CreateGuid(
                     "email-message",
                     thread.Id.ToString("N"),
-                    i.ToString()))
+                    i.ToString(CultureInfo.InvariantCulture)))
                 .ToList();
 
         var rootEmailId = emailIds[0];
@@ -70,8 +71,8 @@ internal static class ThreadStructurePlanner
                     branchIds[i] = DeterministicIdHelper.CreateGuid(
                         "email-branch",
                         thread.Id.ToString("N"),
-                        parentIndex.ToString(),
-                        i.ToString());
+                        parentIndex.ToString(CultureInfo.InvariantCulture),
+                        i.ToString(CultureInfo.InvariantCulture));
                 }
             }
 

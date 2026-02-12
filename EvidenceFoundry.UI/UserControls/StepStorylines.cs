@@ -23,8 +23,8 @@ public class StepStorylines : UserControl, IWizardStep
     private DateTimePicker _dtpEndDate = null!;
     private Label _lblStatus = null!;
     private LoadingOverlay _loadingOverlay = null!;
-    private bool _isLoading = false;
-    private bool _suppressEditorEvents = false;
+    private bool _isLoading;
+    private bool _suppressEditorEvents;
     private const int RegenerateButtonWidth = 110;
     private const int RegenerateButtonHeight = 32;
     private const int EditorLabelWidth = 100;
@@ -541,8 +541,7 @@ public class StepStorylines : UserControl, IWizardStep
                 var generator = new StorylineGenerator(
                     openAI,
                     _state.GenerationRandom,
-                    _state.CreateLogger<StorylineGenerator>(),
-                    _state.LoggerFactory);
+                    _state.CreateLogger<StorylineGenerator>());
 
                 var request = new StorylineGenerationRequest
                 {

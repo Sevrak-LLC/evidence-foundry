@@ -5,7 +5,7 @@ namespace EvidenceFoundry.Tests;
 public class ClockTests
 {
     [Fact]
-    public void EnsureKind_Unspecified_DefaultsToUtc()
+    public void EnsureKindUnspecifiedDefaultsToUtc()
     {
         var input = new DateTime(2024, 1, 2, 3, 4, 5, DateTimeKind.Unspecified);
         var result = Clock.EnsureKind(input, DateTimeKind.Utc);
@@ -15,7 +15,7 @@ public class ClockTests
     }
 
     [Fact]
-    public void EnsureKind_PreservesExistingKind()
+    public void EnsureKindPreservesExistingKind()
     {
         var local = new DateTime(2024, 1, 2, 3, 4, 5, DateTimeKind.Local);
         var localResult = Clock.EnsureKind(local, DateTimeKind.Utc);
@@ -31,7 +31,7 @@ public class ClockTests
     }
 
     [Fact]
-    public void EnsureOffset_Unspecified_UsesDefaultKind()
+    public void EnsureOffsetUnspecifiedUsesDefaultKind()
     {
         var input = new DateTime(2024, 1, 2, 3, 4, 5, DateTimeKind.Unspecified);
         var offset = Clock.EnsureOffset(input, DateTimeKind.Utc);

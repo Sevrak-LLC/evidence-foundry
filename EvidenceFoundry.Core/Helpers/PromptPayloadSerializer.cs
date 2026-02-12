@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using EvidenceFoundry.Models;
 
@@ -72,7 +73,7 @@ public static class PromptPayloadSerializer
             state = organization.State.ToString(),
             plaintiff = organization.IsPlaintiff,
             defendant = organization.IsDefendant,
-            founded = organization.Founded?.ToString("yyyy-MM-dd"),
+            founded = organization.Founded?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
             departments = organization.Departments.Select(d => new
             {
                 name = d.Name.ToString(),

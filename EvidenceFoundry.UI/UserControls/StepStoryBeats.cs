@@ -12,7 +12,7 @@ public class StepStoryBeats : UserControl, IWizardStep
     private Button _btnRegenerate = null!;
     private Label _lblStatus = null!;
     private LoadingOverlay _loadingOverlay = null!;
-    private bool _isLoading = false;
+    private bool _isLoading;
 
     public string StepTitle => "Review Story Beats";
     public bool CanMoveNext => !_isLoading && (_state?.Storyline?.Beats.Count ?? 0) > 0;
@@ -182,8 +182,7 @@ public class StepStoryBeats : UserControl, IWizardStep
                 var generator = new StorylineGenerator(
                     openAI,
                     _state.GenerationRandom,
-                    _state.CreateLogger<StorylineGenerator>(),
-                    _state.LoggerFactory);
+                    _state.CreateLogger<StorylineGenerator>());
 
                 var organizations = storyline.Organizations.Count > 0
                     ? storyline.Organizations

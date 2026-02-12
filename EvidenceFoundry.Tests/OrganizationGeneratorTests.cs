@@ -6,7 +6,7 @@ namespace EvidenceFoundry.Tests;
 public class OrganizationGeneratorTests
 {
     [Fact]
-    public void GenerateDomainFromName_StripsPunctuationAndAddsSuffix()
+    public void GenerateDomainFromNameStripsPunctuationAndAddsSuffix()
     {
         var domain = OrganizationGenerator.GenerateDomainFromName("ACME, Inc.");
 
@@ -14,7 +14,7 @@ public class OrganizationGeneratorTests
     }
 
     [Fact]
-    public void EnsureCaseParties_AssignsPlaintiffAndDefendantWhenMissing()
+    public void EnsureCasePartiesAssignsPlaintiffAndDefendantWhenMissing()
     {
         var organizations = new List<Organization>
         {

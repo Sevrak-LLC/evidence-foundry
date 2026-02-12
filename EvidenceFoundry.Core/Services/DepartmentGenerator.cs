@@ -1,15 +1,14 @@
 using System.Text.Json;
 using EvidenceFoundry.Helpers;
 using EvidenceFoundry.Models;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
+using Serilog;
 
 namespace EvidenceFoundry.Services;
 
-public static class DepartmentGenerator
+public static partial class DepartmentGenerator
 {
     private static ILogger GetLogger(ILogger? logger)
-        => logger ?? NullLogger.Instance;
+        => logger ?? Serilog.Log.Logger;
 
     private static OrganizationStructureCatalogData.OrganizationTypeStructure? GetOrganizationTypeStructure(
         Industry industry,
@@ -34,10 +33,7 @@ public static class DepartmentGenerator
         ILogger? logger = null)
     {
         var log = GetLogger(logger);
-        log.LogDebug(
-            "Resolving allowed departments for {Industry} / {OrganizationType}.",
-            industry,
-            organizationType);
+        Log.ResolvingAllowedDepartments(log, industry, organizationType);
 
         var orgConfig = GetOrganizationTypeStructure(industry, organizationType);
         if (orgConfig == null)
@@ -53,11 +49,7 @@ public static class DepartmentGenerator
         ILogger? logger = null)
     {
         var log = GetLogger(logger);
-        log.LogDebug(
-            "Resolving allowed roles for {Industry} / {OrganizationType} / {Department}.",
-            industry,
-            organizationType,
-            department);
+        Log.ResolvingAllowedRoles(log, industry, organizationType, department);
 
         var orgConfig = GetOrganizationTypeStructure(industry, organizationType);
         if (orgConfig == null)
@@ -73,7 +65,7 @@ public static class DepartmentGenerator
         ILogger? logger = null)
     {
         var log = GetLogger(logger);
-        log.LogDebug("Applying department role constraints.");
+        Log.ApplyingDepartmentRoleConstraints(log);
 
         var allowedDepartments = GetAllowedDepartments(
             organization.Industry,
@@ -111,10 +103,7 @@ public static class DepartmentGenerator
         ILogger? logger = null)
     {
         var log = GetLogger(logger);
-        log.LogDebug(
-            "Building allowed departments JSON for {Industry} / {OrganizationType}.",
-            industry,
-            organizationType);
+        Log.BuildingAllowedDepartmentsJson(log, industry, organizationType);
 
         var departments = GetAllowedDepartments(industry, organizationType, log)
             .Select(d => $"{d} ({EnumHelper.HumanizeEnumName(d.ToString())})")
@@ -129,10 +118,7 @@ public static class DepartmentGenerator
         ILogger? logger = null)
     {
         var log = GetLogger(logger);
-        log.LogDebug(
-            "Building allowed department role map JSON for {Industry} / {OrganizationType}.",
-            industry,
-            organizationType);
+        Log.BuildingAllowedDepartmentRoleMapJson(log, industry, organizationType);
 
         var departments = GetAllowedDepartments(industry, organizationType, log);
         var map = departments.ToDictionary(
@@ -149,7 +135,7 @@ public static class DepartmentGenerator
         ILogger? logger = null)
     {
         var log = GetLogger(logger);
-        log.LogDebug("Building industry organization role catalog JSON.");
+        Log.BuildingIndustryOrganizationRoleCatalogJson(log);
 
         var catalog = OrganizationStructureCatalog.Catalog;
         var filteredIndustries = new Dictionary<Industry, OrganizationStructureCatalogData.IndustryStructure>();
@@ -168,5 +154,43 @@ public static class DepartmentGenerator
         };
 
         return JsonSerializer.Serialize(filteredCatalog, JsonSerializationDefaults.IndentedCamelCaseWithEnums);
+    }
+
+    private static class Log
+    {
+        public static void ResolvingAllowedDepartments(ILogger logger, Industry industry, OrganizationType organizationType)
+            => logger.Debug("Resolving allowed departments for {Industry} / {OrganizationType}.", industry, organizationType);
+
+        public static void ResolvingAllowedRoles(
+            ILogger logger,
+            Industry industry,
+            OrganizationType organizationType,
+            DepartmentName department)
+            => logger.Debug(
+                "Resolving allowed roles for {Industry} / {OrganizationType} / {Department}.",
+                industry,
+                organizationType,
+                department);
+
+        public static void ApplyingDepartmentRoleConstraints(ILogger logger)
+            => logger.Debug("Applying department role constraints.");
+
+        public static void BuildingAllowedDepartmentsJson(ILogger logger, Industry industry, OrganizationType organizationType)
+            => logger.Debug(
+                "Building allowed departments JSON for {Industry} / {OrganizationType}.",
+                industry,
+                organizationType);
+
+        public static void BuildingAllowedDepartmentRoleMapJson(
+            ILogger logger,
+            Industry industry,
+            OrganizationType organizationType)
+            => logger.Debug(
+                "Building allowed department role map JSON for {Industry} / {OrganizationType}.",
+                industry,
+                organizationType);
+
+        public static void BuildingIndustryOrganizationRoleCatalogJson(ILogger logger)
+            => logger.Debug("Building industry organization role catalog JSON.");
     }
 }

@@ -7,7 +7,7 @@ namespace EvidenceFoundry.Tests;
 public class PromptPayloadSerializerTests
 {
     [Fact]
-    public void SerializeOrganization_WithoutCharacters_UsesNullCharactersAndFounded()
+    public void SerializeOrganizationWithoutCharactersUsesNullCharactersAndFounded()
     {
         var organization = BuildOrganization(includeCharacter: true);
 
@@ -22,7 +22,7 @@ public class PromptPayloadSerializerTests
     }
 
     [Fact]
-    public void SerializeOrganization_WithCharacters_WritesCharacterEntries()
+    public void SerializeOrganizationWithCharactersWritesCharacterEntries()
     {
         var organization = BuildOrganization(includeCharacter: true);
 
@@ -41,7 +41,7 @@ public class PromptPayloadSerializerTests
     }
 
     [Fact]
-    public void SerializeCharacters_DefaultsToRawEnumValues()
+    public void SerializeCharactersDefaultsToRawEnumValues()
     {
         var organization = BuildOrganization(includeCharacter: true);
 
@@ -55,7 +55,7 @@ public class PromptPayloadSerializerTests
     }
 
     [Fact]
-    public void SerializeCharacters_WhenHumanized_UsesHumanizedEnumValues()
+    public void SerializeCharactersWhenHumanizedUsesHumanizedEnumValues()
     {
         var organization = BuildOrganization(includeCharacter: true);
 

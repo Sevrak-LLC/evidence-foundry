@@ -1,3 +1,4 @@
+using System.Globalization;
 using EvidenceFoundry.Models;
 
 namespace EvidenceFoundry.UserControls;
@@ -165,18 +166,18 @@ public class StepGenerationSummary : UserControl, IWizardStep
             AddRow("Topic:", _state.TopicDisplayName);
         }
         AddRow("Date Range:", dateRange);
-        AddRow("Story Beats:", summary.BeatCount.ToString("N0"));
-        AddRow("Threads:", summary.ThreadCount.ToString("N0"));
-        AddRow("Hot Threads:", summary.HotThreadCount.ToString("N0"));
-        AddRow("Relevant Threads:", summary.RelevantThreadCount.ToString("N0"));
-        AddRow("Non-Relevant Threads:", summary.NonRelevantThreadCount.ToString("N0"));
-        AddRow("Emails:", summary.EmailCount.ToString("N0"));
-        AddRow("Characters:", _state.Characters.Count.ToString("N0"));
-        AddRow("Organizations:", _state.Organizations.Count.ToString("N0"));
+        AddRow("Story Beats:", summary.BeatCount.ToString("N0", CultureInfo.InvariantCulture));
+        AddRow("Threads:", summary.ThreadCount.ToString("N0", CultureInfo.InvariantCulture));
+        AddRow("Hot Threads:", summary.HotThreadCount.ToString("N0", CultureInfo.InvariantCulture));
+        AddRow("Relevant Threads:", summary.RelevantThreadCount.ToString("N0", CultureInfo.InvariantCulture));
+        AddRow("Non-Relevant Threads:", summary.NonRelevantThreadCount.ToString("N0", CultureInfo.InvariantCulture));
+        AddRow("Emails:", summary.EmailCount.ToString("N0", CultureInfo.InvariantCulture));
+        AddRow("Characters:", _state.Characters.Count.ToString("N0", CultureInfo.InvariantCulture));
+        AddRow("Organizations:", _state.Organizations.Count.ToString("N0", CultureInfo.InvariantCulture));
 
         AddSectionHeader("Generation Settings", 1);
         AddRow("Model:", _state.SelectedModelConfig?.DisplayName ?? _state.SelectedModel);
-        AddRow("Parallel API Calls:", _state.Config.ParallelThreads.ToString("N0"));
+        AddRow("Parallel API Calls:", _state.Config.ParallelThreads.ToString("N0", CultureInfo.InvariantCulture));
         AddRow("Attachment Complexity:", _state.Config.AttachmentComplexity.ToString());
         AddRow("Attachment Chains:", _state.Config.EnableAttachmentChains ? "Enabled" : DisabledText);
 

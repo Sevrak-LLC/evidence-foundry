@@ -5,7 +5,7 @@ namespace EvidenceFoundry.Tests;
 public class GenerationRequestNormalizerTests
 {
     [Fact]
-    public void NormalizeIndustryPreference_ReturnsRandomForNull()
+    public void NormalizeIndustryPreferenceReturnsRandomForNull()
     {
         var result = GenerationRequestNormalizer.NormalizeIndustryPreference(null);
 
@@ -15,7 +15,7 @@ public class GenerationRequestNormalizerTests
     [Theory]
     [InlineData(" ")]
     [InlineData("\t\r\n")]
-    public void NormalizeIndustryPreference_ReturnsRandomForWhitespace(string input)
+    public void NormalizeIndustryPreferenceReturnsRandomForWhitespace(string input)
     {
         var result = GenerationRequestNormalizer.NormalizeIndustryPreference(input);
 
@@ -29,7 +29,7 @@ public class GenerationRequestNormalizerTests
     [InlineData("InformationTechnology", "InformationTechnology")]
     [InlineData(" InformationTechnology ", "InformationTechnology")]
     [InlineData("Randomly", "Randomly")]
-    public void NormalizeIndustryPreference_TrimsAndNormalizesRandom(string input, string expected)
+    public void NormalizeIndustryPreferenceTrimsAndNormalizesRandom(string input, string expected)
     {
         var result = GenerationRequestNormalizer.NormalizeIndustryPreference(input);
 
@@ -44,7 +44,7 @@ public class GenerationRequestNormalizerTests
     [InlineData(3, 3)]
     [InlineData(4, 3)]
     [InlineData(10, 3)]
-    public void NormalizePartyCount_ClampsWithinRange(int input, int expected)
+    public void NormalizePartyCountClampsWithinRange(int input, int expected)
     {
         var result = GenerationRequestNormalizer.NormalizePartyCount(input);
 
@@ -57,7 +57,7 @@ public class GenerationRequestNormalizerTests
     [InlineData("random", true)]
     [InlineData("RANDOM", true)]
     [InlineData("Other", false)]
-    public void IsRandomIndustry_MatchesCaseInsensitive(string? input, bool expected)
+    public void IsRandomIndustryMatchesCaseInsensitive(string? input, bool expected)
     {
         var result = GenerationRequestNormalizer.IsRandomIndustry(input);
 

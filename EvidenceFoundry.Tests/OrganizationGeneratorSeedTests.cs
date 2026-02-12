@@ -6,7 +6,7 @@ namespace EvidenceFoundry.Tests;
 public class OrganizationGeneratorSeedTests
 {
     [Fact]
-    public void ParseSeedOrganizations_ParsesOrganizationWithDepartments()
+    public void ParseSeedOrganizationsParsesOrganizationWithDepartments()
     {
         var response = new OrganizationGenerator.OrganizationSeedResponse
         {
@@ -51,7 +51,7 @@ public class OrganizationGeneratorSeedTests
     }
 
     [Fact]
-    public void ParseSeedOrganizations_ThrowsWhenPlaintiffAndDefendant()
+    public void ParseSeedOrganizationsThrowsWhenPlaintiffAndDefendant()
     {
         var response = new OrganizationGenerator.OrganizationSeedResponse
         {

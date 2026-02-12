@@ -70,9 +70,20 @@ public sealed class ThreadGraph
             .Select(e => e.Id)
             .ToList();
 
-        var rootEmailId = thread.EmailMessages.FirstOrDefault(e => e.ParentEmailId == null)?.Id
-                          ?? thread.EmailMessages.FirstOrDefault()?.Id
-                          ?? Guid.Empty;
+        Guid rootEmailId = Guid.Empty;
+
+        for (var i = 0; i < thread.EmailMessages.Count; i++)
+        {
+            var email = thread.EmailMessages[i];
+            if (email.ParentEmailId == null)
+            {
+                rootEmailId = email.Id;
+                break;
+            }
+
+            if (i == 0)
+                rootEmailId = email.Id;
+        }
 
         var readOnlyChildrenByParent = childrenByParent.ToDictionary(
             kvp => kvp.Key,

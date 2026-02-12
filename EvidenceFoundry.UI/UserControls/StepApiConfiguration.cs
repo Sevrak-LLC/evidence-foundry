@@ -14,8 +14,8 @@ public class StepApiConfiguration : UserControl, IWizardStep
     private Button _btnClearSavedKey = null!;
     private Label _lblStatus = null!;
     private Label _lblPricing = null!;
-    private bool _connectionTested = false;
-    private bool _suppressRememberEvents = false;
+    private bool _connectionTested;
+    private bool _suppressRememberEvents;
 
     public string StepTitle => "API Configuration";
     public bool CanMoveNext => _connectionTested;

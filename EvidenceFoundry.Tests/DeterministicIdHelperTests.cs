@@ -5,7 +5,7 @@ namespace EvidenceFoundry.Tests;
 public class DeterministicIdHelperTests
 {
     [Fact]
-    public void CreateGuid_SameInputs_ReturnsSameGuid()
+    public void CreateGuidSameInputsReturnsSameGuid()
     {
         var first = DeterministicIdHelper.CreateGuid("storyline", "Title", "Summary");
         var second = DeterministicIdHelper.CreateGuid("storyline", "Title", "Summary");
@@ -14,7 +14,7 @@ public class DeterministicIdHelperTests
     }
 
     [Fact]
-    public void CreateGuid_DifferentInputs_ReturnsDifferentGuid()
+    public void CreateGuidDifferentInputsReturnsDifferentGuid()
     {
         var first = DeterministicIdHelper.CreateGuid("storyline", "Title", "Summary");
         var second = DeterministicIdHelper.CreateGuid("storyline", "Title", "Different");
@@ -23,7 +23,7 @@ public class DeterministicIdHelperTests
     }
 
     [Fact]
-    public void CreateShortToken_RespectsLengthAndIsDeterministic()
+    public void CreateShortTokenRespectsLengthAndIsDeterministic()
     {
         var tokenA = DeterministicIdHelper.CreateShortToken("image-file", 8, "seed");
         var tokenB = DeterministicIdHelper.CreateShortToken("image-file", 8, "seed");

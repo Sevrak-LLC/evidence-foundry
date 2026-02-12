@@ -7,7 +7,7 @@ namespace EvidenceFoundry.Tests;
 public class ThreadingHelperTests
 {
     [Fact]
-    public void SetupThreading_UsesParentMessageForInReplyTo()
+    public void SetupThreadingUsesParentMessageForInReplyTo()
     {
         var thread = new EmailThread
         {
@@ -16,8 +16,7 @@ public class ThreadingHelperTests
             Topic = "Ops"
         };
 
-        var generator = new EmailThreadGenerator();
-        generator.EnsurePlaceholderMessages(thread, 3);
+        EmailThreadGenerator.EnsurePlaceholderMessages(thread, 3);
 
         var sender = new Character { FirstName = "Jane", LastName = "Doe", Email = "jane@corp.com" };
         var receiver = new Character { FirstName = "Max", LastName = "Rowe", Email = "max@corp.com" };

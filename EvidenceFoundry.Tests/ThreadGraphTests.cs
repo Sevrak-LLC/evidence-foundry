@@ -6,7 +6,7 @@ namespace EvidenceFoundry.Tests;
 public class ThreadGraphTests
 {
     [Fact]
-    public void Build_GeneratesParentChildLinksAndChronologicalOrder()
+    public void BuildGeneratesParentChildLinksAndChronologicalOrder()
     {
         var thread = new EmailThread
         {
@@ -15,8 +15,7 @@ public class ThreadGraphTests
             Topic = "Ops"
         };
 
-        var generator = new EmailThreadGenerator();
-        generator.EnsurePlaceholderMessages(thread, 3);
+        EmailThreadGenerator.EnsurePlaceholderMessages(thread, 3);
 
         var emails = thread.EmailMessages.ToList();
         emails[0].SentDate = new DateTime(2024, 3, 1, 9, 0, 0);

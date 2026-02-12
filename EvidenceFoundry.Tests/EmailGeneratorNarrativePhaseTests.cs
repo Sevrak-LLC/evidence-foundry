@@ -5,7 +5,7 @@ namespace EvidenceFoundry.Tests;
 public class EmailGeneratorNarrativePhaseTests
 {
     [Fact]
-    public void GetNarrativePhase_SingleBatchEmphasizesUnresolvedOutcome()
+    public void GetNarrativePhaseSingleBatchEmphasizesUnresolvedOutcome()
     {
         var phase = EmailGenerator.GetNarrativePhase(0, 1);
 
@@ -14,7 +14,7 @@ public class EmailGeneratorNarrativePhaseTests
     }
 
     [Fact]
-    public void GetNarrativePhase_FirstBatchUsesBeginning()
+    public void GetNarrativePhaseFirstBatchUsesBeginning()
     {
         var phase = EmailGenerator.GetNarrativePhase(0, 3);
 
@@ -22,7 +22,7 @@ public class EmailGeneratorNarrativePhaseTests
     }
 
     [Fact]
-    public void GetNarrativePhase_MiddleBatchUsesMiddle()
+    public void GetNarrativePhaseMiddleBatchUsesMiddle()
     {
         var phase = EmailGenerator.GetNarrativePhase(1, 3);
 
@@ -30,7 +30,7 @@ public class EmailGeneratorNarrativePhaseTests
     }
 
     [Fact]
-    public void GetNarrativePhase_LastBatchAvoidsConclusion()
+    public void GetNarrativePhaseLastBatchAvoidsConclusion()
     {
         var phase = EmailGenerator.GetNarrativePhase(2, 3);
 

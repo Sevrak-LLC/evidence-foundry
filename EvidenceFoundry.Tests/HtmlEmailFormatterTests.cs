@@ -5,7 +5,7 @@ namespace EvidenceFoundry.Tests;
 public class HtmlEmailFormatterTests
 {
     [Fact]
-    public void ConvertToHtml_WithForwardedContent_RendersHeaderFieldsAndBody()
+    public void ConvertToHtmlWithForwardedContentRendersHeaderFieldsAndBody()
     {
         var input = """
 Hello team,
@@ -41,7 +41,7 @@ Alice
     }
 
     [Fact]
-    public void ConvertToHtml_WithListsAndSignature_RendersListsAndSignatureBlock()
+    public void ConvertToHtmlWithListsAndSignatureRendersListsAndSignatureBlock()
     {
         var input = """
 Hello team,

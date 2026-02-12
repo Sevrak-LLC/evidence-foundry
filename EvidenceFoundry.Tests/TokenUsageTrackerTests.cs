@@ -5,7 +5,7 @@ namespace EvidenceFoundry.Tests;
 public class TokenUsageTrackerTests
 {
     [Fact]
-    public void GetSummary_ReturnsTotals()
+    public void GetSummaryReturnsTotals()
     {
         var tracker = new TokenUsageTracker();
         var model = new AIModelConfig
@@ -26,7 +26,7 @@ public class TokenUsageTrackerTests
     }
 
     [Fact]
-    public void GetDetailedSummary_GroupsByOperationAndOrdersByCost()
+    public void GetDetailedSummaryGroupsByOperationAndOrdersByCost()
     {
         var tracker = new TokenUsageTracker();
         var model = new AIModelConfig
@@ -68,7 +68,7 @@ public class TokenUsageTrackerTests
     }
 
     [Fact]
-    public void GetDetailedSummary_ReturnsEmptyBreakdownWhenNoEntries()
+    public void GetDetailedSummaryReturnsEmptyBreakdownWhenNoEntries()
     {
         var tracker = new TokenUsageTracker();
 

@@ -7,7 +7,7 @@ namespace EvidenceFoundry.Tests;
 public class StoryBeatGeneratorTests
 {
     [Fact]
-    public void ValidateStoryBeats_AllowsStrictlySequentialBeats()
+    public void ValidateStoryBeatsAllowsStrictlySequentialBeats()
     {
         var beats = new List<StoryBeat>
         {
@@ -20,7 +20,7 @@ public class StoryBeatGeneratorTests
     }
 
     [Fact]
-    public void ValidateStoryBeats_RejectsSharedBoundary()
+    public void ValidateStoryBeatsRejectsSharedBoundary()
     {
         var beats = new List<StoryBeat>
         {
@@ -33,7 +33,7 @@ public class StoryBeatGeneratorTests
     }
 
     [Fact]
-    public void ValidateStoryBeats_RejectsMismatchedStartOrEnd()
+    public void ValidateStoryBeatsRejectsMismatchedStartOrEnd()
     {
         var beats = new List<StoryBeat>
         {
@@ -46,7 +46,7 @@ public class StoryBeatGeneratorTests
     }
 
     [Fact]
-    public void NormalizeStoryBeats_FixesOffByOneBoundaries()
+    public void NormalizeStoryBeatsFixesOffByOneBoundaries()
     {
         var beats = new List<StoryBeat>
         {
@@ -61,7 +61,7 @@ public class StoryBeatGeneratorTests
     }
 
     [Fact]
-    public void NormalizeStoryBeats_FixesSingleDayOverlap()
+    public void NormalizeStoryBeatsFixesSingleDayOverlap()
     {
         var beats = new List<StoryBeat>
         {
@@ -76,7 +76,7 @@ public class StoryBeatGeneratorTests
     }
 
     [Fact]
-    public void FindFirstInvalidBeatIndex_FindsEarliestIssue()
+    public void FindFirstInvalidBeatIndexFindsEarliestIssue()
     {
         var beats = new List<StoryBeat>
         {

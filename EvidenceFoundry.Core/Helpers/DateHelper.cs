@@ -420,7 +420,7 @@ public static partial class DateHelper
 
     public static string FormatForFileName(DateTime date)
     {
-        return date.ToString("yyyyMMdd_HHmmss");
+        return date.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
     }
 
     public static (int businessDays, int saturdays, int sundays) CountDayTypesInclusive(DateTime start, DateTime end)

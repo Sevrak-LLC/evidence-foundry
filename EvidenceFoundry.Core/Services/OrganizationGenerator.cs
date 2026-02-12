@@ -2,15 +2,15 @@ using System.Diagnostics;
 using System.Text.Json.Serialization;
 using EvidenceFoundry.Helpers;
 using EvidenceFoundry.Models;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
+using Serilog;
+using Serilog.Context;
 
 namespace EvidenceFoundry.Services;
 
-public class OrganizationGenerator
+public partial class OrganizationGenerator
 {
     private readonly OpenAIService _openAI;
-    private readonly ILogger<OrganizationGenerator> _logger;
+    private readonly ILogger _logger;
 
     private static readonly OrganizationType[] OrganizationTypes = Enum.GetValues<OrganizationType>()
         .Where(t => t != OrganizationType.Unknown)
@@ -21,12 +21,12 @@ public class OrganizationGenerator
         .ToArray();
 
 
-    public OrganizationGenerator(OpenAIService openAI, ILogger<OrganizationGenerator>? logger = null)
+    public OrganizationGenerator(OpenAIService openAI, ILogger? logger = null)
     {
         ArgumentNullException.ThrowIfNull(openAI);
         _openAI = openAI;
-        _logger = logger ?? NullLogger<OrganizationGenerator>.Instance;
-        _logger.LogDebug("OrganizationGenerator initialized.");
+        _logger = (logger ?? Serilog.Log.Logger).ForContext<OrganizationGenerator>();
+        Log.OrganizationGeneratorInitialized(_logger);
     }
 
     public async Task<List<Organization>> GenerateKnownOrganizationsAsync(
@@ -40,15 +40,12 @@ public class OrganizationGenerator
         if (string.IsNullOrWhiteSpace(storyline.Summary))
             throw new ArgumentException("Storyline summary is required.", nameof(storyline));
 
-        using var scope = _logger.BeginScope(new Dictionary<string, object>
-        {
-            ["Topic"] = topic,
-            ["StorylineId"] = storyline.Id,
-            ["StorylineTitle"] = storyline.Title
-        });
+        using var topicScope = LogContext.PushProperty("Topic", topic);
+        using var storylineIdScope = LogContext.PushProperty("StorylineId", storyline.Id);
+        using var storylineTitleScope = LogContext.PushProperty("StorylineTitle", storyline.Title);
 
         var stopwatch = Stopwatch.StartNew();
-        _logger.LogInformation("Generating known organizations from storyline.");
+        Log.GeneratingKnownOrganizations(_logger);
 
         try
         {
@@ -131,32 +128,22 @@ Enum values are shown as Raw (Humanized). Return only the Raw enum value.
 
             if (response?.Organizations == null || response.Organizations.Count == 0)
             {
-                _logger.LogError(
-                    "Organization extraction returned no organizations for storyline {StorylineTitle}.",
-                    storyline.Title);
+                Log.OrganizationExtractionReturnedNoOrganizations(_logger, storyline.Title);
                 throw new InvalidOperationException($"Organization extraction returned no organizations for storyline '{storyline.Title}'.");
             }
 
             var organizations = ParseSeedOrganizations(response);
-            _logger.LogInformation(
-                "Generated {OrganizationCount} known organizations in {DurationMs} ms.",
-                organizations.Count,
-                stopwatch.ElapsedMilliseconds);
+            Log.GeneratedKnownOrganizations(_logger, organizations.Count, stopwatch.ElapsedMilliseconds);
             return organizations;
         }
         catch (OperationCanceledException)
         {
-            _logger.LogWarning(
-                "Known organization generation canceled after {DurationMs} ms.",
-                stopwatch.ElapsedMilliseconds);
+            Log.KnownOrganizationGenerationCanceled(_logger, stopwatch.ElapsedMilliseconds);
             throw;
         }
         catch (Exception ex)
         {
-            _logger.LogError(
-                ex,
-                "Known organization generation failed after {DurationMs} ms.",
-                stopwatch.ElapsedMilliseconds);
+            Log.KnownOrganizationGenerationFailed(_logger, stopwatch.ElapsedMilliseconds, ex);
             throw;
         }
     }
@@ -186,16 +173,13 @@ Enum values are shown as Raw (Humanized). Return only the Raw enum value.
             throw new ArgumentException("Storyline start date is required.", nameof(storyline));
         ArgumentNullException.ThrowIfNull(seed);
 
-        using var scope = _logger.BeginScope(new Dictionary<string, object>
-        {
-            ["OrganizationId"] = seed.Id,
-            ["OrganizationName"] = seed.Name,
-            ["StorylineId"] = storyline.Id,
-            ["StorylineTitle"] = storyline.Title
-        });
+        using var organizationIdScope = LogContext.PushProperty("OrganizationId", seed.Id);
+        using var organizationNameScope = LogContext.PushProperty("OrganizationName", seed.Name);
+        using var storylineIdScope = LogContext.PushProperty("StorylineId", storyline.Id);
+        using var storylineTitleScope = LogContext.PushProperty("StorylineTitle", storyline.Title);
 
         var stopwatch = Stopwatch.StartNew();
-        _logger.LogInformation("Enriching organization details.");
+        Log.EnrichingOrganizationDetails(_logger);
 
         try
         {
@@ -249,8 +233,8 @@ Rules:
 
             var organization = BuildOrganizationFromResponse(seed, response);
             var roleCount = organization.Departments.Sum(d => d.Roles.Count);
-            _logger.LogInformation(
-                "Enriched organization with {DepartmentCount} departments and {RoleCount} roles in {DurationMs} ms.",
+            Log.EnrichedOrganization(
+                _logger,
                 organization.Departments.Count,
                 roleCount,
                 stopwatch.ElapsedMilliseconds);
@@ -258,17 +242,12 @@ Rules:
         }
         catch (OperationCanceledException)
         {
-            _logger.LogWarning(
-                "Organization enrichment canceled after {DurationMs} ms.",
-                stopwatch.ElapsedMilliseconds);
+            Log.OrganizationEnrichmentCanceled(_logger, stopwatch.ElapsedMilliseconds);
             throw;
         }
         catch (Exception ex)
         {
-            _logger.LogError(
-                ex,
-                "Organization enrichment failed after {DurationMs} ms.",
-                stopwatch.ElapsedMilliseconds);
+            Log.OrganizationEnrichmentFailed(_logger, stopwatch.ElapsedMilliseconds, ex);
             throw;
         }
     }
@@ -470,7 +449,7 @@ Enum values are shown as Raw (Humanized). Return only the Raw enum value.
         HashSet<string> usedDomains,
         ILogger? logger = null)
     {
-        var log = logger ?? NullLogger.Instance;
+        var log = logger ?? Serilog.Log.Logger;
 
         if (string.IsNullOrWhiteSpace(organization.Name))
             throw new InvalidOperationException("Organization name is required.");
@@ -494,27 +473,17 @@ Enum values are shown as Raw (Humanized). Return only the Raw enum value.
 
         if (!string.Equals(originalDomain, organization.Domain, StringComparison.OrdinalIgnoreCase))
         {
-            log.LogWarning(
-                "Normalized organization domain from {OriginalDomain} to {NormalizedDomain} for {OrganizationName}.",
-                originalDomain,
-                organization.Domain,
-                organization.Name);
+            Log.NormalizedOrganizationDomain(log, originalDomain, organization.Domain, organization.Name);
         }
 
         if (originalOrgType == OrganizationType.Unknown && organization.OrganizationType != OrganizationType.Unknown)
         {
-            log.LogWarning(
-                "Applied default organization type {OrganizationType} for {OrganizationName}.",
-                organization.OrganizationType,
-                organization.Name);
+            Log.AppliedDefaultOrganizationType(log, organization.OrganizationType, organization.Name);
         }
 
         if (originalState == UsState.Unknown && organization.State != UsState.Unknown)
         {
-            log.LogWarning(
-                "Applied default organization state {State} for {OrganizationName}.",
-                organization.State,
-                organization.Name);
+            Log.AppliedDefaultOrganizationState(log, organization.State, organization.Name);
         }
 
         if (organization.Departments.Count == 0)
@@ -525,9 +494,7 @@ Enum values are shown as Raw (Humanized). Return only the Raw enum value.
             };
             executive.SetRoles(new List<Role> { new() { Name = RoleName.ChiefExecutiveOfficer } });
             organization.AddDepartment(executive);
-            log.LogWarning(
-                "Organization {OrganizationName} lacked departments; added Executive with default role.",
-                organization.Name);
+            Log.OrganizationLackedDepartments(log, organization.Name);
         }
 
         RoleGenerator.EnsureSingleOccupantRolesInExecutive(organization, log);
@@ -719,6 +686,83 @@ Enum values are shown as Raw (Humanized). Return only the Raw enum value.
 
         labels[labelIndex] = baseLabel + suffix;
         return string.Join(".", labels);
+    }
+
+    private static class Log
+    {
+        public static void OrganizationGeneratorInitialized(ILogger logger)
+            => logger.Debug("OrganizationGenerator initialized.");
+
+        public static void GeneratingKnownOrganizations(ILogger logger)
+            => logger.Information("Generating known organizations from storyline.");
+
+        public static void OrganizationExtractionReturnedNoOrganizations(ILogger logger, string storylineTitle)
+            => logger.Error(
+                "Organization extraction returned no organizations for storyline {StorylineTitle}.",
+                storylineTitle);
+
+        public static void GeneratedKnownOrganizations(ILogger logger, int organizationCount, long durationMs)
+            => logger.Information(
+                "Generated {OrganizationCount} known organizations in {DurationMs} ms.",
+                organizationCount,
+                durationMs);
+
+        public static void KnownOrganizationGenerationCanceled(ILogger logger, long durationMs)
+            => logger.Warning("Known organization generation canceled after {DurationMs} ms.", durationMs);
+
+        public static void KnownOrganizationGenerationFailed(ILogger logger, long durationMs, Exception exception)
+            => logger.Error(exception, "Known organization generation failed after {DurationMs} ms.", durationMs);
+
+        public static void EnrichingOrganizationDetails(ILogger logger)
+            => logger.Information("Enriching organization details.");
+
+        public static void EnrichedOrganization(
+            ILogger logger,
+            int departmentCount,
+            int roleCount,
+            long durationMs)
+            => logger.Information(
+                "Enriched organization with {DepartmentCount} departments and {RoleCount} roles in {DurationMs} ms.",
+                departmentCount,
+                roleCount,
+                durationMs);
+
+        public static void OrganizationEnrichmentCanceled(ILogger logger, long durationMs)
+            => logger.Warning("Organization enrichment canceled after {DurationMs} ms.", durationMs);
+
+        public static void OrganizationEnrichmentFailed(ILogger logger, long durationMs, Exception exception)
+            => logger.Error(exception, "Organization enrichment failed after {DurationMs} ms.", durationMs);
+
+        public static void NormalizedOrganizationDomain(
+            ILogger logger,
+            string originalDomain,
+            string normalizedDomain,
+            string organizationName)
+            => logger.Warning(
+                "Normalized organization domain from {OriginalDomain} to {NormalizedDomain} for {OrganizationName}.",
+                originalDomain,
+                normalizedDomain,
+                organizationName);
+
+        public static void AppliedDefaultOrganizationType(
+            ILogger logger,
+            OrganizationType organizationType,
+            string organizationName)
+            => logger.Warning(
+                "Applied default organization type {OrganizationType} for {OrganizationName}.",
+                organizationType,
+                organizationName);
+
+        public static void AppliedDefaultOrganizationState(ILogger logger, UsState state, string organizationName)
+            => logger.Warning(
+                "Applied default organization state {State} for {OrganizationName}.",
+                state,
+                organizationName);
+
+        public static void OrganizationLackedDepartments(ILogger logger, string organizationName)
+            => logger.Warning(
+                "Organization {OrganizationName} lacked departments; added Executive with default role.",
+                organizationName);
     }
 
     internal class OrganizationSeedResponse

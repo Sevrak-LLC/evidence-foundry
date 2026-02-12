@@ -8,7 +8,7 @@ namespace EvidenceFoundry.Tests;
 public class EmailGeneratorRepairTests
 {
     [Fact]
-    public async Task GenerateThreadWithRetriesAsync_RepairsInvalidEmail()
+    public async Task GenerateThreadWithRetriesAsyncRepairsInvalidEmail()
     {
         var characters = BuildCharacters();
         var config = new GenerationConfig
@@ -45,7 +45,7 @@ public class EmailGeneratorRepairTests
     }
 
     [Fact]
-    public async Task GenerateThreadWithRetriesAsync_ContinuesAfterEmailFailure()
+    public async Task GenerateThreadWithRetriesAsyncContinuesAfterEmailFailure()
     {
         var characters = BuildCharacters();
         var config = new GenerationConfig
@@ -82,7 +82,7 @@ public class EmailGeneratorRepairTests
     }
 
     [Fact]
-    public async Task GenerateThreadWithRetriesAsync_CarriesAttachmentsForwardAfterFailure()
+    public async Task GenerateThreadWithRetriesAsyncCarriesAttachmentsForwardAfterFailure()
     {
         var characters = BuildCharacters();
         var config = new GenerationConfig
@@ -152,8 +152,7 @@ public class EmailGeneratorRepairTests
             Topic = "Budget"
         };
 
-        var threadGenerator = new EmailThreadGenerator();
-        threadGenerator.EnsurePlaceholderMessages(thread, emailCount);
+        EmailThreadGenerator.EnsurePlaceholderMessages(thread, emailCount);
 
         var participantLookup = characters.ToDictionary(c => c.Email, StringComparer.OrdinalIgnoreCase);
         var structurePlan = ThreadStructurePlanner.BuildPlan(
@@ -191,8 +190,7 @@ public class EmailGeneratorRepairTests
             Topic = "Budget"
         };
 
-        var threadGenerator = new EmailThreadGenerator();
-        threadGenerator.EnsurePlaceholderMessages(thread, 3);
+        EmailThreadGenerator.EnsurePlaceholderMessages(thread, 3);
 
         var emailIds = thread.EmailMessages.Select(m => m.Id).ToList();
         var rootEmailId = emailIds[0];

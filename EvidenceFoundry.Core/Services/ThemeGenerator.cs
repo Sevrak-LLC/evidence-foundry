@@ -2,22 +2,21 @@ using System.Diagnostics;
 using System.Text.Json.Serialization;
 using EvidenceFoundry.Helpers;
 using EvidenceFoundry.Models;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
+using Serilog;
 
 namespace EvidenceFoundry.Services;
 
-public class ThemeGenerator
+public partial class ThemeGenerator
 {
     private readonly OpenAIService _openAI;
-    private readonly ILogger<ThemeGenerator> _logger;
+    private readonly ILogger _logger;
 
-    public ThemeGenerator(OpenAIService openAI, ILogger<ThemeGenerator>? logger = null)
+    public ThemeGenerator(OpenAIService openAI, ILogger? logger = null)
     {
         ArgumentNullException.ThrowIfNull(openAI);
         _openAI = openAI;
-        _logger = logger ?? NullLogger<ThemeGenerator>.Instance;
-        _logger.LogDebug("ThemeGenerator initialized.");
+        _logger = (logger ?? Serilog.Log.Logger).ForContext<ThemeGenerator>();
+        Log.ThemeGeneratorInitialized(_logger);
     }
 
     /// <summary>
@@ -46,14 +45,12 @@ public class ThemeGenerator
 
         if (domainOrgs.Count == 0)
         {
-            _logger.LogInformation("Skipping theme generation; no organization domains available.");
+            Log.SkippingThemeGeneration(_logger);
             return themes;
         }
 
         var stopwatch = Stopwatch.StartNew();
-        _logger.LogInformation(
-            "Generating organization themes for {DomainCount} domains.",
-            domainOrgs.Count);
+        Log.GeneratingOrganizationThemes(_logger, domainOrgs.Count);
 
         progress?.Report($"Generating organization themes for {domainOrgs.Count} organizations...");
 
@@ -119,9 +116,7 @@ Sans-serif: Segoe UI, Arial, Calibri, Trebuchet MS, Century Gothic, Verdana, Tah
         var missingCount = domainOrgs.Keys.Count(domain => !themes.ContainsKey(domain));
         if (missingCount > 0)
         {
-            _logger.LogWarning(
-                "Theme generation missing {MissingThemeCount} domain(s); applying defaults.",
-                missingCount);
+            Log.ThemeGenerationMissingDomains(_logger, missingCount);
         }
 
         // Ensure all domains have a theme (use defaults for any missing)
@@ -139,11 +134,31 @@ Sans-serif: Segoe UI, Arial, Calibri, Trebuchet MS, Century Gothic, Verdana, Tah
         }
 
         progress?.Report($"Generated {themes.Count} presentation themes.");
-        _logger.LogInformation(
-            "Generated {ThemeCount} organization themes in {DurationMs} ms.",
-            themes.Count,
-            stopwatch.ElapsedMilliseconds);
+        Log.GeneratedOrganizationThemes(_logger, themes.Count, stopwatch.ElapsedMilliseconds);
         return themes;
+    }
+
+    private static class Log
+    {
+        public static void ThemeGeneratorInitialized(ILogger logger)
+            => logger.Debug("ThemeGenerator initialized.");
+
+        public static void SkippingThemeGeneration(ILogger logger)
+            => logger.Information("Skipping theme generation; no organization domains available.");
+
+        public static void GeneratingOrganizationThemes(ILogger logger, int domainCount)
+            => logger.Information("Generating organization themes for {DomainCount} domains.", domainCount);
+
+        public static void ThemeGenerationMissingDomains(ILogger logger, int missingThemeCount)
+            => logger.Warning(
+                "Theme generation missing {MissingThemeCount} domain(s); applying defaults.",
+                missingThemeCount);
+
+        public static void GeneratedOrganizationThemes(ILogger logger, int themeCount, long durationMs)
+            => logger.Information(
+                "Generated {ThemeCount} organization themes in {DurationMs} ms.",
+                themeCount,
+                durationMs);
     }
 
     /// <summary>

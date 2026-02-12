@@ -6,7 +6,7 @@ namespace EvidenceFoundry.Tests;
 public class ServiceArgumentValidationTests
 {
     [Fact]
-    public void OfficeDocumentService_RequiresTitleAndContent()
+    public void OfficeDocumentServiceRequiresTitleAndContent()
     {
         var service = new OfficeDocumentService();
 
@@ -15,7 +15,7 @@ public class ServiceArgumentValidationTests
     }
 
     [Fact]
-    public void OfficeDocumentService_RequiresExcelTitleAndHeaders()
+    public void OfficeDocumentServiceRequiresExcelTitleAndHeaders()
     {
         var service = new OfficeDocumentService();
 
@@ -26,7 +26,7 @@ public class ServiceArgumentValidationTests
     }
 
     [Fact]
-    public void OfficeDocumentService_RequiresPowerPointTitleAndSlides()
+    public void OfficeDocumentServiceRequiresPowerPointTitleAndSlides()
     {
         var service = new OfficeDocumentService();
 
@@ -36,7 +36,7 @@ public class ServiceArgumentValidationTests
     }
 
     [Fact]
-    public void CalendarService_RequiresRequestFields()
+    public void CalendarServiceRequiresRequestFields()
     {
         var now = DateTime.UtcNow;
 
@@ -74,7 +74,7 @@ public class ServiceArgumentValidationTests
     }
 
     [Fact]
-    public async Task EmailGenerator_RequiresStateAndProgress()
+    public async Task EmailGeneratorRequiresStateAndProgress()
     {
         var service = new EmailGenerator(CreateOpenAiService(), new Random(1));
 
@@ -83,7 +83,7 @@ public class ServiceArgumentValidationTests
     }
 
     [Fact]
-    public async Task WorldModelGenerator_RequiresRequestFields()
+    public async Task WorldModelGeneratorRequiresRequestFields()
     {
         var generator = new WorldModelGenerator(CreateOpenAiService(), new Random(1));
 
@@ -101,7 +101,7 @@ public class ServiceArgumentValidationTests
     }
 
     [Fact]
-    public async Task EmlFileService_RequiresInputs()
+    public async Task EmlFileServiceRequiresInputs()
     {
         var service = new EmlFileService();
         var email = new EmailMessage
@@ -119,7 +119,7 @@ public class ServiceArgumentValidationTests
     }
 
     [Fact]
-    public void OpenAIService_RequiresConstructorInputs()
+    public void OpenAIServiceRequiresConstructorInputs()
     {
         Assert.Throws<ArgumentException>(() => new OpenAIService("", "gpt-4o-mini", new Random(1)));
         Assert.Throws<ArgumentException>(() => new OpenAIService("test-key", "", new Random(1)));
@@ -129,7 +129,7 @@ public class ServiceArgumentValidationTests
     }
 
     [Fact]
-    public async Task OpenAIService_RequiresPrompts()
+    public async Task OpenAIServiceRequiresPrompts()
     {
         var service = CreateOpenAiService();
 
@@ -143,7 +143,7 @@ public class ServiceArgumentValidationTests
     }
 
     [Fact]
-    public async Task GeneratorMethods_RequireTopic()
+    public async Task GeneratorMethodsRequireTopic()
     {
         var openAi = CreateOpenAiService();
         var rng = new Random(1);

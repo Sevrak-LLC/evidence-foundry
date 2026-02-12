@@ -6,7 +6,7 @@ namespace EvidenceFoundry.Tests;
 public class EmailAddressHelperTests
 {
     [Fact]
-    public void TryGenerateEmail_ReturnsFalse_ForInvalidDomain()
+    public void TryGenerateEmailReturnsFalseForInvalidDomain()
     {
         var success = EmailAddressHelper.TryGenerateEmail("Jane", "Doe", "invalid", out var email);
 
@@ -15,7 +15,7 @@ public class EmailAddressHelperTests
     }
 
     [Fact]
-    public void TryGenerateEmail_ReturnsEmail_ForValidInputs()
+    public void TryGenerateEmailReturnsEmailForValidInputs()
     {
         var success = EmailAddressHelper.TryGenerateEmail("Jane", "Doe", "Example.COM", out var email);
 
@@ -24,7 +24,7 @@ public class EmailAddressHelperTests
     }
 
     [Fact]
-    public void TryGenerateUniqueEmail_AppendsCounter_WhenUsed()
+    public void TryGenerateUniqueEmailAppendsCounterWhenUsed()
     {
         var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -43,7 +43,7 @@ public class EmailAddressHelperTests
     }
 
     [Fact]
-    public void GenerateUniqueEmail_Throws_WhenInvalidDomain()
+    public void GenerateUniqueEmailThrowsWhenInvalidDomain()
     {
         Assert.Throws<InvalidOperationException>(() =>
             EmailAddressHelper.GenerateUniqueEmail("Jane", "Doe", "invalid", null));
