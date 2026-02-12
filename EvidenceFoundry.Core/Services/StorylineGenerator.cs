@@ -75,7 +75,7 @@ public class StorylineGenerator
             var includeOtherIndustry = string.Equals(normalizedPlaintiffIndustry, nameof(Industry.Other), StringComparison.OrdinalIgnoreCase)
                 || string.Equals(normalizedDefendantIndustry, nameof(Industry.Other), StringComparison.OrdinalIgnoreCase);
 
-        var systemPrompt = PromptScaffolding.AppendJsonOnlyInstruction(@"You are the EvidenceFoundry Narrative Generator.
+            var systemPrompt = PromptScaffolding.AppendJsonOnlyInstruction(@"You are the EvidenceFoundry Narrative Generator.
 
 Your job: produce fictional, narrative-driven pre-dispute setups that can be expanded into realistic corporate email corpora for eDiscovery testing.
 
@@ -116,17 +116,17 @@ OUTPUT REQUIREMENTS (STRICT)
 - Ensure internal consistency of names/titles/relationships/sequence of events within each narrative.
 - The summary field MUST clearly state the core pre-dispute situation, who is involved, and the tensions/risks that later lead to a dispute. Do NOT mention any dispute, claim, lawsuit, litigation, arbitration, investigation, subpoena, enforcement action, discovery process, or legal proceedings.");
 
-        var industryOptions = FormatIndustryOptionsForStorylines(includeOtherIndustry);
-        var worldContext = BuildWorldModelContext(request.WorldModel);
-        var worldRules = request.WorldModel != null
-            ? @"WORLD MODEL CONSTRAINTS:
+            var industryOptions = FormatIndustryOptionsForStorylines(includeOtherIndustry);
+            var worldContext = BuildWorldModelContext(request.WorldModel);
+            var worldRules = request.WorldModel != null
+                ? @"WORLD MODEL CONSTRAINTS:
 - Use ONLY the provided organizations and their domains. Do NOT invent or rename organizations.
 - Explicitly label the provided organizations as plaintiffs/defendants as given in the world model.
 - Use the provided key people by name. Do NOT invent new named people.
 - You may reference additional unnamed roles/teams if needed, but do not add named individuals beyond the world model."
-            : string.Empty;
+                : string.Empty;
 
-        var schema = """
+            var schema = """
 {
   "storylines": [
     {
@@ -143,7 +143,7 @@ OUTPUT REQUIREMENTS (STRICT)
 }
 """;
 
-        var userPrompt = PromptScaffolding.JoinSections($@"Selected Case Issue: {topic}
+            var userPrompt = PromptScaffolding.JoinSections($@"Selected Case Issue: {topic}
 Issue Description: {issueContext}
 
 Additional Instructions: {(string.IsNullOrWhiteSpace(additionalInstructions) ? "None" : additionalInstructions)}

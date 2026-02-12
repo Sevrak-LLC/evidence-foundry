@@ -1,101 +1,125 @@
 using System.Collections.Concurrent;
+using EvidenceFoundry.Helpers;
 using EvidenceFoundry.Models;
 using EvidenceFoundry.Services;
 
 namespace EvidenceFoundry.Tests;
 
-public class EmailGeneratorRetryTests
+public class EmailGeneratorRepairTests
 {
     [Fact]
-    public async Task GenerateThreadWithRetriesAsync_RetriesAndSucceeds()
+    public async Task GenerateThreadWithRetriesAsync_RepairsInvalidEmail()
     {
         var characters = BuildCharacters();
-        var characterLookup = characters.ToDictionary(c => c.Email, StringComparer.OrdinalIgnoreCase);
+        var config = new GenerationConfig
+        {
+            AttachmentPercentage = 100,
+            IncludeWord = true,
+            IncludeExcel = false,
+            IncludePowerPoint = false,
+            IncludeImages = false,
+            IncludeVoicemails = false,
+            MaxEmailRepairAttempts = 1
+        };
+
+        var plan = BuildPlan(characters, config, emailCount: 1);
+        var result = new GenerationResult();
+        var context = BuildThreadPlanContext(plan, config, result);
+
         var responses = new[]
         {
-            BuildResponse("Budget Review", characters, 1),
-            BuildResponse("Budget Review", characters, 2)
+            BuildSingleEmailResponse("Budget Review", characters[0], characters[1], hasDocument: false),
+            BuildSingleEmailResponse("Budget Review", characters[0], characters[1], hasDocument: true)
         };
 
         var generator = new TestEmailGenerator(responses);
-        var thread = new EmailThread();
+
+        var output = await generator.GenerateThreadWithRetriesAsync(plan, context, CancellationToken.None);
+
+        Assert.NotNull(output);
+        Assert.Single(output.EmailMessages);
+        Assert.Equal(2, generator.CallCount);
+        Assert.Equal(1, result.SucceededEmails);
+        Assert.Equal(0, result.FailedEmails);
+        Assert.False(output.EmailMessages[0].GenerationFailed);
+    }
+
+    [Fact]
+    public async Task GenerateThreadWithRetriesAsync_ContinuesAfterEmailFailure()
+    {
+        var characters = BuildCharacters();
+        var config = new GenerationConfig
+        {
+            AttachmentPercentage = 0,
+            IncludeWord = false,
+            IncludeExcel = false,
+            IncludePowerPoint = false,
+            IncludeImages = false,
+            IncludeVoicemails = false,
+            MaxEmailRepairAttempts = 0
+        };
+
+        var plan = BuildPlan(characters, config, emailCount: 2);
         var result = new GenerationResult();
-        var progressLock = new object();
+        var context = BuildThreadPlanContext(plan, config, result);
 
-        var plan = new EmailGenerator.ThreadPlan(
-            0,
-            thread,
-            2,
-            new DateTime(2024, 1, 1),
-            new DateTime(2024, 1, 2),
-            "Beat 1",
-            characters,
-            characterLookup,
-            "characters");
-        var context = BuildThreadPlanContext(
-            BuildStoryline(),
-            "corp.com",
-            new GenerationConfig(),
-            new Dictionary<string, OrganizationTheme>(StringComparer.OrdinalIgnoreCase),
-            "system",
-            result,
-            progressLock);
+        var responses = new[]
+        {
+            BuildSingleEmailResponse("Status Update", characters[0], characters[1], hasDocument: false),
+            BuildInvalidResponse("Status Update")
+        };
 
-        var output = await generator.GenerateThreadWithRetriesAsync(
-            plan,
-            context,
-            CancellationToken.None);
+        var generator = new TestEmailGenerator(responses);
+
+        var output = await generator.GenerateThreadWithRetriesAsync(plan, context, CancellationToken.None);
 
         Assert.NotNull(output);
         Assert.Equal(2, output.EmailMessages.Count);
         Assert.Equal(2, generator.CallCount);
-        Assert.Empty(result.Errors);
+        Assert.Equal(1, result.SucceededEmails);
+        Assert.Equal(1, result.FailedEmails);
+        Assert.True(output.EmailMessages[1].GenerationFailed);
     }
 
     [Fact]
-    public async Task GenerateThreadWithRetriesAsync_StopsAfterMaxAttemptsAndLogs()
+    public async Task GenerateThreadWithRetriesAsync_CarriesAttachmentsForwardAfterFailure()
     {
         var characters = BuildCharacters();
-        var characterLookup = characters.ToDictionary(c => c.Email, StringComparer.OrdinalIgnoreCase);
+        var config = new GenerationConfig
+        {
+            AttachmentPercentage = 0,
+            IncludeWord = true,
+            IncludeExcel = false,
+            IncludePowerPoint = false,
+            IncludeImages = false,
+            IncludeVoicemails = false,
+            MaxEmailRepairAttempts = 0
+        };
+
+        var plan = BuildManualPlanWithAttachmentCarryover(characters);
+        var result = new GenerationResult();
+        var context = BuildThreadPlanContext(plan, config, result);
+
         var responses = new[]
         {
-            BuildResponse("Budget Review", characters, 1),
-            BuildResponse("Budget Review", characters, 1),
-            BuildResponse("Budget Review", characters, 1)
+            BuildSingleEmailResponse("Budget Review", characters[0], characters[1], hasDocument: false, sentDateTime: new DateTime(2024, 1, 1, 9, 0, 0)),
+            BuildSingleEmailResponse("Budget Review", characters[1], characters[0], hasDocument: false, isReply: true, sentDateTime: new DateTime(2024, 1, 1, 10, 0, 0)),
+            BuildSingleEmailResponse("Budget Review", characters[0], characters[1], hasDocument: true, isReply: true, sentDateTime: new DateTime(2024, 1, 1, 11, 0, 0))
         };
 
         var generator = new TestEmailGenerator(responses);
-        var thread = new EmailThread();
-        var result = new GenerationResult();
-        var progressLock = new object();
 
-        var plan = new EmailGenerator.ThreadPlan(
-            0,
-            thread,
-            2,
-            new DateTime(2024, 1, 1),
-            new DateTime(2024, 1, 2),
-            "Beat 2",
-            characters,
-            characterLookup,
-            "characters");
-        var context = BuildThreadPlanContext(
-            BuildStoryline(),
-            "corp.com",
-            new GenerationConfig(),
-            new Dictionary<string, OrganizationTheme>(StringComparer.OrdinalIgnoreCase),
-            "system",
-            result,
-            progressLock);
+        var output = await generator.GenerateThreadWithRetriesAsync(plan, context, CancellationToken.None);
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => generator.GenerateThreadWithRetriesAsync(
-            plan,
-            context,
-            CancellationToken.None));
-
+        Assert.NotNull(output);
+        Assert.Equal(3, output.EmailMessages.Count);
         Assert.Equal(3, generator.CallCount);
-        Assert.Contains("failed after 3 attempts", ex.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("Beat 2", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(2, result.SucceededEmails);
+        Assert.Equal(1, result.FailedEmails);
+        Assert.False(output.EmailMessages[0].GenerationFailed);
+        Assert.True(output.EmailMessages[1].GenerationFailed);
+        Assert.False(output.EmailMessages[2].GenerationFailed);
+        Assert.True(output.EmailMessages[2].PlannedHasDocument);
     }
 
     private static List<Character> BuildCharacters()
@@ -119,7 +143,120 @@ public class EmailGeneratorRetryTests
         };
     }
 
-    private static Storyline BuildStoryline()
+    private static EmailGenerator.ThreadPlan BuildPlan(List<Character> characters, GenerationConfig config, int emailCount)
+    {
+        var thread = new EmailThread
+        {
+            StoryBeatId = Guid.NewGuid(),
+            StorylineId = Guid.NewGuid(),
+            Topic = "Budget"
+        };
+
+        var threadGenerator = new EmailThreadGenerator();
+        threadGenerator.EnsurePlaceholderMessages(thread, emailCount);
+
+        var participantLookup = characters.ToDictionary(c => c.Email, StringComparer.OrdinalIgnoreCase);
+        var structurePlan = ThreadStructurePlanner.BuildPlan(
+            thread,
+            emailCount,
+            new DateTime(2024, 1, 1),
+            new DateTime(2024, 1, 2),
+            config,
+            generationSeed: 12345);
+        var threadSeed = DeterministicSeedHelper.CreateSeed(
+            "thread-gen",
+            "12345",
+            thread.Id.ToString("N"));
+
+        return new EmailGenerator.ThreadPlan(
+            0,
+            thread,
+            emailCount,
+            new DateTime(2024, 1, 1),
+            new DateTime(2024, 1, 2),
+            "Beat 1",
+            characters,
+            participantLookup,
+            "characters",
+            structurePlan,
+            threadSeed);
+    }
+
+    private static EmailGenerator.ThreadPlan BuildManualPlanWithAttachmentCarryover(List<Character> characters)
+    {
+        var thread = new EmailThread
+        {
+            StoryBeatId = Guid.NewGuid(),
+            StorylineId = Guid.NewGuid(),
+            Topic = "Budget"
+        };
+
+        var threadGenerator = new EmailThreadGenerator();
+        threadGenerator.EnsurePlaceholderMessages(thread, 3);
+
+        var emailIds = thread.EmailMessages.Select(m => m.Id).ToList();
+        var rootEmailId = emailIds[0];
+        var branchId = DeterministicIdHelper.CreateGuid("email-branch", thread.Id.ToString("N"), "root");
+
+        var slots = new List<ThreadEmailSlotPlan>
+        {
+            new(
+                0,
+                emailIds[0],
+                null,
+                rootEmailId,
+                branchId,
+                new DateTime(2024, 1, 1, 9, 0, 0),
+                "BEGINNING",
+                ThreadEmailIntent.New,
+                new ThreadAttachmentPlan(false, null, false, false, false)),
+            new(
+                1,
+                emailIds[1],
+                emailIds[0],
+                rootEmailId,
+                branchId,
+                new DateTime(2024, 1, 1, 10, 0, 0),
+                "MIDDLE",
+                ThreadEmailIntent.Reply,
+                new ThreadAttachmentPlan(true, AttachmentType.Word, false, false, false)),
+            new(
+                2,
+                emailIds[2],
+                emailIds[1],
+                rootEmailId,
+                branchId,
+                new DateTime(2024, 1, 1, 11, 0, 0),
+                "LATE",
+                ThreadEmailIntent.Reply,
+                new ThreadAttachmentPlan(false, null, false, false, false))
+        };
+
+        var structurePlan = new ThreadStructurePlan(thread.Id, rootEmailId, slots);
+        var participantLookup = characters.ToDictionary(c => c.Email, StringComparer.OrdinalIgnoreCase);
+        var threadSeed = DeterministicSeedHelper.CreateSeed(
+            "thread-gen",
+            "12345",
+            thread.Id.ToString("N"));
+
+        return new EmailGenerator.ThreadPlan(
+            0,
+            thread,
+            3,
+            new DateTime(2024, 1, 1),
+            new DateTime(2024, 1, 2),
+            "Beat 1",
+            characters,
+            participantLookup,
+            "characters",
+            structurePlan,
+            threadSeed);
+    }
+
+    private static EmailGenerator.ThreadPlanContext BuildThreadPlanContext(
+        EmailGenerator.ThreadPlan plan,
+        GenerationConfig config,
+        GenerationResult result)
     {
         var storyline = new Storyline
         {
@@ -127,82 +264,63 @@ public class EmailGeneratorRetryTests
             Summary = "Quarterly budget review."
         };
         storyline.SetBeats(new List<StoryBeat>());
-        return storyline;
-    }
 
-    private static EmailGenerator.ThreadApiResponse BuildResponse(
-        string subject,
-        List<Character> characters,
-        int emailCount)
-    {
-        var from = characters[0];
-        var to = characters[1];
-        var emails = new List<EmailGenerator.EmailDto>(emailCount);
-
-        for (var i = 0; i < emailCount; i++)
-        {
-            emails.Add(new EmailGenerator.EmailDto
-            {
-                FromEmail = from.Email,
-                ToEmails = new List<string> { to.Email },
-                CcEmails = new List<string>(),
-                SentDateTime = new DateTime(2024, 1, 1, 9, 0, 0).AddHours(i).ToString("O"),
-                BodyPlain = $"Hello,\n\nMessage {i + 1}\n\n{from.SignatureBlock}",
-                IsReply = i > 0,
-                IsForward = false,
-                ReplyToIndex = i == 0 ? -1 : i - 1,
-                HasDocument = false,
-                HasImage = false,
-                IsImageInline = false,
-                HasVoicemail = false
-            });
-        }
-
-        return new EmailGenerator.ThreadApiResponse
-        {
-            Subject = subject,
-            Emails = emails
-        };
-    }
-
-    private static EmailGenerator.ThreadPlanContext BuildThreadPlanContext(
-        Storyline storyline,
-        string domain,
-        GenerationConfig config,
-        Dictionary<string, OrganizationTheme> domainThemes,
-        string systemPrompt,
-        GenerationResult result,
-        object progressLock)
-    {
+        var state = new WizardState { Config = config };
         return new EmailGenerator.ThreadPlanContext(
             storyline,
-            domain,
+            "corp.com",
             config,
-            domainThemes,
-            systemPrompt,
-            new WizardState(),
+            new Dictionary<string, OrganizationTheme>(StringComparer.OrdinalIgnoreCase),
+            "system",
+            state,
+            new Dictionary<Guid, EmailGenerator.CharacterContext>(),
+            new Dictionary<Guid, EmailGenerator.CharacterRoutingContext>(),
             result,
             new GenerationProgress(),
             new Progress<GenerationProgress>(_ => { }),
-            progressLock,
+            new object(),
             new EmlFileService(),
             new SemaphoreSlim(1, 1),
             new ConcurrentDictionary<Guid, bool>());
     }
 
+    private static EmailGenerator.SingleEmailApiResponse BuildSingleEmailResponse(
+        string subject,
+        Character from,
+        Character to,
+        bool hasDocument,
+        bool isReply = false,
+        DateTime? sentDateTime = null)
+    {
+        return new EmailGenerator.SingleEmailApiResponse
+        {
+            BodyPlain = hasDocument
+                ? $"Hello,\n\nAttached is the report.\n\n{from.SignatureBlock}"
+                : $"Hello,\n\nQuick update below.\n\n{from.SignatureBlock}"
+        };
+    }
+
+    private static EmailGenerator.SingleEmailApiResponse BuildInvalidResponse(string subject)
+    {
+        return new EmailGenerator.SingleEmailApiResponse
+        {
+            BodyPlain = string.Empty
+        };
+    }
+
     private sealed class TestEmailGenerator : EmailGenerator
     {
-        private readonly Queue<EmailGenerator.ThreadApiResponse?> _responses;
+        private readonly Queue<EmailGenerator.SingleEmailApiResponse?> _responses;
 
         public int CallCount { get; private set; }
 
-        public TestEmailGenerator(IEnumerable<EmailGenerator.ThreadApiResponse?> responses)
+        public TestEmailGenerator(IEnumerable<EmailGenerator.SingleEmailApiResponse?> responses)
             : base(new OpenAIService("test-key", "gpt-4o-mini", new Random(1)), new Random(1))
         {
-            _responses = new Queue<EmailGenerator.ThreadApiResponse?>(responses);
+            _responses = new Queue<EmailGenerator.SingleEmailApiResponse?>(responses);
         }
 
-        protected override Task<EmailGenerator.ThreadApiResponse?> GetThreadResponseAsync(
+        protected override Task<EmailGenerator.SingleEmailApiResponse?> GetEmailResponseAsync(
             string systemPrompt,
             string userPrompt,
             string operationName,
@@ -210,6 +328,18 @@ public class EmailGeneratorRetryTests
         {
             CallCount++;
             return Task.FromResult(_responses.Count > 0 ? _responses.Dequeue() : null);
+        }
+
+        protected override Task<EmailGenerator.EmailSubjectResponse?> GetEmailSubjectResponseAsync(
+            string systemPrompt,
+            string userPrompt,
+            string operationName,
+            CancellationToken ct)
+        {
+            return Task.FromResult<EmailGenerator.EmailSubjectResponse?>(new EmailGenerator.EmailSubjectResponse
+            {
+                Subject = "Status update"
+            });
         }
     }
 }

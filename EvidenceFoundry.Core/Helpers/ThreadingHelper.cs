@@ -24,23 +24,31 @@ public static class ThreadingHelper
 
     public static void SetupThreading(EmailThread thread, string domain)
     {
+        var emailLookup = thread.EmailMessages.ToDictionary(m => m.Id);
         string? previousMessageId = null;
-        var references = new List<string>();
 
-        foreach (var email in thread.EmailMessages.OrderBy(m => m.SequenceInThread))
+        foreach (var email in thread.EmailMessages
+                     .OrderBy(m => m.SentDate)
+                     .ThenBy(m => m.SequenceInThread)
+                     .ThenBy(m => m.Id))
         {
-            // Generate unique Message-ID
             email.MessageId = GenerateMessageId(email, domain);
 
-            if (previousMessageId != null)
+            if (email.ParentEmailId is { } parentId && emailLookup.TryGetValue(parentId, out var parent))
             {
-                // This is a reply
+                email.InReplyTo = parent.MessageId;
+                var refs = new List<string>();
+                if (parent.References.Count > 0)
+                    refs.AddRange(parent.References);
+                refs.Add(parent.MessageId);
+                email.SetReferences(refs);
+            }
+            else if (previousMessageId != null)
+            {
                 email.InReplyTo = previousMessageId;
-                email.SetReferences(references);
+                email.SetReferences(new List<string> { previousMessageId });
             }
 
-            // Add current message to references for future replies
-            references.Add(email.MessageId);
             previousMessageId = email.MessageId;
         }
     }

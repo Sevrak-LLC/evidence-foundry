@@ -66,10 +66,10 @@ Rules (strict):
 - Choose the number of beats based on story complexity and date range; keep it reasonable.
  - Include characters from the provided pool, especially those named in the summary, but do NOT force every character into the story.");
 
-        var orgJson = PromptPayloadSerializer.SerializeOrganizations(organizations);
-        var characterJson = PromptPayloadSerializer.SerializeCharacters(organizations);
+            var orgJson = PromptPayloadSerializer.SerializeOrganizations(organizations);
+            var characterJson = PromptPayloadSerializer.SerializeCharacters(organizations);
 
-        var schema = """
+            var schema = """
 {
   "beats": [
     {
@@ -82,7 +82,7 @@ Rules (strict):
 }
 """;
 
-        var userPrompt = PromptScaffolding.JoinSections($@"Topic: {topic}
+            var userPrompt = PromptScaffolding.JoinSections($@"Topic: {topic}
 
 Storyline title: {storyline.Title}
 Storyline summary:
@@ -96,25 +96,25 @@ Organizations (JSON):
 Character pool (JSON):
 {characterJson}", PromptScaffolding.JsonSchemaSection(schema));
 
-        var response = await _openAI.GetJsonCompletionAsync<StoryBeatApiResponse>(
-            systemPrompt,
-            userPrompt,
-            "Story Beat Generation",
-            ct);
+            var response = await _openAI.GetJsonCompletionAsync<StoryBeatApiResponse>(
+                systemPrompt,
+                userPrompt,
+                "Story Beat Generation",
+                ct);
 
-        var beats = BuildBeatsFromResponse(response);
-        await NormalizeRepairAndValidateBeatsAsync(
-            topic,
-            storyline,
-            beats,
-            startDate,
-            endDate,
-            ct);
+            var beats = BuildBeatsFromResponse(response);
+            await NormalizeRepairAndValidateBeatsAsync(
+                topic,
+                storyline,
+                beats,
+                startDate,
+                endDate,
+                ct);
 
-        _logger.LogInformation(
-            "Generated {BeatCount} story beats in {DurationMs} ms.",
-            beats.Count,
-            stopwatch.ElapsedMilliseconds);
+            _logger.LogInformation(
+                "Generated {BeatCount} story beats in {DurationMs} ms.",
+                beats.Count,
+                stopwatch.ElapsedMilliseconds);
 
             return beats;
         }

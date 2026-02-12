@@ -132,7 +132,7 @@ public partial class WizardForm : Form
             Font = new Font("Segoe UI", 8.5F),
             TextAlign = ContentAlignment.MiddleCenter
         };
-        lblFooter.Links.Add(53, 16, "https://www.sevrak.com");
+        lblFooter.Links.Add(56, 14, "https://www.sevrak.com");
         lblFooter.LinkClicked += (s, e) =>
         {
             if (e.Link?.LinkData is string url)

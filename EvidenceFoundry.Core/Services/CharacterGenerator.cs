@@ -334,12 +334,11 @@ Generate up to {remaining} additional characters for this organization.
         try
         {
             var systemPrompt = PromptScaffolding.AppendJsonOnlyInstruction(@"You are the EvidenceFoundry Character Detailer.
-Fill in personality notes, communication style, and signature blocks for each character.
+Fill in gender and signature blocks for each character.
 
 Rules:
-- Keep it workplace-appropriate and fictional.
-- Personality notes must be EXACTLY 3 sentences about the individual only (no relationships/tensions or other characters).
-- Communication style should align with the personality notes and role; describe how they write emails.
+- Keep it fictional.
+- Gender must be male, female, or unspecified.
 - Signature blocks should be consistent with organization name and role.
  - Return JSON matching the schema exactly.");
 
@@ -351,8 +350,6 @@ Rules:
     {
       "email": "string",
       "gender": "male|female|unspecified",
-      "personalityNotes": "string (exactly 3 sentences about the character's personality with a mix of positive and negative traits to varying degrees.)",
-      "communicationStyle": "string (1-2 sentences describing their email communication style aligned with personality)",
       "signatureBlock": "string (use \\n for line breaks)"
     }
   ]
@@ -386,8 +383,7 @@ Characters (JSON):
                 if (!lookup.TryGetValue(detail.Email, out var character))
                     continue;
 
-                character.Personality = detail.PersonalityNotes?.Trim() ?? character.Personality;
-                character.CommunicationStyle = detail.CommunicationStyle?.Trim() ?? character.CommunicationStyle;
+                DeterministicPersonalityHelper.EnsurePersonality(character);
                 character.SignatureBlock = detail.SignatureBlock?.Trim() ?? character.SignatureBlock;
                 character.VoiceId = AssignVoice(detail.Gender ?? string.Empty, character.FirstName, character.Personality);
             }
@@ -497,9 +493,9 @@ Rules:
     {
       "email": "string",
       "isKeyCharacter": true|false,
-      "storylineRelevance": "string (exactly two concise sentences)",
+      "storylineRelevance": "string",
       "plotRelevance": {
-        "beatId": "string (exactly two concise sentences)"
+        "beatId": "string"
       }
     }
   ]
@@ -773,6 +769,8 @@ Characters (JSON):
             SignatureBlock = string.Empty
         };
 
+        DeterministicPersonalityHelper.EnsurePersonality(model);
+
         return true;
     }
 
@@ -872,12 +870,6 @@ Characters (JSON):
 
         [JsonPropertyName("gender")]
         public string? Gender { get; set; }
-
-        [JsonPropertyName("personalityNotes")]
-        public string? PersonalityNotes { get; set; }
-
-        [JsonPropertyName("communicationStyle")]
-        public string? CommunicationStyle { get; set; }
 
         [JsonPropertyName("signatureBlock")]
         public string? SignatureBlock { get; set; }

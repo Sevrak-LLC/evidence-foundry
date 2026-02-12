@@ -159,8 +159,6 @@ World Model Requirements
  - firstName (the person's first name.)
  - lastName (the person's last name.)
  - email (the person's email address. this MUST be provided in the format ""firstName.lastName@domain.com"" where ""domain.com"" matches the domain of the organization the person is a part of.)
- - personality (a 2-3 sentence description of the person's personality both the good and the bad.)
- - communicationStyle (a short description of the person's communication style.)
  - involvement (must match Actor or Target or Intermediary, as described below.)
  - involvementSummary (a short summary of how they're involved as a key person.)
 
@@ -203,16 +201,14 @@ Output Rules (Strict)
                "founded":0,
                "keyPeople":[
                   {
-                     "role":"string",
-                     "department":"string",
-                     "firstName":"string",
-                     "lastName":"string",
-                     "email":"string",
-                     "personality":"string",
-                     "communicationStyle":"string",
-                     "involvement":"Actor|Target|Intermediary",
-                     "involvementSummary":"string"
-                  }
+                  "role":"string",
+                  "department":"string",
+                  "firstName":"string",
+                  "lastName":"string",
+                  "email":"string",
+                  "involvement":"Actor|Target|Intermediary",
+                  "involvementSummary":"string"
+                }
                ]
             }
          ],
@@ -227,16 +223,14 @@ Output Rules (Strict)
                "founded":0,
                "keyPeople":[
                   {
-                     "role":"string",
-                     "department":"string",
-                     "firstName":"string",
-                     "lastName":"string",
-                     "email":"string",
-                     "personality":"string",
-                     "communicationStyle":"string",
-                     "involvement":"Actor|Target|Intermediary",
-                     "involvementSummary":"string"
-                  }
+                  "role":"string",
+                  "department":"string",
+                  "firstName":"string",
+                  "lastName":"string",
+                  "email":"string",
+                  "involvement":"Actor|Target|Intermediary",
+                  "involvementSummary":"string"
+                }
                ]
             }
          ]
@@ -523,14 +517,13 @@ Generate the world model ONLY: organizations + minimal directly-involved key peo
             FirstName = firstName,
             LastName = lastName,
             Email = email,
-            Personality = person.Personality?.Trim() ?? string.Empty,
-            CommunicationStyle = person.CommunicationStyle?.Trim() ?? string.Empty,
             IsKeyCharacter = true,
             StorylineRelevance = string.Empty,
             Involvement = involvement,
             InvolvementSummary = person.InvolvementSummary?.Trim() ?? string.Empty
         };
 
+        DeterministicPersonalityHelper.EnsurePersonality(character);
         role.AddCharacter(character);
     }
 
@@ -755,12 +748,6 @@ Generate the world model ONLY: organizations + minimal directly-involved key peo
 
         [JsonPropertyName("email")]
         public string? Email { get; set; }
-
-        [JsonPropertyName("personality")]
-        public string? Personality { get; set; }
-
-        [JsonPropertyName("communicationStyle")]
-        public string? CommunicationStyle { get; set; }
 
         [JsonPropertyName("involvement")]
         public string? Involvement { get; set; }

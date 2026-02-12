@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "2.0",
+  "createdUtc": "2026-02-10T00:47:47Z",
+  "source": "topic-routing.dictencoded.withroles.zip",
+  "topicsTotal": 24242,
+  "rolesTotal": 189,
+  "departmentsTotal": 40,
+  "parameters": {
+    "core_k": 500,
+    "core_min_pct": 0.6,
+    "dept_candidate_df_any_cap": 0.7,
+    "dept_df_any_thr": 132,
+    "dept_share_min": 0.5,
+    "dept_lift_min": 1.4,
+    "dept_k": 400,
+    "role_df_any_cap": 0.75,
+    "role_df_any_threshold": 141,
+    "role_k_per_bucket": 800
+  },
+  "tierSizesDistinctTopics": {
+    "core": 2394,
+    "department": 1847,
+    "role": 2729,
+    "anyTier": 5125
+  },
+  "avgTopicsPerRole": {
+    "original_totalAcrossBuckets": 41047.026455026455,
+    "roleTier_totalAcrossBuckets": 1070.6455026455026
+  }
+}

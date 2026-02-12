@@ -38,7 +38,10 @@ public class GenerationConfig
     public bool IncludeVoicemails { get; set; } = false;
     public int VoicemailPercentage { get; set; } = 5; // Percentage of emails that get voicemail attachments
 
-    public List<AttachmentType> EnabledAttachmentTypes
+    // Email repair settings
+    public int MaxEmailRepairAttempts { get; set; } = 2; // Per-email validation repair attempts
+
+    public IReadOnlyList<AttachmentType> EnabledAttachmentTypes
     {
         get
         {
@@ -47,7 +50,7 @@ public class GenerationConfig
             if (IncludeExcel) types.Add(AttachmentType.Excel);
             if (IncludePowerPoint) types.Add(AttachmentType.PowerPoint);
             // Note: Images are handled separately, not in this list
-            return types;
+            return types.AsReadOnly();
         }
     }
 }
