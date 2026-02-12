@@ -9,8 +9,8 @@ public class LoadingOverlay : Panel
     private readonly DoubleBufferedLabel _lblMessage;
     private readonly System.Windows.Forms.Timer _messageTimer;
     private readonly System.Windows.Forms.Timer _dotsTimer;
-    private int _currentMessageIndex = 0;
-    private int _dotCount = 0;
+    private int _currentMessageIndex;
+    private int _dotCount;
     private readonly string[] _messages;
     private string _currentBaseMessage = "";
     private readonly Random _rng = new();

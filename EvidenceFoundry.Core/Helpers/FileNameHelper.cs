@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 using EvidenceFoundry.Models;
 
@@ -17,7 +18,7 @@ public static partial class FileNameHelper
 
     public static string GenerateAttachmentFileName(Attachment attachment, EmailMessage email)
     {
-        var dateStr = email.SentDate.ToString("yyyyMMdd");
+        var dateStr = email.SentDate.ToString("yyyyMMdd", CultureInfo.InvariantCulture);
         var subjectPart = SanitizeForFileName(TruncateSubject(
             ThreadingHelper.GetCleanSubject(email.Subject), 25));
 

@@ -18,7 +18,7 @@ public class StepWorldModel : UserControl, IWizardStep
     private Panel _contentPanel = null!;
     private Panel _emptyStatePanel = null!;
     private Label _lblEmptyState = null!;
-    private bool _isLoading = false;
+    private bool _isLoading;
 
     private const string OrganizationDomainColumnName = "Domain";
     private const string OrganizationFoundedColumnName = "Founded";
@@ -921,7 +921,7 @@ public class StepWorldModel : UserControl, IWizardStep
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 
-    private static IReadOnlyList<EnumOption<TEnum>> BuildEnumOptions<TEnum>() where TEnum : struct, Enum
+    private static List<EnumOption<TEnum>> BuildEnumOptions<TEnum>() where TEnum : struct, Enum
     {
         return Enum.GetValues<TEnum>()
             .Select(value => new EnumOption<TEnum>(value, EnumHelper.HumanizeEnumName(value.ToString())))

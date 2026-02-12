@@ -6,7 +6,7 @@ namespace EvidenceFoundry.Tests;
 public class EnumHelperTests
 {
     [Fact]
-    public void HumanizeEnumName_InsertsSpacesAtBoundaries()
+    public void HumanizeEnumNameInsertsSpacesAtBoundaries()
     {
         var result = EnumHelper.HumanizeEnumName("PublicBenefitCorporation");
 
@@ -14,7 +14,7 @@ public class EnumHelperTests
     }
 
     [Fact]
-    public void TryParseEnum_ReturnsFalseForNull()
+    public void TryParseEnumReturnsFalseForNull()
     {
         var parsed = EnumHelper.TryParseEnum<UsState>(null, out var result);
 
@@ -23,7 +23,7 @@ public class EnumHelperTests
     }
 
     [Fact]
-    public void TryParseEnum_ParsesIgnoreCase()
+    public void TryParseEnumParsesIgnoreCase()
     {
         var parsed = EnumHelper.TryParseEnum("california", out UsState result);
 

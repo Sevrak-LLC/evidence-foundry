@@ -5,7 +5,7 @@ namespace EvidenceFoundry.Tests;
 public class WizardStateTests
 {
     [Fact]
-    public void GetActiveStorylines_ReturnsEmptyWhenNoStoryline()
+    public void GetActiveStorylinesReturnsEmptyWhenNoStoryline()
     {
         var state = new WizardState();
 
@@ -15,7 +15,7 @@ public class WizardStateTests
     }
 
     [Fact]
-    public void GetActiveStorylines_ReturnsStorylineWhenSet()
+    public void GetActiveStorylinesReturnsStorylineWhenSet()
     {
         var state = new WizardState();
         var storyline = new Storyline { Title = "First" };
@@ -28,7 +28,7 @@ public class WizardStateTests
     }
 
     [Fact]
-    public void TopicDisplayName_UsesSelectionWhenTopicEmpty()
+    public void TopicDisplayNameUsesSelectionWhenTopicEmpty()
     {
         var state = new WizardState
         {
@@ -41,7 +41,7 @@ public class WizardStateTests
     }
 
     [Fact]
-    public void StorylineIssueDescription_FallsBackToTopic()
+    public void StorylineIssueDescriptionFallsBackToTopic()
     {
         var state = new WizardState
         {
@@ -52,7 +52,7 @@ public class WizardStateTests
     }
 
     [Fact]
-    public void GetGenerationSummary_ReturnsZerosWhenNoSelection()
+    public void GetGenerationSummaryReturnsZerosWhenNoSelection()
     {
         var state = new WizardState();
 
@@ -73,7 +73,7 @@ public class WizardStateTests
     }
 
     [Fact]
-    public void GetGenerationSummary_EstimatesAttachments()
+    public void GetGenerationSummaryEstimatesAttachments()
     {
         var storyline = new Storyline
         {
@@ -141,7 +141,7 @@ public class WizardStateTests
     }
 
     [Fact]
-    public void GetGenerationSummary_DocsZeroWhenNoAttachmentTypes()
+    public void GetGenerationSummaryDocsZeroWhenNoAttachmentTypes()
     {
         var storyline = new Storyline
         {

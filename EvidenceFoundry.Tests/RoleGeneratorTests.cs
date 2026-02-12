@@ -6,7 +6,7 @@ namespace EvidenceFoundry.Tests;
 public class RoleGeneratorTests
 {
     [Fact]
-    public void EnsureSingleOccupantRolesInExecutive_MovesRolesToExecutive()
+    public void EnsureSingleOccupantRolesInExecutiveMovesRolesToExecutive()
     {
         var organization = new Organization { Name = "Acme" };
         var finance = new Department { Name = DepartmentName.Finance };
@@ -21,7 +21,7 @@ public class RoleGeneratorTests
     }
 
     [Fact]
-    public void EnsureSingleOccupantRolesInExecutive_PreservesCharacters()
+    public void EnsureSingleOccupantRolesInExecutivePreservesCharacters()
     {
         var organization = new Organization { Name = "Acme" };
         var finance = new Department { Name = DepartmentName.Finance };

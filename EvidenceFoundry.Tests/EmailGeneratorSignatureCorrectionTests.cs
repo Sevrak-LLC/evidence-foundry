@@ -7,7 +7,7 @@ namespace EvidenceFoundry.Tests;
 public class EmailGeneratorSignatureCorrectionTests
 {
     [Fact]
-    public void CorrectSignatureBlock_ReplacesWrongSignatureBlock()
+    public void CorrectSignatureBlockReplacesWrongSignatureBlock()
     {
         var fromChar = new Character
         {
@@ -30,7 +30,7 @@ public class EmailGeneratorSignatureCorrectionTests
     }
 
     [Fact]
-    public void CorrectSignatureBlock_ReplacesWrongNameWithSignOff()
+    public void CorrectSignatureBlockReplacesWrongNameWithSignOff()
     {
         var fromChar = new Character
         {
@@ -52,7 +52,7 @@ public class EmailGeneratorSignatureCorrectionTests
     }
 
     [Fact]
-    public void CorrectSignatureBlock_ReplacesSignatureWhenSenderMissingFromTail()
+    public void CorrectSignatureBlockReplacesSignatureWhenSenderMissingFromTail()
     {
         var fromChar = new Character
         {

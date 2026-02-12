@@ -8,19 +8,20 @@ using DocumentFormat.OpenXml.Presentation;
 using A = DocumentFormat.OpenXml.Drawing;
 using P = DocumentFormat.OpenXml.Presentation;
 using EvidenceFoundry.Models;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
+using Serilog;
 
 namespace EvidenceFoundry.Services;
 
-public class OfficeDocumentService
+public partial class OfficeDocumentService
 {
-    private readonly ILogger<OfficeDocumentService> _logger;
+    private static readonly string[] ParagraphSeparators = { "\n\n", "\r\n\r\n" };
+    private static readonly string[] LineSeparators = { "\n", "\r\n" };
+    private readonly ILogger _logger;
 
-    public OfficeDocumentService(ILogger<OfficeDocumentService>? logger = null)
+    public OfficeDocumentService(ILogger? logger = null)
     {
-        _logger = logger ?? NullLogger<OfficeDocumentService>.Instance;
-        _logger.LogDebug("OfficeDocumentService initialized.");
+        _logger = (logger ?? Serilog.Log.Logger).ForContext<OfficeDocumentService>();
+        Log.OfficeDocumentServiceInitialized(_logger);
     }
 
     public byte[] CreateWordDocument(string title, string content, OrganizationTheme? theme = null)
@@ -118,7 +119,7 @@ public class OfficeDocumentService
                 }));
 
             // Add content paragraphs with better typography
-            var paragraphs = safeContent.Split(new[] { "\n\n", "\r\n\r\n" }, StringSplitOptions.RemoveEmptyEntries);
+            var paragraphs = safeContent.Split(ParagraphSeparators, StringSplitOptions.RemoveEmptyEntries);
             foreach (var para in paragraphs)
             {
                 var p = body.AppendChild(new Paragraph(
@@ -141,7 +142,7 @@ public class OfficeDocumentService
                     }));
 
                 // Handle line breaks within paragraphs
-                var lines = para.Trim().Split(new[] { "\n", "\r\n" }, StringSplitOptions.None);
+                var lines = para.Trim().Split(LineSeparators, StringSplitOptions.None);
                 for (int i = 0; i < lines.Length; i++)
                 {
                     run.AppendChild(new DocumentFormat.OpenXml.Wordprocessing.Text(lines[i]) { Space = SpaceProcessingModeValues.Preserve });
@@ -157,10 +158,7 @@ public class OfficeDocumentService
         }
 
         var output = stream.ToArray();
-        _logger.LogInformation(
-            "Created Word document in {DurationMs} ms with {ContentLength} characters.",
-            stopwatch.ElapsedMilliseconds,
-            content.Length);
+        Log.CreatedWordDocument(_logger, stopwatch.ElapsedMilliseconds, content.Length);
         return output;
     }
 
@@ -218,11 +216,7 @@ public class OfficeDocumentService
         }
 
         var output = stream.ToArray();
-        _logger.LogInformation(
-            "Created Excel document in {DurationMs} ms with {RowCount} rows and {ColumnCount} columns.",
-            stopwatch.ElapsedMilliseconds,
-            rows.Count,
-            headers.Count);
+        Log.CreatedExcelDocument(_logger, stopwatch.ElapsedMilliseconds, rows.Count, headers.Count);
         return output;
     }
 
@@ -312,11 +306,33 @@ public class OfficeDocumentService
         }
 
         var output = stream.ToArray();
-        _logger.LogInformation(
-            "Created PowerPoint document in {DurationMs} ms with {SlideCount} slides.",
-            stopwatch.ElapsedMilliseconds,
-            slides.Count);
+        Log.CreatedPowerPointDocument(_logger, stopwatch.ElapsedMilliseconds, slides.Count);
         return output;
+    }
+
+    private static class Log
+    {
+        public static void OfficeDocumentServiceInitialized(ILogger logger)
+            => logger.Debug("OfficeDocumentService initialized.");
+
+        public static void CreatedWordDocument(ILogger logger, long durationMs, int contentLength)
+            => logger.Information(
+                "Created Word document in {DurationMs} ms with {ContentLength} characters.",
+                durationMs,
+                contentLength);
+
+        public static void CreatedExcelDocument(ILogger logger, long durationMs, int rowCount, int columnCount)
+            => logger.Information(
+                "Created Excel document in {DurationMs} ms with {RowCount} rows and {ColumnCount} columns.",
+                durationMs,
+                rowCount,
+                columnCount);
+
+        public static void CreatedPowerPointDocument(ILogger logger, long durationMs, int slideCount)
+            => logger.Information(
+                "Created PowerPoint document in {DurationMs} ms with {SlideCount} slides.",
+                durationMs,
+                slideCount);
     }
 
     private static string SanitizeSheetName(string? title)
@@ -657,7 +673,7 @@ public class OfficeDocumentService
             new A.ListStyle());
 
         // Split content into paragraphs for better formatting
-        var paragraphs = text.Split(new[] { "\n\n", "\r\n\r\n" }, StringSplitOptions.RemoveEmptyEntries);
+        var paragraphs = text.Split(ParagraphSeparators, StringSplitOptions.RemoveEmptyEntries);
         foreach (var paragraph in paragraphs)
         {
             AppendParagraphLines(textBody, paragraph, fontSize, textColorHex, fontName);
@@ -679,7 +695,7 @@ public class OfficeDocumentService
 
     private static void AppendParagraphLines(P.TextBody textBody, string paragraph, int fontSize, string textColorHex, string fontName)
     {
-        var lines = paragraph.Split(new[] { "\n", "\r\n" }, StringSplitOptions.None);
+        var lines = paragraph.Split(LineSeparators, StringSplitOptions.None);
         foreach (var line in lines)
         {
             textBody.AppendChild(new A.Paragraph(

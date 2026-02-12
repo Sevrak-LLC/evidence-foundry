@@ -7,7 +7,7 @@ namespace EvidenceFoundry.Tests;
 public class EmlFileServiceTests
 {
     [Fact]
-    public async Task SaveAllEmailsAsync_Parallel_SavesAllEmailsAndReleasesAttachments()
+    public async Task SaveAllEmailsAsyncParallelSavesAllEmailsAndReleasesAttachments()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), "EvidenceFoundry.Tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);
@@ -47,7 +47,7 @@ public class EmlFileServiceTests
     }
 
     [Fact]
-    public async Task SaveAllEmailsAsync_OrganizeBySender_CreatesSenderSubfolders()
+    public async Task SaveAllEmailsAsyncOrganizeBySenderCreatesSenderSubfolders()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), "EvidenceFoundry.Tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);
@@ -89,7 +89,7 @@ public class EmlFileServiceTests
     }
 
     [Fact]
-    public async Task SaveThreadEmailsAsync_SavesThreadAndReleasesAttachments()
+    public async Task SaveThreadEmailsAsyncSavesThreadAndReleasesAttachments()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), "EvidenceFoundry.Tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);

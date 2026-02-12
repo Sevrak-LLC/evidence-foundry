@@ -6,7 +6,7 @@ namespace EvidenceFoundry.Tests;
 public class ThemeGeneratorTests
 {
     [Fact]
-    public void ApplyThemeResponse_FiltersUnknownDomainsAndNormalizes()
+    public void ApplyThemeResponseFiltersUnknownDomainsAndNormalizes()
     {
         var domainOrgs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {

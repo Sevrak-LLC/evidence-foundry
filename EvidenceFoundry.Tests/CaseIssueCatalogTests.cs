@@ -5,7 +5,7 @@ namespace EvidenceFoundry.Tests;
 public class CaseIssueCatalogTests
 {
     [Fact]
-    public void GetIssueDescription_ReturnsExpectedDescription()
+    public void GetIssueDescriptionReturnsExpectedDescription()
     {
         var description = CaseIssueCatalog.GetIssueDescription("Employment", "Restrictive Covenants", "Non-Compete");
 
@@ -15,7 +15,7 @@ public class CaseIssueCatalogTests
     }
 
     [Fact]
-    public void GetIssueDescription_IsCaseInsensitive()
+    public void GetIssueDescriptionIsCaseInsensitive()
     {
         var description = CaseIssueCatalog.GetIssueDescription("commercial", "contracts", "breach");
 
@@ -25,7 +25,7 @@ public class CaseIssueCatalogTests
     }
 
     [Fact]
-    public void GetIssueDescription_ThrowsForUnknownCaseArea()
+    public void GetIssueDescriptionThrowsForUnknownCaseArea()
     {
         var exception = Assert.Throws<ArgumentException>(() =>
             CaseIssueCatalog.GetIssueDescription("Unknown", "Contracts", "Breach"));

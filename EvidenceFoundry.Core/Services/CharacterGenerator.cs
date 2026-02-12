@@ -3,16 +3,16 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using EvidenceFoundry.Helpers;
 using EvidenceFoundry.Models;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
+using Serilog;
+using Serilog.Context;
 
 namespace EvidenceFoundry.Services;
 
-public class CharacterGenerator
+public partial class CharacterGenerator
 {
     private readonly OpenAIService _openAI;
     private readonly Random _rng;
-    private readonly ILogger<CharacterGenerator> _logger;
+    private readonly ILogger _logger;
 
     // Available TTS voices with characteristics
     private static readonly string[] MaleVoices = ["echo", "onyx", "fable"];
@@ -20,14 +20,14 @@ public class CharacterGenerator
 
     private const int MaxCharactersPerOrganization = 15;
 
-    public CharacterGenerator(OpenAIService openAI, Random rng, ILogger<CharacterGenerator>? logger = null)
+    public CharacterGenerator(OpenAIService openAI, Random rng, ILogger? logger = null)
     {
         ArgumentNullException.ThrowIfNull(openAI);
         ArgumentNullException.ThrowIfNull(rng);
         _openAI = openAI;
         _rng = rng;
-        _logger = logger ?? NullLogger<CharacterGenerator>.Instance;
-        _logger.LogDebug("CharacterGenerator initialized.");
+        _logger = (logger ?? Serilog.Log.Logger).ForContext<CharacterGenerator>();
+        Log.CharacterGeneratorInitialized(_logger);
     }
 
     /// <summary>
@@ -87,17 +87,14 @@ public class CharacterGenerator
         HashSet<string> usedEmails,
         CancellationToken ct)
     {
-        using var scope = _logger.BeginScope(new Dictionary<string, object>
-        {
-            ["OrganizationId"] = organization.Id,
-            ["OrganizationName"] = organization.Name,
-            ["StorylineId"] = storyline.Id,
-            ["StorylineTitle"] = storyline.Title
-        });
+        using var organizationIdScope = LogContext.PushProperty("OrganizationId", organization.Id);
+        using var organizationNameScope = LogContext.PushProperty("OrganizationName", organization.Name);
+        using var storylineIdScope = LogContext.PushProperty("StorylineId", storyline.Id);
+        using var storylineTitleScope = LogContext.PushProperty("StorylineTitle", storyline.Title);
 
         var stopwatch = Stopwatch.StartNew();
         var startingCount = organization.EnumerateCharacters().Count();
-        _logger.LogInformation("Mapping known characters.");
+        Log.MappingKnownCharacters(_logger);
 
         try
         {
@@ -159,24 +156,16 @@ Role/Department legend (Raw -> Humanized):
 
             var total = organization.EnumerateCharacters().Count();
             var added = Math.Max(0, total - startingCount);
-            _logger.LogInformation(
-                "Mapped {AddedCharacterCount} known characters in {DurationMs} ms.",
-                added,
-                stopwatch.ElapsedMilliseconds);
+            Log.MappedKnownCharacters(_logger, added, stopwatch.ElapsedMilliseconds);
         }
         catch (OperationCanceledException)
         {
-            _logger.LogWarning(
-                "Known character mapping canceled after {DurationMs} ms.",
-                stopwatch.ElapsedMilliseconds);
+            Log.KnownCharacterMappingCanceled(_logger, stopwatch.ElapsedMilliseconds);
             throw;
         }
         catch (Exception ex)
         {
-            _logger.LogError(
-                ex,
-                "Known character mapping failed after {DurationMs} ms.",
-                stopwatch.ElapsedMilliseconds);
+            Log.KnownCharacterMappingFailed(_logger, stopwatch.ElapsedMilliseconds, ex);
             throw;
         }
     }
@@ -192,24 +181,21 @@ Role/Department legend (Raw -> Humanized):
         var existingCount = organization.EnumerateCharacters().Count();
         if (existingCount >= MaxCharactersPerOrganization)
         {
-            _logger.LogInformation(
-                "Skipping additional character generation; existing count {ExistingCount} meets max {MaxCharactersPerOrganization} for {OrganizationName}.",
+            Log.SkippingAdditionalCharacterGeneration(
+                _logger,
                 existingCount,
                 MaxCharactersPerOrganization,
                 organization.Name);
             return;
         }
 
-        using var scope = _logger.BeginScope(new Dictionary<string, object>
-        {
-            ["OrganizationId"] = organization.Id,
-            ["OrganizationName"] = organization.Name,
-            ["StorylineId"] = storyline.Id,
-            ["StorylineTitle"] = storyline.Title
-        });
+        using var organizationIdScope = LogContext.PushProperty("OrganizationId", organization.Id);
+        using var organizationNameScope = LogContext.PushProperty("OrganizationName", organization.Name);
+        using var storylineIdScope = LogContext.PushProperty("StorylineId", storyline.Id);
+        using var storylineTitleScope = LogContext.PushProperty("StorylineTitle", storyline.Title);
 
         var stopwatch = Stopwatch.StartNew();
-        _logger.LogInformation("Generating additional characters.");
+        Log.GeneratingAdditionalCharacters(_logger);
 
         try
         {
@@ -283,24 +269,16 @@ Generate up to {remaining} additional characters for this organization.
 
             var total = organization.EnumerateCharacters().Count();
             var added = Math.Max(0, total - existingCount);
-            _logger.LogInformation(
-                "Generated {AddedCharacterCount} additional characters in {DurationMs} ms.",
-                added,
-                stopwatch.ElapsedMilliseconds);
+            Log.GeneratedAdditionalCharacters(_logger, added, stopwatch.ElapsedMilliseconds);
         }
         catch (OperationCanceledException)
         {
-            _logger.LogWarning(
-                "Additional character generation canceled after {DurationMs} ms.",
-                stopwatch.ElapsedMilliseconds);
+            Log.AdditionalCharacterGenerationCanceled(_logger, stopwatch.ElapsedMilliseconds);
             throw;
         }
         catch (Exception ex)
         {
-            _logger.LogError(
-                ex,
-                "Additional character generation failed after {DurationMs} ms.",
-                stopwatch.ElapsedMilliseconds);
+            Log.AdditionalCharacterGenerationFailed(_logger, stopwatch.ElapsedMilliseconds, ex);
             throw;
         }
     }
@@ -314,32 +292,26 @@ Generate up to {remaining} additional characters for this organization.
         var assignments = organization.EnumerateCharacters().ToList();
         if (assignments.Count == 0)
         {
-            _logger.LogInformation(
-                "Skipping character enrichment; no characters found for {OrganizationName}.",
-                organization.Name);
+            Log.SkippingCharacterEnrichment(_logger, organization.Name);
             return;
         }
 
-        using var scope = _logger.BeginScope(new Dictionary<string, object>
-        {
-            ["OrganizationId"] = organization.Id,
-            ["OrganizationName"] = organization.Name,
-            ["StorylineId"] = storyline.Id,
-            ["StorylineTitle"] = storyline.Title
-        });
+        using var organizationIdScope = LogContext.PushProperty("OrganizationId", organization.Id);
+        using var organizationNameScope = LogContext.PushProperty("OrganizationName", organization.Name);
+        using var storylineIdScope = LogContext.PushProperty("StorylineId", storyline.Id);
+        using var storylineTitleScope = LogContext.PushProperty("StorylineTitle", storyline.Title);
 
         var stopwatch = Stopwatch.StartNew();
-        _logger.LogInformation("Enriching character details.");
+        Log.EnrichingCharacterDetails(_logger);
 
         try
         {
             var systemPrompt = PromptScaffolding.AppendJsonOnlyInstruction(@"You are the EvidenceFoundry Character Detailer.
-Fill in personality notes, communication style, and signature blocks for each character.
+Fill in gender and signature blocks for each character.
 
 Rules:
-- Keep it workplace-appropriate and fictional.
-- Personality notes must be EXACTLY 3 sentences about the individual only (no relationships/tensions or other characters).
-- Communication style should align with the personality notes and role; describe how they write emails.
+- Keep it fictional.
+- Gender must be male, female, or unspecified.
 - Signature blocks should be consistent with organization name and role.
  - Return JSON matching the schema exactly.");
 
@@ -351,8 +323,6 @@ Rules:
     {
       "email": "string",
       "gender": "male|female|unspecified",
-      "personalityNotes": "string (exactly 3 sentences about the character's personality with a mix of positive and negative traits to varying degrees.)",
-      "communicationStyle": "string (1-2 sentences describing their email communication style aligned with personality)",
       "signatureBlock": "string (use \\n for line breaks)"
     }
   ]
@@ -386,30 +356,21 @@ Characters (JSON):
                 if (!lookup.TryGetValue(detail.Email, out var character))
                     continue;
 
-                character.Personality = detail.PersonalityNotes?.Trim() ?? character.Personality;
-                character.CommunicationStyle = detail.CommunicationStyle?.Trim() ?? character.CommunicationStyle;
+                DeterministicPersonalityHelper.EnsurePersonality(character);
                 character.SignatureBlock = detail.SignatureBlock?.Trim() ?? character.SignatureBlock;
                 character.VoiceId = AssignVoice(detail.Gender ?? string.Empty, character.FirstName, character.Personality);
             }
 
-            _logger.LogInformation(
-                "Enriched {CharacterCount} characters in {DurationMs} ms.",
-                assignments.Count,
-                stopwatch.ElapsedMilliseconds);
+            Log.EnrichedCharacters(_logger, assignments.Count, stopwatch.ElapsedMilliseconds);
         }
         catch (OperationCanceledException)
         {
-            _logger.LogWarning(
-                "Character enrichment canceled after {DurationMs} ms.",
-                stopwatch.ElapsedMilliseconds);
+            Log.CharacterEnrichmentCanceled(_logger, stopwatch.ElapsedMilliseconds);
             throw;
         }
         catch (Exception ex)
         {
-            _logger.LogError(
-                ex,
-                "Character enrichment failed after {DurationMs} ms.",
-                stopwatch.ElapsedMilliseconds);
+            Log.CharacterEnrichmentFailed(_logger, stopwatch.ElapsedMilliseconds, ex);
             throw;
         }
     }
@@ -438,17 +399,11 @@ Characters (JSON):
 
         var beats = storyline.Beats!;
 
-        using var scope = _logger.BeginScope(new Dictionary<string, object>
-        {
-            ["StorylineId"] = storyline.Id,
-            ["StorylineTitle"] = storyline.Title
-        });
+        using var storylineIdScope = LogContext.PushProperty("StorylineId", storyline.Id);
+        using var storylineTitleScope = LogContext.PushProperty("StorylineTitle", storyline.Title);
 
         var stopwatch = Stopwatch.StartNew();
-        _logger.LogInformation(
-            "Assessing character relevance for {CharacterCount} characters across {BeatCount} beats.",
-            characters.Count,
-            beats.Count);
+        Log.AssessingCharacterRelevance(_logger, characters.Count, beats.Count);
 
         try
         {
@@ -497,9 +452,9 @@ Rules:
     {
       "email": "string",
       "isKeyCharacter": true|false,
-      "storylineRelevance": "string (exactly two concise sentences)",
+      "storylineRelevance": "string",
       "plotRelevance": {
-        "beatId": "string (exactly two concise sentences)"
+        "beatId": "string"
       }
     }
   ]
@@ -530,24 +485,16 @@ Characters (JSON):
             ApplyStorylineRelevance(characters, beats, response.Characters);
 
             var keyCount = characters.Count(c => c.IsKeyCharacter);
-            _logger.LogInformation(
-                "Character relevance completed with {KeyCharacterCount} key characters in {DurationMs} ms.",
-                keyCount,
-                stopwatch.ElapsedMilliseconds);
+            Log.CharacterRelevanceCompleted(_logger, keyCount, stopwatch.ElapsedMilliseconds);
         }
         catch (OperationCanceledException)
         {
-            _logger.LogWarning(
-                "Character relevance canceled after {DurationMs} ms.",
-                stopwatch.ElapsedMilliseconds);
+            Log.CharacterRelevanceCanceled(_logger, stopwatch.ElapsedMilliseconds);
             throw;
         }
         catch (Exception ex)
         {
-            _logger.LogError(
-                ex,
-                "Character relevance failed after {DurationMs} ms.",
-                stopwatch.ElapsedMilliseconds);
+            Log.CharacterRelevanceFailed(_logger, stopwatch.ElapsedMilliseconds, ex);
             throw;
         }
     }
@@ -593,9 +540,9 @@ Characters (JSON):
         IReadOnlyList<StoryBeat> beats,
         List<CharacterRelevanceDto> relevance)
     {
-        if (characters == null) throw new ArgumentNullException(nameof(characters));
-        if (beats == null) throw new ArgumentNullException(nameof(beats));
-        if (relevance == null) throw new ArgumentNullException(nameof(relevance));
+        ArgumentNullException.ThrowIfNull(characters);
+        ArgumentNullException.ThrowIfNull(beats);
+        ArgumentNullException.ThrowIfNull(relevance);
 
         var beatIds = new HashSet<Guid>(beats.Select(b => b.Id));
         var characterLookup = characters
@@ -625,7 +572,7 @@ Characters (JSON):
     }
 
     private static bool TryGetRoleAssignments(
-        IReadOnlyDictionary<RoleName, List<(Role Role, Department Department)>> roleLookup,
+        Dictionary<RoleName, List<(Role Role, Department Department)>> roleLookup,
         RoleCharactersDto roleDto,
         out RoleName roleName,
         out List<(Role Role, Department Department)> roleAssignments)
@@ -655,6 +602,91 @@ Characters (JSON):
             return true;
 
         return roleAssignments.All(r => r.Role.Characters.Count == 0);
+    }
+
+    private static class Log
+    {
+        public static void CharacterGeneratorInitialized(ILogger logger)
+            => logger.Debug("CharacterGenerator initialized.");
+
+        public static void MappingKnownCharacters(ILogger logger)
+            => logger.Information("Mapping known characters.");
+
+        public static void MappedKnownCharacters(ILogger logger, int addedCharacterCount, long durationMs)
+            => logger.Information(
+                "Mapped {AddedCharacterCount} known characters in {DurationMs} ms.",
+                addedCharacterCount,
+                durationMs);
+
+        public static void KnownCharacterMappingCanceled(ILogger logger, long durationMs)
+            => logger.Warning("Known character mapping canceled after {DurationMs} ms.", durationMs);
+
+        public static void KnownCharacterMappingFailed(ILogger logger, long durationMs, Exception exception)
+            => logger.Error(exception, "Known character mapping failed after {DurationMs} ms.", durationMs);
+
+        public static void SkippingAdditionalCharacterGeneration(
+            ILogger logger,
+            int existingCount,
+            int maxCharactersPerOrganization,
+            string organizationName)
+            => logger.Information(
+                "Skipping additional character generation; existing count {ExistingCount} meets max {MaxCharactersPerOrganization} for {OrganizationName}.",
+                existingCount,
+                maxCharactersPerOrganization,
+                organizationName);
+
+        public static void GeneratingAdditionalCharacters(ILogger logger)
+            => logger.Information("Generating additional characters.");
+
+        public static void GeneratedAdditionalCharacters(ILogger logger, int addedCharacterCount, long durationMs)
+            => logger.Information(
+                "Generated {AddedCharacterCount} additional characters in {DurationMs} ms.",
+                addedCharacterCount,
+                durationMs);
+
+        public static void AdditionalCharacterGenerationCanceled(ILogger logger, long durationMs)
+            => logger.Warning("Additional character generation canceled after {DurationMs} ms.", durationMs);
+
+        public static void AdditionalCharacterGenerationFailed(ILogger logger, long durationMs, Exception exception)
+            => logger.Error(exception, "Additional character generation failed after {DurationMs} ms.", durationMs);
+
+        public static void SkippingCharacterEnrichment(ILogger logger, string organizationName)
+            => logger.Information(
+                "Skipping character enrichment; no characters found for {OrganizationName}.",
+                organizationName);
+
+        public static void EnrichingCharacterDetails(ILogger logger)
+            => logger.Information("Enriching character details.");
+
+        public static void EnrichedCharacters(ILogger logger, int characterCount, long durationMs)
+            => logger.Information(
+                "Enriched {CharacterCount} characters in {DurationMs} ms.",
+                characterCount,
+                durationMs);
+
+        public static void CharacterEnrichmentCanceled(ILogger logger, long durationMs)
+            => logger.Warning("Character enrichment canceled after {DurationMs} ms.", durationMs);
+
+        public static void CharacterEnrichmentFailed(ILogger logger, long durationMs, Exception exception)
+            => logger.Error(exception, "Character enrichment failed after {DurationMs} ms.", durationMs);
+
+        public static void AssessingCharacterRelevance(ILogger logger, int characterCount, int beatCount)
+            => logger.Information(
+                "Assessing character relevance for {CharacterCount} characters across {BeatCount} beats.",
+                characterCount,
+                beatCount);
+
+        public static void CharacterRelevanceCompleted(ILogger logger, int keyCharacterCount, long durationMs)
+            => logger.Information(
+                "Character relevance completed with {KeyCharacterCount} key characters in {DurationMs} ms.",
+                keyCharacterCount,
+                durationMs);
+
+        public static void CharacterRelevanceCanceled(ILogger logger, long durationMs)
+            => logger.Warning("Character relevance canceled after {DurationMs} ms.", durationMs);
+
+        public static void CharacterRelevanceFailed(ILogger logger, long durationMs, Exception exception)
+            => logger.Error(exception, "Character relevance failed after {DurationMs} ms.", durationMs);
     }
 
     private sealed class CharacterAddTracker
@@ -773,11 +805,13 @@ Characters (JSON):
             SignatureBlock = string.Empty
         };
 
+        DeterministicPersonalityHelper.EnsurePersonality(model);
+
         return true;
     }
 
     private static bool TryGetCharacter(
-        IReadOnlyDictionary<string, Character> characterLookup,
+        Dictionary<string, Character> characterLookup,
         CharacterRelevanceDto entry,
         out Character character)
     {
@@ -793,7 +827,7 @@ Characters (JSON):
     }
 
     private static Dictionary<Guid, string> BuildPlotRelevance(
-        IReadOnlyDictionary<string, string>? plotRelevance,
+        Dictionary<string, string>? plotRelevance,
         HashSet<Guid> beatIds)
     {
         if (plotRelevance == null || plotRelevance.Count == 0)
@@ -872,12 +906,6 @@ Characters (JSON):
 
         [JsonPropertyName("gender")]
         public string? Gender { get; set; }
-
-        [JsonPropertyName("personalityNotes")]
-        public string? PersonalityNotes { get; set; }
-
-        [JsonPropertyName("communicationStyle")]
-        public string? CommunicationStyle { get; set; }
 
         [JsonPropertyName("signatureBlock")]
         public string? SignatureBlock { get; set; }

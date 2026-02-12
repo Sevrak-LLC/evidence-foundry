@@ -5,7 +5,7 @@ namespace EvidenceFoundry.Tests;
 public class ThreadSafeRandomTests
 {
     [Fact]
-    public void ThreadSafeRandom_WithSameSeed_IsDeterministic()
+    public void ThreadSafeRandomWithSameSeedIsDeterministic()
     {
         var rng1 = new ThreadSafeRandom(12345);
         var rng2 = new ThreadSafeRandom(12345);
@@ -17,7 +17,7 @@ public class ThreadSafeRandomTests
     }
 
     [Fact]
-    public void ThreadSafeRandom_NextDouble_IsDeterministic()
+    public void ThreadSafeRandomNextDoubleIsDeterministic()
     {
         var rng1 = new ThreadSafeRandom(987);
         var rng2 = new ThreadSafeRandom(987);

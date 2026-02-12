@@ -3,8 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using EvidenceFoundry.Helpers;
 using EvidenceFoundry.Models;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
+using Serilog;
 
 namespace EvidenceFoundry.Services;
 
@@ -21,11 +20,11 @@ public sealed class WorldModelRequest
     public string? AdditionalUserContext { get; set; }
 }
 
-public class WorldModelGenerator
+public partial class WorldModelGenerator
 {
     private readonly OpenAIService _openAI;
     private readonly Random _rng;
-    private readonly ILogger<WorldModelGenerator> _logger;
+    private readonly ILogger _logger;
     private static readonly JsonSerializerOptions WorldModelSerializerOptions = JsonSerializationDefaults.CaseInsensitiveWithEnums;
     private static readonly Dictionary<string, UsState> UsStateAbbreviations = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -82,14 +81,14 @@ public class WorldModelGenerator
         ["DC"] = UsState.DistrictOfColumbia
     };
 
-    public WorldModelGenerator(OpenAIService openAI, Random rng, ILogger<WorldModelGenerator>? logger = null)
+    public WorldModelGenerator(OpenAIService openAI, Random rng, ILogger? logger = null)
     {
         ArgumentNullException.ThrowIfNull(openAI);
         ArgumentNullException.ThrowIfNull(rng);
         _openAI = openAI;
         _rng = rng;
-        _logger = logger ?? NullLogger<WorldModelGenerator>.Instance;
-        _logger.LogDebug("WorldModelGenerator initialized.");
+        _logger = (logger ?? Serilog.Log.Logger).ForContext<WorldModelGenerator>();
+        Log.WorldModelGeneratorInitialized(_logger);
     }
 
     public async Task<World> GenerateWorldModelAsync(
@@ -99,13 +98,13 @@ public class WorldModelGenerator
     {
         ArgumentNullException.ThrowIfNull(request);
         if (string.IsNullOrWhiteSpace(request.CaseArea))
-            throw new ArgumentException("Case area is required.", nameof(request.CaseArea));
+            throw new ArgumentException("Case area is required.", nameof(request));
         if (string.IsNullOrWhiteSpace(request.MatterType))
-            throw new ArgumentException("Matter type is required.", nameof(request.MatterType));
+            throw new ArgumentException("Matter type is required.", nameof(request));
         if (string.IsNullOrWhiteSpace(request.Issue))
-            throw new ArgumentException("Issue is required.", nameof(request.Issue));
+            throw new ArgumentException("Issue is required.", nameof(request));
         if (string.IsNullOrWhiteSpace(request.IssueDescription))
-            throw new ArgumentException("Issue description is required.", nameof(request.IssueDescription));
+            throw new ArgumentException("Issue description is required.", nameof(request));
 
         var stopwatch = Stopwatch.StartNew();
         var normalizedPlaintiffIndustry = GenerationRequestNormalizer.NormalizeIndustryPreference(request.PlaintiffIndustry);
@@ -113,16 +112,13 @@ public class WorldModelGenerator
         var normalizedPlaintiffCount = GenerationRequestNormalizer.NormalizePartyCount(request.PlaintiffOrganizationCount);
         var normalizedDefendantCount = GenerationRequestNormalizer.NormalizePartyCount(request.DefendantOrganizationCount);
 
-        _logger.LogInformation(
-            "Generating world model with {PlaintiffCount} plaintiff(s) and {DefendantCount} defendant(s).",
-            normalizedPlaintiffCount,
-            normalizedDefendantCount);
+        Log.GeneratingWorldModel(_logger, normalizedPlaintiffCount, normalizedDefendantCount);
 
         var industriesForPrompt = ResolveIndustriesForPrompt(normalizedPlaintiffIndustry, normalizedDefendantIndustry, _rng);
         if (industriesForPrompt.Count == 0)
         {
             industriesForPrompt = new List<Industry> { Industry.Other };
-            _logger.LogWarning("No industries resolved; defaulting to Industry.Other for world model generation.");
+            Log.NoIndustriesResolved(_logger);
         }
 
         var departmentRolesJson = DepartmentGenerator.BuildIndustryOrganizationRoleCatalogJson(
@@ -159,8 +155,6 @@ World Model Requirements
  - firstName (the person's first name.)
  - lastName (the person's last name.)
  - email (the person's email address. this MUST be provided in the format ""firstName.lastName@domain.com"" where ""domain.com"" matches the domain of the organization the person is a part of.)
- - personality (a 2-3 sentence description of the person's personality both the good and the bad.)
- - communicationStyle (a short description of the person's communication style.)
  - involvement (must match Actor or Target or Intermediary, as described below.)
  - involvementSummary (a short summary of how they're involved as a key person.)
 
@@ -203,16 +197,14 @@ Output Rules (Strict)
                "founded":0,
                "keyPeople":[
                   {
-                     "role":"string",
-                     "department":"string",
-                     "firstName":"string",
-                     "lastName":"string",
-                     "email":"string",
-                     "personality":"string",
-                     "communicationStyle":"string",
-                     "involvement":"Actor|Target|Intermediary",
-                     "involvementSummary":"string"
-                  }
+                  "role":"string",
+                  "department":"string",
+                  "firstName":"string",
+                  "lastName":"string",
+                  "email":"string",
+                  "involvement":"Actor|Target|Intermediary",
+                  "involvementSummary":"string"
+                }
                ]
             }
          ],
@@ -227,16 +219,14 @@ Output Rules (Strict)
                "founded":0,
                "keyPeople":[
                   {
-                     "role":"string",
-                     "department":"string",
-                     "firstName":"string",
-                     "lastName":"string",
-                     "email":"string",
-                     "personality":"string",
-                     "communicationStyle":"string",
-                     "involvement":"Actor|Target|Intermediary",
-                     "involvementSummary":"string"
-                  }
+                  "role":"string",
+                  "department":"string",
+                  "firstName":"string",
+                  "lastName":"string",
+                  "email":"string",
+                  "involvement":"Actor|Target|Intermediary",
+                  "involvementSummary":"string"
+                }
                ]
             }
          ]
@@ -290,8 +280,8 @@ Generate the world model ONLY: organizations + minimal directly-involved key peo
                 throw new InvalidOperationException("Failed to generate a world model.");
 
             var world = ParseWorldModelResponse(response, normalizedPlaintiffCount, normalizedDefendantCount);
-            _logger.LogInformation(
-                "Generated world model with {PlaintiffCount} plaintiff(s), {DefendantCount} defendant(s), and {KeyPersonCount} key people in {DurationMs} ms.",
+            Log.WorldModelGenerated(
+                _logger,
                 world.Plaintiffs.Count,
                 world.Defendants.Count,
                 world.KeyPeople.Count,
@@ -300,19 +290,48 @@ Generate the world model ONLY: organizations + minimal directly-involved key peo
         }
         catch (OperationCanceledException)
         {
-            _logger.LogWarning(
-                "World model generation canceled after {DurationMs} ms.",
-                stopwatch.ElapsedMilliseconds);
+            Log.WorldModelGenerationCanceled(_logger, stopwatch.ElapsedMilliseconds);
             throw;
         }
         catch (Exception ex)
         {
-            _logger.LogError(
-                ex,
-                "World model generation failed after {DurationMs} ms.",
-                stopwatch.ElapsedMilliseconds);
+            Log.WorldModelGenerationFailed(_logger, stopwatch.ElapsedMilliseconds, ex);
             throw;
         }
+    }
+
+    private static class Log
+    {
+        public static void WorldModelGeneratorInitialized(ILogger logger)
+            => logger.Debug("WorldModelGenerator initialized.");
+
+        public static void GeneratingWorldModel(ILogger logger, int plaintiffCount, int defendantCount)
+            => logger.Information(
+                "Generating world model with {PlaintiffCount} plaintiff(s) and {DefendantCount} defendant(s).",
+                plaintiffCount,
+                defendantCount);
+
+        public static void NoIndustriesResolved(ILogger logger)
+            => logger.Warning("No industries resolved; defaulting to Industry.Other for world model generation.");
+
+        public static void WorldModelGenerated(
+            ILogger logger,
+            int plaintiffCount,
+            int defendantCount,
+            int keyPersonCount,
+            long durationMs)
+            => logger.Information(
+                "Generated world model with {PlaintiffCount} plaintiff(s), {DefendantCount} defendant(s), and {KeyPersonCount} key people in {DurationMs} ms.",
+                plaintiffCount,
+                defendantCount,
+                keyPersonCount,
+                durationMs);
+
+        public static void WorldModelGenerationCanceled(ILogger logger, long durationMs)
+            => logger.Warning("World model generation canceled after {DurationMs} ms.", durationMs);
+
+        public static void WorldModelGenerationFailed(ILogger logger, long durationMs, Exception exception)
+            => logger.Error(exception, "World model generation failed after {DurationMs} ms.", durationMs);
     }
 
     internal static World ParseWorldModelJson(string json, int plaintiffCount, int defendantCount)
@@ -523,14 +542,13 @@ Generate the world model ONLY: organizations + minimal directly-involved key peo
             FirstName = firstName,
             LastName = lastName,
             Email = email,
-            Personality = person.Personality?.Trim() ?? string.Empty,
-            CommunicationStyle = person.CommunicationStyle?.Trim() ?? string.Empty,
             IsKeyCharacter = true,
             StorylineRelevance = string.Empty,
             Involvement = involvement,
             InvolvementSummary = person.InvolvementSummary?.Trim() ?? string.Empty
         };
 
+        DeterministicPersonalityHelper.EnsurePersonality(character);
         role.AddCharacter(character);
     }
 
@@ -755,12 +773,6 @@ Generate the world model ONLY: organizations + minimal directly-involved key peo
 
         [JsonPropertyName("email")]
         public string? Email { get; set; }
-
-        [JsonPropertyName("personality")]
-        public string? Personality { get; set; }
-
-        [JsonPropertyName("communicationStyle")]
-        public string? CommunicationStyle { get; set; }
 
         [JsonPropertyName("involvement")]
         public string? Involvement { get; set; }

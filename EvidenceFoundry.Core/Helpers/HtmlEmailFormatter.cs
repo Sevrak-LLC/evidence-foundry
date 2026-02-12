@@ -1,5 +1,6 @@
-using EvidenceFoundry.Models;
+using System.Globalization;
 using System.Text.RegularExpressions;
+using EvidenceFoundry.Models;
 
 namespace EvidenceFoundry.Helpers;
 
@@ -288,6 +289,7 @@ public static partial class HtmlEmailFormatter
         state.SignatureLineIndex = 0;
         var theme = state.Theme;
         state.SignatureBuffer.AppendLine(
+            CultureInfo.InvariantCulture,
             $"<div class=\"signature\" style=\"margin-top: 20px; padding-top: 10px; border-top: 1px solid {theme.SecondaryColor}; color: #444444; font-size: 10pt; font-family: {theme.BodyFontStack};\">");
     }
 
@@ -304,11 +306,14 @@ public static partial class HtmlEmailFormatter
         {
             var theme = state.Theme;
             state.SignatureBuffer.AppendLine(
+                CultureInfo.InvariantCulture,
                 $"<div class=\"signature-line\" style=\"margin: 2px 0; font-family: {theme.HeadingFontStack}; font-weight: 600; color: {theme.PrimaryColor};\">{encodedLine}</div>");
         }
         else
         {
-            state.SignatureBuffer.AppendLine($"<div class=\"signature-line\" style=\"margin: 2px 0;\">{encodedLine}</div>");
+            state.SignatureBuffer.AppendLine(
+                CultureInfo.InvariantCulture,
+                $"<div class=\"signature-line\" style=\"margin: 2px 0;\">{encodedLine}</div>");
         }
 
         state.SignatureLineIndex++;
@@ -323,7 +328,7 @@ public static partial class HtmlEmailFormatter
         {
             EnsureListState(state, listType: ListType.Bullet);
             var formattedContent = FormatInlineElements(bulletContent);
-            state.Html.AppendLine($"<li>{formattedContent}</li>");
+            state.Html.AppendLine(CultureInfo.InvariantCulture, $"<li>{formattedContent}</li>");
             return;
         }
 
@@ -331,7 +336,7 @@ public static partial class HtmlEmailFormatter
         {
             EnsureListState(state, listType: ListType.Numbered);
             var formattedContent = FormatInlineElements(numberedContent);
-            state.Html.AppendLine($"<li>{formattedContent}</li>");
+            state.Html.AppendLine(CultureInfo.InvariantCulture, $"<li>{formattedContent}</li>");
             return;
         }
 
@@ -347,7 +352,7 @@ public static partial class HtmlEmailFormatter
         }
 
         var formattedLine = FormatInlineElements(rawLine);
-        state.Html.AppendLine($"<p>{formattedLine}</p>");
+        state.Html.AppendLine(CultureInfo.InvariantCulture, $"<p>{formattedLine}</p>");
     }
 
     private static void EnsureListState(MainContentState state, ListType listType)
@@ -583,7 +588,7 @@ public static partial class HtmlEmailFormatter
                 if (index + 1 < lines.Length)
                 {
                     var nextLine = lines[index + 1].Trim();
-                    if (!string.IsNullOrEmpty(nextLine) && !nextLine.StartsWith(">", StringComparison.Ordinal))
+                    if (!string.IsNullOrEmpty(nextLine) && !nextLine.StartsWith('>'))
                     {
                         return true;
                     }
@@ -612,7 +617,9 @@ public static partial class HtmlEmailFormatter
                 && line.StartsWith("On ", StringComparison.Ordinal)
                 && line.Contains(" wrote:", StringComparison.Ordinal))
             {
-                html.AppendLine($"<div class=\"quoted-header\">{System.Net.WebUtility.HtmlEncode(line)}</div>");
+                html.AppendLine(
+                    CultureInfo.InvariantCulture,
+                    $"<div class=\"quoted-header\">{System.Net.WebUtility.HtmlEncode(line)}</div>");
                 headerWritten = true;
                 continue;
             }
@@ -625,7 +632,9 @@ public static partial class HtmlEmailFormatter
             }
             else
             {
-                html.AppendLine($"<p>{System.Net.WebUtility.HtmlEncode(content)}</p>");
+                html.AppendLine(
+                    CultureInfo.InvariantCulture,
+                    $"<p>{System.Net.WebUtility.HtmlEncode(content)}</p>");
             }
         }
 
@@ -718,6 +727,7 @@ public static partial class HtmlEmailFormatter
     private static void AppendForwardHeaderField(System.Text.StringBuilder html, string label, string value)
     {
         html.AppendLine(
+            CultureInfo.InvariantCulture,
             $"<div class=\"forward-header-field\"><span class=\"forward-header-label\">{System.Net.WebUtility.HtmlEncode(label)}:</span> {System.Net.WebUtility.HtmlEncode(value)}</div>");
     }
 
@@ -729,7 +739,9 @@ public static partial class HtmlEmailFormatter
             return;
         }
 
-        bodyContent.AppendLine($"<p>{System.Net.WebUtility.HtmlEncode(line)}</p>");
+        bodyContent.AppendLine(
+            CultureInfo.InvariantCulture,
+            $"<p>{System.Net.WebUtility.HtmlEncode(line)}</p>");
     }
 
     private static void CloseForwardHeader(ForwardedContentState state)

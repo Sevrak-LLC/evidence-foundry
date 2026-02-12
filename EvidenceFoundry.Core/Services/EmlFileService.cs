@@ -2,36 +2,36 @@ using System.Diagnostics;
 using MimeKit;
 using EvidenceFoundry.Models;
 using EvidenceFoundry.Helpers;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
+using Serilog;
+using Serilog.Events;
 
 namespace EvidenceFoundry.Services;
 
-public class EmlFileService
+public partial class EmlFileService
 {
     private const int MaxFileNameLength = 180;
-    private readonly ILogger<EmlFileService> _logger;
+    private readonly ILogger _logger;
 
-    public EmlFileService(ILogger<EmlFileService>? logger = null)
+    public EmlFileService(ILogger? logger = null)
     {
-        _logger = logger ?? NullLogger<EmlFileService>.Instance;
-        _logger.LogDebug("EmlFileService initialized.");
+        _logger = (logger ?? Serilog.Log.Logger).ForContext<EmlFileService>();
+        Log.EmlFileServiceInitialized(_logger);
     }
 
     public static async Task SaveEmailAsEmlAsync(
         EmailMessage email,
         string outputFolder,
         CancellationToken ct = default)
-        => await SaveEmailAsEmlAsync(email, outputFolder, NullLogger<EmlFileService>.Instance, ct);
+        => await SaveEmailAsEmlAsync(email, outputFolder, Serilog.Log.Logger.ForContext<EmlFileService>(), ct);
 
     public static async Task SaveEmailAsEmlAsync(
         EmailMessage email,
         string outputFolder,
-        ILogger<EmlFileService>? logger,
+        ILogger? logger,
         CancellationToken ct = default)
     {
-        var log = logger ?? NullLogger<EmlFileService>.Instance;
-        log.LogDebug("Saving single email to EML output folder.");
+        var log = logger ?? Serilog.Log.Logger.ForContext<EmlFileService>();
+        Log.SavingSingleEmail(log);
 
         ArgumentNullException.ThrowIfNull(email);
         if (string.IsNullOrWhiteSpace(outputFolder))
@@ -71,15 +71,10 @@ public class EmlFileService
         var completed = 0;
 
         var degree = Math.Max(1, maxDegreeOfParallelism ?? 1);
-        var shouldLog = _logger.IsEnabled(LogLevel.Information) && (threads.Count > 1 || total > 50);
+        var shouldLog = _logger.IsEnabled(LogEventLevel.Information) && (threads.Count > 1 || total > 50);
         if (shouldLog)
         {
-            _logger.LogInformation(
-                "Saving {EmailCount} emails across {ThreadCount} thread(s) to {OutputFolder} with degree {Degree}.",
-                total,
-                threads.Count,
-                outputFolder,
-                degree);
+            Log.SavingEmails(_logger, total, threads.Count, outputFolder, degree);
         }
 
         if (degree == 1)
@@ -121,11 +116,33 @@ public class EmlFileService
 
         if (shouldLog)
         {
-            _logger.LogInformation(
-                "Saved {EmailCount} emails in {DurationMs} ms.",
-                total,
-                stopwatch.ElapsedMilliseconds);
+            Log.SavedEmails(_logger, total, stopwatch.ElapsedMilliseconds);
         }
+    }
+
+    private static class Log
+    {
+        public static void EmlFileServiceInitialized(ILogger logger)
+            => logger.Debug("EmlFileService initialized.");
+
+        public static void SavingSingleEmail(ILogger logger)
+            => logger.Debug("Saving single email to EML output folder.");
+
+        public static void SavingEmails(
+            ILogger logger,
+            int emailCount,
+            int threadCount,
+            string outputFolder,
+            int degree)
+            => logger.Information(
+                "Saving {EmailCount} emails across {ThreadCount} thread(s) to {OutputFolder} with degree {Degree}.",
+                emailCount,
+                threadCount,
+                outputFolder,
+                degree);
+
+        public static void SavedEmails(ILogger logger, int emailCount, long durationMs)
+            => logger.Information("Saved {EmailCount} emails in {DurationMs} ms.", emailCount, durationMs);
     }
 
     private static MimeMessage CreateMessage(EmailMessage email)
@@ -245,7 +262,7 @@ public class EmlFileService
         }
     }
 
-    private async Task<string> ProcessEmailAsync(
+    private static async Task<string> ProcessEmailAsync(
         EmailMessage email,
         string outputFolder,
         bool organizeBySender,

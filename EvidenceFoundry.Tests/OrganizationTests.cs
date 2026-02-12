@@ -5,7 +5,7 @@ namespace EvidenceFoundry.Tests;
 public class OrganizationTests
 {
     [Fact]
-    public void EnumerateCharacters_ReturnsAllAssignments()
+    public void EnumerateCharactersReturnsAllAssignments()
     {
         var org = new Organization { Name = "Ardent Ridge" };
         var legal = new Department { Name = DepartmentName.Legal };
@@ -29,7 +29,7 @@ public class OrganizationTests
     }
 
     [Fact]
-    public void EnumerateCharacters_NoDepartments_ReturnsEmpty()
+    public void EnumerateCharactersNoDepartmentsReturnsEmpty()
     {
         var org = new Organization { Name = "Solo Corp" };
 

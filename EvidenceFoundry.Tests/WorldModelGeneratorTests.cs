@@ -1,3 +1,4 @@
+using EvidenceFoundry.Helpers;
 using EvidenceFoundry.Models;
 using EvidenceFoundry.Services;
 
@@ -6,7 +7,7 @@ namespace EvidenceFoundry.Tests;
 public class WorldModelGeneratorTests
 {
     [Fact]
-    public void ParseWorldModelJson_MapsOrganizationsAndKeyPeople()
+    public void ParseWorldModelJsonMapsOrganizationsAndKeyPeople()
     {
         var json = """
         {
@@ -34,8 +35,6 @@ public class WorldModelGeneratorTests
                       "firstName": "Maya",
                       "lastName": "Fields",
                       "email": "maya.fields@atlasworks.com",
-                      "personality": "Decisive but impatient. Values transparency and speed.",
-                      "communicationStyle": "Direct, brief, and action-oriented.",
                       "involvement": "Actor",
                       "involvementSummary": "Approves the vendor schedule changes."
                     }
@@ -58,8 +57,6 @@ public class WorldModelGeneratorTests
                       "firstName": "Elliot",
                       "lastName": "Parks",
                       "email": "elliot.parks@crescentlogistics.com",
-                      "personality": "Methodical and cautious. Avoids conflict but protects margins.",
-                      "communicationStyle": "Polite, structured updates with measured tone.",
                       "involvement": "Target",
                       "involvementSummary": "Receives the escalation and responds to schedule demands."
                     }
@@ -86,11 +83,13 @@ public class WorldModelGeneratorTests
         var keyPerson = world.KeyPeople.Single(p => p.Email == "maya.fields@atlasworks.com");
         Assert.Equal("Maya", keyPerson.FirstName);
         Assert.Equal("Actor", keyPerson.Involvement);
-        Assert.Equal("Direct, brief, and action-oriented.", keyPerson.CommunicationStyle);
+        var expected = DeterministicPersonalityHelper.ResolvePersona(keyPerson);
+        Assert.Equal(expected.Personality, keyPerson.Personality);
+        Assert.Equal(expected.CommunicationStyle, keyPerson.CommunicationStyle);
     }
 
     [Fact]
-    public void ParseWorldModelJson_ThrowsOnInvalidEmailFormat()
+    public void ParseWorldModelJsonThrowsOnInvalidEmailFormat()
     {
         var json = """
         {
@@ -118,8 +117,6 @@ public class WorldModelGeneratorTests
                       "firstName": "Maya",
                       "lastName": "Fields",
                       "email": "m.fields@atlasworks.com",
-                      "personality": "Decisive but impatient. Values transparency and speed.",
-                      "communicationStyle": "Direct, brief, and action-oriented.",
                       "involvement": "Actor",
                       "involvementSummary": "Approves the vendor schedule changes."
                     }

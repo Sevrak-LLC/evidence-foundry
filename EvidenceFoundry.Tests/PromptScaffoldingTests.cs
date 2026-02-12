@@ -5,7 +5,7 @@ namespace EvidenceFoundry.Tests;
 public class PromptScaffoldingTests
 {
     [Fact]
-    public void JoinSections_SkipsEmptySections()
+    public void JoinSectionsSkipsEmptySections()
     {
         var result = PromptScaffolding.JoinSections("First section", "", "Second section");
 
@@ -13,7 +13,7 @@ public class PromptScaffoldingTests
     }
 
     [Fact]
-    public void JsonSchemaSection_UsesStandardHeader()
+    public void JsonSchemaSectionUsesStandardHeader()
     {
         var schema = "{ \"value\": \"string\" }";
 
@@ -23,7 +23,7 @@ public class PromptScaffoldingTests
     }
 
     [Fact]
-    public void AppendJsonOnlyInstruction_AppendsStandardInstruction()
+    public void AppendJsonOnlyInstructionAppendsStandardInstruction()
     {
         var basePrompt = "Base prompt";
 

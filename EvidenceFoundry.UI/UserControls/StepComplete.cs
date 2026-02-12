@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text;
 using EvidenceFoundry.Helpers;
 using EvidenceFoundry.Models;
@@ -131,42 +132,42 @@ public class StepComplete : UserControl, IWizardStep
 
         var result = _state.Result;
 
-        AddStatRow("Planned Emails", result.PlannedEmails.ToString());
-        AddStatRow("Planned Threads", result.PlannedThreads.ToString());
-        AddStatRow("Succeeded Emails", result.SucceededEmails.ToString());
-        AddStatRow("Succeeded Threads", result.SucceededThreads.ToString());
+        AddStatRow("Planned Emails", result.PlannedEmails.ToString(CultureInfo.InvariantCulture));
+        AddStatRow("Planned Threads", result.PlannedThreads.ToString(CultureInfo.InvariantCulture));
+        AddStatRow("Succeeded Emails", result.SucceededEmails.ToString(CultureInfo.InvariantCulture));
+        AddStatRow("Succeeded Threads", result.SucceededThreads.ToString(CultureInfo.InvariantCulture));
         if (result.FailedEmails > 0 || result.FailedThreads > 0)
         {
-            AddStatRow("Failed Emails", result.FailedEmails.ToString());
-            AddStatRow("Failed Threads", result.FailedThreads.ToString());
+            AddStatRow("Failed Emails", result.FailedEmails.ToString(CultureInfo.InvariantCulture));
+            AddStatRow("Failed Threads", result.FailedThreads.ToString(CultureInfo.InvariantCulture));
         }
         if (result.SkippedEmails > 0 || result.SkippedThreads > 0)
         {
-            AddStatRow("Skipped Emails", result.SkippedEmails.ToString());
-            AddStatRow("Skipped Threads", result.SkippedThreads.ToString());
+            AddStatRow("Skipped Emails", result.SkippedEmails.ToString(CultureInfo.InvariantCulture));
+            AddStatRow("Skipped Threads", result.SkippedThreads.ToString(CultureInfo.InvariantCulture));
         }
-        AddStatRow("Total Emails Generated", result.TotalEmailsGenerated.ToString());
-        AddStatRow("Email Threads Created", result.TotalThreadsGenerated.ToString());
+        AddStatRow("Total Emails Generated", result.TotalEmailsGenerated.ToString(CultureInfo.InvariantCulture));
+        AddStatRow("Email Threads Created", result.TotalThreadsGenerated.ToString(CultureInfo.InvariantCulture));
         AddStatRow("", "");
         AddStatRow("--- Attachments ---", "");
-        AddStatRow("Total Attachments Generated", result.TotalAttachmentsGenerated.ToString());
-        AddStatRow("  - Word Documents", result.WordDocumentsGenerated.ToString());
-        AddStatRow("  - Excel Spreadsheets", result.ExcelDocumentsGenerated.ToString());
-        AddStatRow("  - PowerPoint Presentations", result.PowerPointDocumentsGenerated.ToString());
+        AddStatRow("Total Attachments Generated", result.TotalAttachmentsGenerated.ToString(CultureInfo.InvariantCulture));
+        AddStatRow("  - Word Documents", result.WordDocumentsGenerated.ToString(CultureInfo.InvariantCulture));
+        AddStatRow("  - Excel Spreadsheets", result.ExcelDocumentsGenerated.ToString(CultureInfo.InvariantCulture));
+        AddStatRow("  - PowerPoint Presentations", result.PowerPointDocumentsGenerated.ToString(CultureInfo.InvariantCulture));
         if (result.ImagesGenerated > 0)
-            AddStatRow("Images Generated", result.ImagesGenerated.ToString());
+            AddStatRow("Images Generated", result.ImagesGenerated.ToString(CultureInfo.InvariantCulture));
         if (result.CalendarInvitesGenerated > 0)
-            AddStatRow("Calendar Invites", result.CalendarInvitesGenerated.ToString());
+            AddStatRow("Calendar Invites", result.CalendarInvitesGenerated.ToString(CultureInfo.InvariantCulture));
         if (result.VoicemailsGenerated > 0)
-            AddStatRow("Voicemails Generated", result.VoicemailsGenerated.ToString());
+            AddStatRow("Voicemails Generated", result.VoicemailsGenerated.ToString(CultureInfo.InvariantCulture));
         if (result.Errors.Count > 0)
-            AddStatRow("Errors", result.Errors.Count.ToString());
+            AddStatRow("Errors", result.Errors.Count.ToString(CultureInfo.InvariantCulture));
         AddStatRow("", "");
         AddStatRow("Topic", _state.TopicDisplayName);
         AddStatRow("Storyline Used", _state.Storyline != null ? "1" : "0");
-        AddStatRow("Characters Used", _state.Characters.Count.ToString());
+        AddStatRow("Characters Used", _state.Characters.Count.ToString(CultureInfo.InvariantCulture));
         AddStatRow("", "");
-        AddStatRow("Generation Time", result.ElapsedTime.ToString(@"mm\:ss"));
+        AddStatRow("Generation Time", result.ElapsedTime.ToString(@"mm\:ss", CultureInfo.InvariantCulture));
         AddStatRow("Output Folder", result.OutputFolder);
         AddStatRow("", "");
         AddStatRow("--- API Usage ---", "");
@@ -186,10 +187,12 @@ public class StepComplete : UserControl, IWizardStep
         if (result.Errors.Count > 0)
         {
             summaryBuilder.AppendLine();
-            summaryBuilder.AppendLine($"Errors recorded: {result.Errors.Count}");
+            summaryBuilder.AppendLine(
+                CultureInfo.InvariantCulture,
+                $"Errors recorded: {result.Errors.Count}");
             foreach (var error in result.Errors.Take(3))
             {
-                summaryBuilder.AppendLine($"- {error}");
+                summaryBuilder.AppendLine(CultureInfo.InvariantCulture, $"- {error}");
             }
 
             if (result.Errors.Count > 3)

@@ -5,7 +5,7 @@ namespace EvidenceFoundry.Tests;
 public class EmailThreadSummaryTests
 {
     [Fact]
-    public void GetSummary_UsesDisplaySubjectAndMessageCount()
+    public void GetSummaryUsesDisplaySubjectAndMessageCount()
     {
         var thread = new EmailThread
         {
@@ -28,7 +28,7 @@ public class EmailThreadSummaryTests
     }
 
     [Fact]
-    public void GetSummary_AllowsEmptySubject()
+    public void GetSummaryAllowsEmptySubject()
     {
         var thread = new EmailThread();
 

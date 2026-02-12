@@ -1,41 +1,37 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using EvidenceFoundry.Helpers;
 using EvidenceFoundry.Models;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
+using Serilog;
+using Serilog.Context;
 
 namespace EvidenceFoundry.Services;
 
-public class StorylineGenerator
+public partial class StorylineGenerator
 {
     private readonly OpenAIService _openAI;
     private readonly StoryBeatGenerator _beatGenerator;
     private readonly EmailThreadGenerator _threadGenerator;
     private readonly Random _rng;
-    private readonly ILogger<StorylineGenerator> _logger;
-    private readonly ILoggerFactory? _loggerFactory;
+    private readonly ILogger _logger;
 
     public StorylineGenerator(
         OpenAIService openAI,
         Random rng,
-        ILogger<StorylineGenerator>? logger = null,
-        ILoggerFactory? loggerFactory = null)
+        ILogger? logger = null)
     {
         ArgumentNullException.ThrowIfNull(openAI);
         ArgumentNullException.ThrowIfNull(rng);
         _openAI = openAI;
         _rng = rng;
-        _loggerFactory = loggerFactory;
-        _logger = ResolveLogger(logger, loggerFactory);
-        _beatGenerator = new StoryBeatGenerator(openAI, ResolveLogger<StoryBeatGenerator>(null, loggerFactory));
-        _threadGenerator = new EmailThreadGenerator(ResolveLogger<EmailThreadGenerator>(null, loggerFactory));
-        _logger.LogDebug("StorylineGenerator initialized.");
+        var baseLogger = logger ?? Serilog.Log.Logger;
+        _logger = baseLogger.ForContext<StorylineGenerator>();
+        _beatGenerator = new StoryBeatGenerator(openAI, baseLogger.ForContext<StoryBeatGenerator>());
+        _threadGenerator = new EmailThreadGenerator(baseLogger.ForContext<EmailThreadGenerator>());
+        Log.StorylineGeneratorInitialized(_logger);
     }
-
-    private static ILogger<T> ResolveLogger<T>(ILogger<T>? logger, ILoggerFactory? loggerFactory)
-        => logger ?? loggerFactory?.CreateLogger<T>() ?? NullLogger<T>.Instance;
 
     public async Task<StorylineGenerationResult> GenerateStorylineAsync(
         StorylineGenerationRequest request,
@@ -44,7 +40,7 @@ public class StorylineGenerator
     {
         ArgumentNullException.ThrowIfNull(request);
         if (string.IsNullOrWhiteSpace(request.Topic))
-            throw new ArgumentException("Topic is required.", nameof(request.Topic));
+            throw new ArgumentException("Topic is required.", nameof(request));
 
         var topic = request.Topic;
         var issueDescription = request.IssueDescription;
@@ -53,18 +49,12 @@ public class StorylineGenerator
         var normalizedPlaintiffCount = GenerationRequestNormalizer.NormalizePartyCount(request.PlaintiffOrganizationCount);
         var normalizedDefendantCount = GenerationRequestNormalizer.NormalizePartyCount(request.DefendantOrganizationCount);
 
-        using var scope = _logger.BeginScope(new Dictionary<string, object>
-        {
-            ["Topic"] = topic,
-            ["PlaintiffCount"] = normalizedPlaintiffCount,
-            ["DefendantCount"] = normalizedDefendantCount
-        });
+        using var topicScope = LogContext.PushProperty("Topic", topic);
+        using var plaintiffCountScope = LogContext.PushProperty("PlaintiffCount", normalizedPlaintiffCount);
+        using var defendantCountScope = LogContext.PushProperty("DefendantCount", normalizedDefendantCount);
 
         var stopwatch = Stopwatch.StartNew();
-        _logger.LogInformation(
-            "Generating storyline with {PlaintiffCount} plaintiff(s) and {DefendantCount} defendant(s).",
-            normalizedPlaintiffCount,
-            normalizedDefendantCount);
+        Log.GeneratingStoryline(_logger, normalizedPlaintiffCount, normalizedDefendantCount);
 
         try
         {
@@ -75,7 +65,7 @@ public class StorylineGenerator
             var includeOtherIndustry = string.Equals(normalizedPlaintiffIndustry, nameof(Industry.Other), StringComparison.OrdinalIgnoreCase)
                 || string.Equals(normalizedDefendantIndustry, nameof(Industry.Other), StringComparison.OrdinalIgnoreCase);
 
-        var systemPrompt = PromptScaffolding.AppendJsonOnlyInstruction(@"You are the EvidenceFoundry Narrative Generator.
+            var systemPrompt = PromptScaffolding.AppendJsonOnlyInstruction(@"You are the EvidenceFoundry Narrative Generator.
 
 Your job: produce fictional, narrative-driven pre-dispute setups that can be expanded into realistic corporate email corpora for eDiscovery testing.
 
@@ -116,17 +106,17 @@ OUTPUT REQUIREMENTS (STRICT)
 - Ensure internal consistency of names/titles/relationships/sequence of events within each narrative.
 - The summary field MUST clearly state the core pre-dispute situation, who is involved, and the tensions/risks that later lead to a dispute. Do NOT mention any dispute, claim, lawsuit, litigation, arbitration, investigation, subpoena, enforcement action, discovery process, or legal proceedings.");
 
-        var industryOptions = FormatIndustryOptionsForStorylines(includeOtherIndustry);
-        var worldContext = BuildWorldModelContext(request.WorldModel);
-        var worldRules = request.WorldModel != null
-            ? @"WORLD MODEL CONSTRAINTS:
+            var industryOptions = FormatIndustryOptionsForStorylines(includeOtherIndustry);
+            var worldContext = BuildWorldModelContext(request.WorldModel);
+            var worldRules = request.WorldModel != null
+                ? @"WORLD MODEL CONSTRAINTS:
 - Use ONLY the provided organizations and their domains. Do NOT invent or rename organizations.
 - Explicitly label the provided organizations as plaintiffs/defendants as given in the world model.
 - Use the provided key people by name. Do NOT invent new named people.
 - You may reference additional unnamed roles/teams if needed, but do not add named individuals beyond the world model."
-            : string.Empty;
+                : string.Empty;
 
-        var schema = """
+            var schema = """
 {
   "storylines": [
     {
@@ -143,7 +133,7 @@ OUTPUT REQUIREMENTS (STRICT)
 }
 """;
 
-        var userPrompt = PromptScaffolding.JoinSections($@"Selected Case Issue: {topic}
+            var userPrompt = PromptScaffolding.JoinSections($@"Selected Case Issue: {topic}
 Issue Description: {issueContext}
 
 Additional Instructions: {(string.IsNullOrWhiteSpace(additionalInstructions) ? "None" : additionalInstructions)}
@@ -187,9 +177,7 @@ REQUIREMENTS:
             if (response.Storylines.Count > 1)
             {
                 result.StorylineFilterSummary = $"Received {response.Storylines.Count} storylines; using the first one only.";
-                _logger.LogWarning(
-                    "Received {StorylineCount} storylines; using only the first.",
-                    response.Storylines.Count);
+                Log.ReceivedMultipleStorylines(_logger, response.Storylines.Count);
             }
 
             var storyline = response.Storylines[0];
@@ -223,25 +211,17 @@ REQUIREMENTS:
             ValidateStoryline(result);
             SetMasterDateRangeFromStoryline(result);
 
-            _logger.LogInformation(
-                "Storyline generated in {DurationMs} ms with {PlotPointCount} plot points.",
-                stopwatch.ElapsedMilliseconds,
-                plotOutline.Count);
+            Log.StorylineGenerated(_logger, stopwatch.ElapsedMilliseconds, plotOutline.Count);
             return result;
         }
         catch (OperationCanceledException)
         {
-            _logger.LogWarning(
-                "Storyline generation canceled after {DurationMs} ms.",
-                stopwatch.ElapsedMilliseconds);
+            Log.StorylineGenerationCanceled(_logger, stopwatch.ElapsedMilliseconds);
             throw;
         }
         catch (Exception ex)
         {
-            _logger.LogError(
-                ex,
-                "Storyline generation failed after {DurationMs} ms.",
-                stopwatch.ElapsedMilliseconds);
+            Log.StorylineGenerationFailed(_logger, stopwatch.ElapsedMilliseconds, ex);
             throw;
         }
     }
@@ -260,17 +240,11 @@ REQUIREMENTS:
         ArgumentNullException.ThrowIfNull(organizations);
         ArgumentNullException.ThrowIfNull(characters);
 
-        using var scope = _logger.BeginScope(new Dictionary<string, object>
-        {
-            ["StorylineId"] = storyline.Id,
-            ["StorylineTitle"] = storyline.Title
-        });
+        using var storylineIdScope = LogContext.PushProperty("StorylineId", storyline.Id);
+        using var storylineTitleScope = LogContext.PushProperty("StorylineTitle", storyline.Title);
 
         var stopwatch = Stopwatch.StartNew();
-        _logger.LogInformation(
-            "Generating story beats for {OrganizationCount} organizations and {CharacterCount} characters.",
-            organizations.Count,
-            characters.Count);
+        Log.GeneratingStoryBeats(_logger, organizations.Count, characters.Count);
 
         try
         {
@@ -291,33 +265,25 @@ REQUIREMENTS:
                         "story-beat",
                         storyline.Id.ToString("N"),
                         beat.Name,
-                        beat.StartDate.ToString("yyyyMMdd"),
-                        beat.EndDate.ToString("yyyyMMdd"));
+                        beat.StartDate.ToString("yyyyMMdd", CultureInfo.InvariantCulture),
+                        beat.EndDate.ToString("yyyyMMdd", CultureInfo.InvariantCulture));
                 }
             }
 
             _threadGenerator.PlanEmailThreadsForBeats(beats, characters.Count, _rng);
 
             storyline.SetBeats(beats);
-            _logger.LogInformation(
-                "Story beats planned with {BeatCount} beats in {DurationMs} ms.",
-                beats.Count,
-                stopwatch.ElapsedMilliseconds);
+            Log.StoryBeatsPlanned(_logger, beats.Count, stopwatch.ElapsedMilliseconds);
             return beats;
         }
         catch (OperationCanceledException)
         {
-            _logger.LogWarning(
-                "Story beat planning canceled after {DurationMs} ms.",
-                stopwatch.ElapsedMilliseconds);
+            Log.StoryBeatPlanningCanceled(_logger, stopwatch.ElapsedMilliseconds);
             throw;
         }
         catch (Exception ex)
         {
-            _logger.LogError(
-                ex,
-                "Story beat planning failed after {DurationMs} ms.",
-                stopwatch.ElapsedMilliseconds);
+            Log.StoryBeatPlanningFailed(_logger, stopwatch.ElapsedMilliseconds, ex);
             throw;
         }
     }
@@ -500,10 +466,55 @@ Summary: {storyline.Summary}
         storyline.StartDate = normalized.start;
         storyline.EndDate = normalized.end;
 
-        _logger.LogInformation(
-            "Storyline date range set to {StartDate} - {EndDate}.",
-            storyline.StartDate,
-            storyline.EndDate);
+        Log.StorylineDateRangeSet(_logger, storyline.StartDate, storyline.EndDate);
+    }
+
+    private static class Log
+    {
+        public static void StorylineGeneratorInitialized(ILogger logger)
+            => logger.Debug("StorylineGenerator initialized.");
+
+        public static void GeneratingStoryline(ILogger logger, int plaintiffCount, int defendantCount)
+            => logger.Information(
+                "Generating storyline with {PlaintiffCount} plaintiff(s) and {DefendantCount} defendant(s).",
+                plaintiffCount,
+                defendantCount);
+
+        public static void ReceivedMultipleStorylines(ILogger logger, int storylineCount)
+            => logger.Warning("Received {StorylineCount} storylines; using only the first.", storylineCount);
+
+        public static void StorylineGenerated(ILogger logger, long durationMs, int plotPointCount)
+            => logger.Information(
+                "Storyline generated in {DurationMs} ms with {PlotPointCount} plot points.",
+                durationMs,
+                plotPointCount);
+
+        public static void StorylineGenerationCanceled(ILogger logger, long durationMs)
+            => logger.Warning("Storyline generation canceled after {DurationMs} ms.", durationMs);
+
+        public static void StorylineGenerationFailed(ILogger logger, long durationMs, Exception exception)
+            => logger.Error(exception, "Storyline generation failed after {DurationMs} ms.", durationMs);
+
+        public static void GeneratingStoryBeats(ILogger logger, int organizationCount, int characterCount)
+            => logger.Information(
+                "Generating story beats for {OrganizationCount} organizations and {CharacterCount} characters.",
+                organizationCount,
+                characterCount);
+
+        public static void StoryBeatsPlanned(ILogger logger, int beatCount, long durationMs)
+            => logger.Information(
+                "Story beats planned with {BeatCount} beats in {DurationMs} ms.",
+                beatCount,
+                durationMs);
+
+        public static void StoryBeatPlanningCanceled(ILogger logger, long durationMs)
+            => logger.Warning("Story beat planning canceled after {DurationMs} ms.", durationMs);
+
+        public static void StoryBeatPlanningFailed(ILogger logger, long durationMs, Exception exception)
+            => logger.Error(exception, "Story beat planning failed after {DurationMs} ms.", durationMs);
+
+        public static void StorylineDateRangeSet(ILogger logger, DateTime? startDate, DateTime? endDate)
+            => logger.Information("Storyline date range set to {StartDate} - {EndDate}.", startDate, endDate);
     }
 
     private static void SetMasterDateRangeFromStoryline(StorylineGenerationResult result)

@@ -6,7 +6,7 @@ namespace EvidenceFoundry.Tests;
 public class DepartmentGeneratorTests
 {
     [Fact]
-    public void ApplyDepartmentRoleConstraints_RemovesInvalidDepartmentsAndRoles()
+    public void ApplyDepartmentRoleConstraintsRemovesInvalidDepartmentsAndRoles()
     {
         var organization = new Organization
         {
@@ -32,7 +32,7 @@ public class DepartmentGeneratorTests
     }
 
     [Fact]
-    public void BuildIndustryOrganizationRoleCatalogJson_FiltersIndustries()
+    public void BuildIndustryOrganizationRoleCatalogJsonFiltersIndustries()
     {
         var json = DepartmentGenerator.BuildIndustryOrganizationRoleCatalogJson(
             new[] { Industry.InformationTechnology, Industry.HealthCareAndSocialAssistance });

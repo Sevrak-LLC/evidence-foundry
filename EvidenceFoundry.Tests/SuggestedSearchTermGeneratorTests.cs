@@ -5,7 +5,7 @@ namespace EvidenceFoundry.Tests;
 public class SuggestedSearchTermGeneratorTests
 {
     [Fact]
-    public void FilterTermsAgainstEmail_DropsOutOfScopeTerms()
+    public void FilterTermsAgainstEmailDropsOutOfScopeTerms()
     {
         var email = "Please review the Q3 budget forecast before Friday. The budget review meeting is next week.";
         var terms = new List<string>
@@ -26,7 +26,7 @@ public class SuggestedSearchTermGeneratorTests
     }
 
     [Fact]
-    public void FilterTermsAgainstEmail_RespectsMaxAndDedupes()
+    public void FilterTermsAgainstEmailRespectsMaxAndDedupes()
     {
         var email = "Alpha beta gamma. Alpha beta delta. Alpha beta.";
         var terms = new List<string>
@@ -46,7 +46,7 @@ public class SuggestedSearchTermGeneratorTests
     }
 
     [Fact]
-    public void FilterTermsAgainstEmail_RejectsTermsWithoutLiterals()
+    public void FilterTermsAgainstEmailRejectsTermsWithoutLiterals()
     {
         var email = "Budget approved.";
         var terms = new List<string> { "AND OR NOT" };

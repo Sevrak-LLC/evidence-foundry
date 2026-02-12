@@ -5,7 +5,7 @@ namespace EvidenceFoundry.Tests;
 public class GenerationProgressTests
 {
     [Fact]
-    public void Snapshot_CopiesAllFields()
+    public void SnapshotCopiesAllFields()
     {
         var progress = new GenerationProgress
         {

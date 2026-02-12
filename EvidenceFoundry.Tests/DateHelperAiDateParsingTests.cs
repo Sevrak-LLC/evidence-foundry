@@ -5,7 +5,7 @@ namespace EvidenceFoundry.Tests;
 public class DateHelperAiDateParsingTests
 {
     [Fact]
-    public void TryParseIsoDate_AcceptsIsoOnly()
+    public void TryParseIsoDateAcceptsIsoOnly()
     {
         var parsed = DateHelper.TryParseIsoDate("2025-04-15", out var date);
 
@@ -24,7 +24,7 @@ public class DateHelperAiDateParsingTests
     [InlineData("April 5, 2025", 2025, 4, 5)]
     [InlineData("2025-04", 2025, 4, 1)]
     [InlineData("2025", 2025, 1, 1)]
-    public void TryParseAiDate_AcceptsSupportedDates(string value, int year, int month, int day)
+    public void TryParseAiDateAcceptsSupportedDates(string value, int year, int month, int day)
     {
         var parsed = DateHelper.TryParseAiDate(value, out var date);
 
@@ -36,7 +36,7 @@ public class DateHelperAiDateParsingTests
     [InlineData("2025-04-15T13:45:00")]
     [InlineData("2025-04-15T13:45:00Z")]
     [InlineData("2025-04-15 13:45")]
-    public void TryParseAiDate_AcceptsSupportedDateTimes(string value)
+    public void TryParseAiDateAcceptsSupportedDateTimes(string value)
     {
         var parsed = DateHelper.TryParseAiDate(value, out var date);
 
@@ -47,7 +47,7 @@ public class DateHelperAiDateParsingTests
     }
 
     [Fact]
-    public void TryParseAiDate_RejectsUnsupportedFormats()
+    public void TryParseAiDateRejectsUnsupportedFormats()
     {
         Assert.False(DateHelper.TryParseAiDate("15/04/2025", out _));
         Assert.False(DateHelper.TryParseAiDate(null, out _));

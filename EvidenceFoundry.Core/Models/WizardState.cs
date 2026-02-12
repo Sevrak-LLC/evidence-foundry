@@ -1,7 +1,6 @@
 using System.Security.Cryptography;
 using EvidenceFoundry.Helpers;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
+using Serilog;
 
 namespace EvidenceFoundry.Models;
 
@@ -9,7 +8,7 @@ public class WizardState
 {
     private int _generationSeed = RandomNumberGenerator.GetInt32(int.MaxValue);
     private ThreadSafeRandom? _generationRandom;
-    private ILoggerFactory _loggerFactory = NullLoggerFactory.Instance;
+    private ILogger _logger = Serilog.Log.Logger;
 
     // Step 1 - API Configuration
     public string ApiKey { get; set; } = string.Empty;
@@ -23,13 +22,13 @@ public class WizardState
     // Token Usage Tracking
     public TokenUsageTracker UsageTracker { get; } = new();
 
-    public ILoggerFactory LoggerFactory
+    public ILogger Logger
     {
-        get => _loggerFactory;
-        set => _loggerFactory = value ?? NullLoggerFactory.Instance;
+        get => _logger;
+        set => _logger = value ?? Serilog.Log.Logger;
     }
 
-    public ILogger<T> CreateLogger<T>() => _loggerFactory.CreateLogger<T>();
+    public ILogger CreateLogger<T>() => _logger.ForContext<T>();
 
     public int GenerationSeed
     {
@@ -57,8 +56,8 @@ public class WizardState
 
     // Media type hints (inform storyline generation)
     public bool WantsDocuments { get; set; } = true;
-    public bool WantsImages { get; set; } = false;
-    public bool WantsVoicemails { get; set; } = false;
+    public bool WantsImages { get; set; }
+    public bool WantsVoicemails { get; set; }
 
     // Step 3 - World Model
     public World? WorldModel { get; set; }

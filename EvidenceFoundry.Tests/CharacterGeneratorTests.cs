@@ -6,7 +6,7 @@ namespace EvidenceFoundry.Tests;
 public class CharacterGeneratorTests
 {
     [Fact]
-    public void AddCharactersToRole_AllowsDuplicateRoleNamesAcrossDepartments()
+    public void AddCharactersToRoleAllowsDuplicateRoleNamesAcrossDepartments()
     {
         var organization = new Organization { Name = "Acme", Domain = "acme.com" };
         var operations = new Department { Name = DepartmentName.Operations };
@@ -40,7 +40,7 @@ public class CharacterGeneratorTests
     }
 
     [Fact]
-    public void AddCharactersToRole_SkipsSingleOccupantWhenAnyAlreadyFilled()
+    public void AddCharactersToRoleSkipsSingleOccupantWhenAnyAlreadyFilled()
     {
         var organization = new Organization { Name = "Acme", Domain = "acme.com" };
         var executive = new Department { Name = DepartmentName.Executive };
@@ -76,7 +76,7 @@ public class CharacterGeneratorTests
     }
 
     [Fact]
-    public void ApplyStorylineRelevance_MapsByEmailAndBeatId()
+    public void ApplyStorylineRelevanceMapsByEmailAndBeatId()
     {
         var beatId = Guid.NewGuid();
         var beats = new List<StoryBeat>

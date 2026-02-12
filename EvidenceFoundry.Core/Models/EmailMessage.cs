@@ -11,6 +11,9 @@ public class EmailMessage
     public Guid EmailThreadId { get; set; }
     public Guid StoryBeatId { get; set; }
     public Guid StorylineId { get; set; }
+    public Guid? ParentEmailId { get; set; }
+    public Guid RootEmailId { get; set; }
+    public Guid BranchId { get; set; }
 
     // Threading headers
     public string MessageId { get; set; } = string.Empty;
@@ -36,6 +39,10 @@ public class EmailMessage
 
     // Generated filename for the .eml file
     public string? GeneratedFileName { get; set; }
+
+    // Generation status
+    public bool GenerationFailed { get; set; }
+    public string? GenerationFailureReason { get; set; }
 
     // Attachment planning - these are set by AI during email generation
     // and used later to generate the actual attachments

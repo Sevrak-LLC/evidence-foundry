@@ -6,7 +6,7 @@ namespace EvidenceFoundry.Tests;
 public class StorylineDateRangeNormalizationTests
 {
     [Fact]
-    public void NormalizeStorylineDateRange_NudgesMonthBoundaries()
+    public void NormalizeStorylineDateRangeNudgesMonthBoundaries()
     {
         var storyline = new Storyline
         {
@@ -28,7 +28,7 @@ public class StorylineDateRangeNormalizationTests
     }
 
     [Fact]
-    public void NormalizeStorylineDateRange_AdjustsExplicitQuarterBoundaries()
+    public void NormalizeStorylineDateRangeAdjustsExplicitQuarterBoundaries()
     {
         var storyline = new Storyline
         {
@@ -48,7 +48,7 @@ public class StorylineDateRangeNormalizationTests
     }
 
     [Fact]
-    public void NormalizeStorylineDateRange_CapsToSixMonths()
+    public void NormalizeStorylineDateRangeCapsToSixMonths()
     {
         var storyline = new Storyline
         {

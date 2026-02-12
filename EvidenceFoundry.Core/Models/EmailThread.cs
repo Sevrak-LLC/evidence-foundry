@@ -25,8 +25,8 @@ public class EmailThread
     public ThreadRelevance Relevance { get; set; } = ThreadRelevance.NonResponsive;
     public bool IsHot { get; set; }
 
-    public string DisplaySubject => EmailMessages.FirstOrDefault()?.Subject ?? string.Empty;
-    public string RootMessageId => EmailMessages.FirstOrDefault()?.MessageId ?? string.Empty;
+    public string DisplaySubject => EmailMessages.Count > 0 ? EmailMessages[0].Subject : string.Empty;
+    public string RootMessageId => EmailMessages.Count > 0 ? EmailMessages[0].MessageId : string.Empty;
 
     public void SetOrganizationParticipants(IEnumerable<Organization> participants)
     {

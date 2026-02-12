@@ -1,20 +1,19 @@
 using System.Globalization;
 using EvidenceFoundry.Helpers;
 using EvidenceFoundry.Models;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
+using Serilog;
 
 namespace EvidenceFoundry.Services;
 
-public class EmailThreadGenerator
+public partial class EmailThreadGenerator
 {
     private const double InternalThreadOdds = 0.7;
-    private readonly ILogger<EmailThreadGenerator> _logger;
+    private readonly ILogger _logger;
 
-    public EmailThreadGenerator(ILogger<EmailThreadGenerator>? logger = null)
+    public EmailThreadGenerator(ILogger? logger = null)
     {
-        _logger = logger ?? NullLogger<EmailThreadGenerator>.Instance;
-        _logger.LogDebug("EmailThreadGenerator initialized.");
+        _logger = (logger ?? Serilog.Log.Logger).ForContext<EmailThreadGenerator>();
+        Log.EmailThreadGeneratorInitialized(_logger);
     }
 
     internal void AssignThreadParticipants(
@@ -37,9 +36,7 @@ public class EmailThreadGenerator
 
         if (availableOrganizations.Count == 0)
         {
-            _logger.LogWarning(
-                "No organizations with characters available for thread {ThreadId}.",
-                thread.Id);
+            Log.NoOrganizationsWithCharactersAvailable(_logger, thread.Id);
             return;
         }
 
@@ -74,10 +71,7 @@ public class EmailThreadGenerator
         if (keyRoleCount <= 0)
             throw new ArgumentOutOfRangeException(nameof(keyRoleCount), "Key role count must be positive.");
 
-        _logger.LogInformation(
-            "Planning email threads for {BeatCount} beats with {KeyRoleCount} key roles.",
-            beats.Count,
-            keyRoleCount);
+        Log.PlanningEmailThreads(_logger, beats.Count, keyRoleCount);
 
         foreach (var beat in beats)
         {
@@ -95,13 +89,28 @@ public class EmailThreadGenerator
 
         var totalThreads = beats.Sum(b => b.Threads.Count);
         var totalEmails = beats.Sum(b => b.EmailCount);
-        _logger.LogInformation(
-            "Planned {ThreadCount} threads with {EmailCount} emails.",
-            totalThreads,
-            totalEmails);
+        Log.PlannedEmailThreads(_logger, totalThreads, totalEmails);
     }
 
-    internal (double responsive, double hot) GetThreadOdds(int emailCount)
+    private static class Log
+    {
+        public static void EmailThreadGeneratorInitialized(ILogger logger)
+            => logger.Debug("EmailThreadGenerator initialized.");
+
+        public static void NoOrganizationsWithCharactersAvailable(ILogger logger, Guid threadId)
+            => logger.Warning("No organizations with characters available for thread {ThreadId}.", threadId);
+
+        public static void PlanningEmailThreads(ILogger logger, int beatCount, int keyRoleCount)
+            => logger.Information(
+                "Planning email threads for {BeatCount} beats with {KeyRoleCount} key roles.",
+                beatCount,
+                keyRoleCount);
+
+        public static void PlannedEmailThreads(ILogger logger, int threadCount, int emailCount)
+            => logger.Information("Planned {ThreadCount} threads with {EmailCount} emails.", threadCount, emailCount);
+    }
+
+    internal static (double responsive, double hot) GetThreadOdds(int emailCount)
     {
         if (emailCount <= 0)
             throw new ArgumentOutOfRangeException(nameof(emailCount), "Thread email count must be positive.");
@@ -122,7 +131,7 @@ public class EmailThreadGenerator
         return (responsive, hot);
     }
 
-    internal (EmailThread.ThreadRelevance relevance, bool isHot) EvaluateThreadRelevance(
+    internal static (EmailThread.ThreadRelevance relevance, bool isHot) EvaluateThreadRelevance(
         int emailCount,
         double responsiveRoll,
         double hotRoll)
@@ -139,7 +148,7 @@ public class EmailThreadGenerator
         return (isResponsive ? EmailThread.ThreadRelevance.Responsive : EmailThread.ThreadRelevance.NonResponsive, isHot);
     }
 
-    internal void EnsurePlaceholderMessages(EmailThread thread, int emailCount)
+    internal static void EnsurePlaceholderMessages(EmailThread thread, int emailCount)
     {
         ArgumentNullException.ThrowIfNull(thread);
         if (emailCount <= 0)
@@ -169,7 +178,7 @@ public class EmailThreadGenerator
         }
     }
 
-    internal void ResetThreadForRetry(EmailThread thread, int emailCount)
+    internal static void ResetThreadForRetry(EmailThread thread, int emailCount)
     {
         ArgumentNullException.ThrowIfNull(thread);
         if (emailCount <= 0)
@@ -204,8 +213,8 @@ public class EmailThreadGenerator
             "story-beat",
             beat.StorylineId.ToString("N"),
             beat.Name,
-            beat.StartDate.ToString("yyyyMMdd"),
-            beat.EndDate.ToString("yyyyMMdd"));
+            beat.StartDate.ToString("yyyyMMdd", CultureInfo.InvariantCulture),
+            beat.EndDate.ToString("yyyyMMdd", CultureInfo.InvariantCulture));
     }
 
     private static void EnsureThreadId(EmailThread thread)
@@ -220,7 +229,7 @@ public class EmailThreadGenerator
             thread.Topic);
     }
 
-    private List<EmailThread> CreateThreads(StoryBeat beat, Random rng)
+    private static List<EmailThread> CreateThreads(StoryBeat beat, Random rng)
     {
         ArgumentNullException.ThrowIfNull(beat);
 
@@ -231,7 +240,7 @@ public class EmailThreadGenerator
 
         var emailCount = beat.EmailCount;
         if (emailCount < 0)
-            throw new ArgumentOutOfRangeException(nameof(emailCount), "Email count must be non-negative.");
+            throw new ArgumentOutOfRangeException(nameof(beat), emailCount, "Email count must be non-negative.");
 
         if (emailCount == 0)
             return new List<EmailThread>();
@@ -286,7 +295,7 @@ public class EmailThreadGenerator
         return threads;
     }
 
-    private void EnsureThreadRelevanceCoverage(IReadOnlyList<StoryBeat> beats, Random rng)
+    private static void EnsureThreadRelevanceCoverage(IReadOnlyList<StoryBeat> beats, Random rng)
     {
         var beatsWithThreads = beats
             .Where(b => b.Threads.Count > 0)
@@ -314,7 +323,7 @@ public class EmailThreadGenerator
         }
     }
 
-    private EmailThread SelectThreadForPromotion(IReadOnlyList<EmailThread> threads, Random rng)
+    private static EmailThread SelectThreadForPromotion(IReadOnlyList<EmailThread> threads, Random rng)
     {
         if (threads.Count == 1)
             return threads[0];
@@ -323,7 +332,7 @@ public class EmailThreadGenerator
     }
 
     private static Organization? SelectInternalOrganization(
-        IReadOnlyList<Organization> organizations,
+        List<Organization> organizations,
         bool requiresKey,
         Random rng)
     {
@@ -341,7 +350,7 @@ public class EmailThreadGenerator
     }
 
     private static List<Organization> SelectExternalOrganizations(
-        IReadOnlyList<Organization> organizations,
+        List<Organization> organizations,
         bool requiresKey,
         Random rng)
     {

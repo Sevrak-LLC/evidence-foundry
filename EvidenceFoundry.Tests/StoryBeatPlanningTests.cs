@@ -6,7 +6,7 @@ namespace EvidenceFoundry.Tests;
 public class StoryBeatPlanningTests
 {
     [Fact]
-    public void PlanEmailThreadsForBeats_CreatesPlaceholdersThatMatchCounts()
+    public void PlanEmailThreadsForBeatsCreatesPlaceholdersThatMatchCounts()
     {
         var generator = new EmailThreadGenerator();
         var storylineId = Guid.NewGuid();
@@ -60,7 +60,7 @@ public class StoryBeatPlanningTests
     }
 
     [Fact]
-    public void PlanEmailThreadsForBeats_ThrowsOnInvalidKeyRoleCount()
+    public void PlanEmailThreadsForBeatsThrowsOnInvalidKeyRoleCount()
     {
         var generator = new EmailThreadGenerator();
         var storylineId = Guid.NewGuid();
@@ -82,7 +82,7 @@ public class StoryBeatPlanningTests
     }
 
     [Fact]
-    public void PlanEmailThreadsForBeats_ThrowsWhenStorylineIdsMissing()
+    public void PlanEmailThreadsForBeatsThrowsWhenStorylineIdsMissing()
     {
         var generator = new EmailThreadGenerator();
         var beats = new List<StoryBeat>
@@ -102,7 +102,7 @@ public class StoryBeatPlanningTests
     }
 
     [Fact]
-    public void PlanEmailThreadsForBeats_EnsuresResponsiveAndHotCoverage()
+    public void PlanEmailThreadsForBeatsEnsuresResponsiveAndHotCoverage()
     {
         var generator = new EmailThreadGenerator();
         var storylineId = Guid.NewGuid();

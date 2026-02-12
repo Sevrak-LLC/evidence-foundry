@@ -1,3 +1,4 @@
+using System.Globalization;
 using EvidenceFoundry.Models;
 
 namespace EvidenceFoundry.Helpers;
@@ -14,7 +15,7 @@ public static class TokenUsageFormatter
         return $"Tokens: {FormatTokenCount(summary.TotalTokens)} | Cost: {FormatCost(summary.TotalCost)}";
     }
 
-    public static string FormatTokenCount(int tokens) => tokens.ToString("N0");
+    public static string FormatTokenCount(int tokens) => tokens.ToString("N0", CultureInfo.InvariantCulture);
 
     public static string FormatCost(decimal cost) => $"${cost:F4}";
 }

@@ -5,7 +5,7 @@ namespace EvidenceFoundry.Tests;
 public class DateHelperFoundedDateTests
 {
     [Fact]
-    public void NormalizeFoundedDate_UsesDefaultWhenMissing()
+    public void NormalizeFoundedDateUsesDefaultWhenMissing()
     {
         var start = new DateTime(2025, 5, 10);
 
@@ -15,7 +15,7 @@ public class DateHelperFoundedDateTests
     }
 
     [Fact]
-    public void NormalizeFoundedDate_CapsToOneYearBeforeStoryline()
+    public void NormalizeFoundedDateCapsToOneYearBeforeStoryline()
     {
         var start = new DateTime(2025, 5, 10);
         var founded = start.AddMonths(-6);
