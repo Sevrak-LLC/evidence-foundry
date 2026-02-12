@@ -781,8 +781,24 @@ public partial class EmailGenerator
             if (!contexts.TryGetValue(c.Id, out var context))
                 throw new InvalidOperationException($"Character '{c.FullName}' has no organization assignment.");
 
-            return $"- {c.FullName} ({c.Email})\n  Role: {context.Role}, {context.Department} @ {context.Organization}\n  Personality: {c.Personality}\n  Communication Style: {c.CommunicationStyle}\n  Signature:\n{IndentSignature(c.SignatureBlock)}";
+            return $"- {c.FullName} ({c.Email})\n  Role: {context.Role}, {context.Department} @ {context.Organization}";
         }));
+    }
+
+    private static string BuildSenderProfileSection(
+        Character sender,
+        Dictionary<Guid, CharacterContext> contexts)
+    {
+        var roleLine = contexts.TryGetValue(sender.Id, out var context)
+            ? $"Role: {context.Role}, {context.Department} @ {context.Organization}"
+            : "Role: Unknown";
+
+        return $@"SENDER PROFILE:
+This email is being written by ""{sender.FullName}"" with the personality ""{sender.Personality}"" and the communication style ""{sender.CommunicationStyle}"".
+{roleLine}
+Email: {sender.Email}
+Signature:
+{IndentSignature(sender.SignatureBlock)}";
     }
 
     private static Random CreateThreadRandom(int generationSeed, string scope, Guid threadId)
@@ -2904,6 +2920,7 @@ Available Characters:
             : $"NON-RESPONSIVE THREAD - {slot.NarrativePhase}";
 
         var addressing = BuildAddressingSection(participants);
+        var senderProfile = BuildSenderProfileSection(participants.From, state.Context.CharacterContexts);
 
         var criticalRules = $@"CRITICAL RULES:
 {bodyRules}";
@@ -2912,6 +2929,7 @@ Available Characters:
 
 Subject: {state.ThreadSubject}
 {addressing}
+{senderProfile}
 
 NARRATIVE PHASE: {narrativeLabel}
 
@@ -2957,12 +2975,14 @@ CONTENT REQUIREMENTS:
         var addressing = BuildAddressingSection(participants);
         var bodyRules = BuildBodyFormattingRules(slot.Intent);
         var availableCharacters = state.Plan.ParticipantList;
+        var senderProfile = BuildSenderProfileSection(participants.From, state.Context.CharacterContexts);
 
         return PromptScaffolding.JoinSections($@"You MUST fix the following issues in the prior draft (do not rewrite the whole thread):
 {errorList}
 
 Subject: {state.ThreadSubject}
 {addressing}
+{senderProfile}
 
 Available Characters:
 {availableCharacters}
